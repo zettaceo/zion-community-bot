@@ -60,3 +60,21 @@ This is intentionally narrower than generic hex detection to avoid deleting tran
 - Database problem: health reports failure; bot logs the error.
 - Network/DNS at boot: systemd waits for Telegram DNS before starting the bot.
 - Wi-Fi degradation: the separate Wi-Fi Guardian attempts layered recovery.
+
+## Operational telemetry
+
+Detailed health, Guardian configuration, Mistral configuration/budget and incident/user operations are admin-only Telegram commands.
+
+Public `/status` intentionally exposes a smaller surface.
+
+The optional web dashboard binds only to localhost and is read-only.
+
+## AI cost denial-of-service
+
+Mistral use is protected by:
+- per-user member-command rate limits;
+- a separate observe-mode per-user limiter;
+- a global concurrency limit;
+- a daily token budget.
+
+Exhausting AI resources does not disable deterministic moderation.
