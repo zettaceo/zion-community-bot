@@ -111,6 +111,10 @@ class V11DatabaseTests(unittest.TestCase):
         self.assertIsNotNone(closed)
         self.assertIsNone(self.db.active_ama(10))
         self.assertEqual(self.db.community_stats()["open_amas"], 0)
+        self.assertEqual(
+            self.db.community_stats()["pending_ama_questions"],
+            0,
+        )
 
         removed = self.db.prune_ama_questions(time.time() + 1)
         self.assertEqual(removed, 1)
