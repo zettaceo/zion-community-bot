@@ -50,6 +50,9 @@ Never paste the API key into chat or logs.
 - [ ] Criticism is not automatically moderated.
 - [ ] Mistral outage does not disable flood/link protection.
 - [ ] Mistral daily token budget is visible in admin /aistatus.
+- [ ] Mistral circuit breaker opens after configured consecutive failures.
+- [ ] Circuit-breaker state survives a ZION service restart.
+- [ ] Knowledge-gap retention and report retention are configured as intended.
 - [ ] Public users cannot access /health, /guardian, /aistatus or other admin telemetry.
 - [ ] AI observe events do not call delete/mute/ban.
 - [ ] `/lockdown` and `/unlock` are admin-only.
