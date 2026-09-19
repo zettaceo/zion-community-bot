@@ -154,7 +154,7 @@ The breaker state is persisted in SQLite, so restarting the bot does not immedia
 
 Only explicit `/ask` questions that cannot be answered from approved knowledge are retained as knowledge-gap samples. They are sanitized before storage and expire according to `ZION_KNOWLEDGE_GAP_RETENTION_DAYS` (default: 30 days).
 
-Resolved/ignored user reports are pruned according to `ZION_REPORT_RETENTION_DAYS` (default: 90 days).
+Resolved/ignored user-report details are redacted after `ZION_REPORT_RETENTION_DAYS` (default: 90 days), while the minimal incident/audit row is preserved.
 
 ## Admin roles
 
