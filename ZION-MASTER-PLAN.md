@@ -162,12 +162,17 @@ Public/basic:
 - `/id`
 - `/ask`
 - `/aistatus`
+- `/summary`
+- `/translate`
 - `/report`
 
 Admin:
 - `/stats`
+- `/gaps`
+- `/resolvegap`
 - `/incidents`
 - `/user`
+- `/state`
 - `/warn`
 - `/mute`
 - `/ban`
@@ -332,11 +337,12 @@ Implemented baseline:
 - /stats;
 - /incidents;
 - /user;
+- local read-only operations dashboard bound to localhost;
 - local runbooks;
 - CI validation.
 
 Future:
-- authenticated web admin UI;
+- authenticated remote admin UI if remote exposure is ever required;
 - remote metrics;
 - alerting.
 
