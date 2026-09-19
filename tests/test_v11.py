@@ -61,6 +61,48 @@ class V11DatabaseTests(unittest.TestCase):
             1,
         )
 
+    def test_idempotency_key_is_atomic_across_connections(self) -> None:
+        other = ZionDB(self.settings.db_path)
+        other.initialize()
+
+        barrier = threading.Barrier(2)
+        results: list[bool] = []
+        errors: list[BaseException] = []
+
+        def claim(db: ZionDB) -> None:
+            try:
+                barrier.wait(timeout=2)
+                results.append(
+                    db.claim_idempotency_key(
+                        "telegram_command:atomic",
+                        ttl_seconds=3600,
+                        now=1000.0,
+                    )
+                )
+            except BaseException as exc:
+                errors.append(exc)
+
+        first_thread = threading.Thread(
+            target=claim,
+            args=(self.db,),
+        )
+        second_thread = threading.Thread(
+            target=claim,
+            args=(other,),
+        )
+        try:
+            first_thread.start()
+            second_thread.start()
+            first_thread.join(timeout=3)
+            second_thread.join(timeout=3)
+
+            self.assertFalse(first_thread.is_alive())
+            self.assertFalse(second_thread.is_alive())
+            self.assertEqual(errors, [])
+            self.assertEqual(sorted(results), [False, True])
+        finally:
+            other.close()
+
     def test_recurring_message_lifecycle(self) -> None:
         schedule_id = self.db.schedule_recurring_message(
             chat_id=10,
