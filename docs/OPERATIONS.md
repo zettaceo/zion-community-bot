@@ -119,4 +119,4 @@ ZION_KNOWLEDGE_GAP_RETENTION_DAYS=30
 ZION_REPORT_RETENTION_DAYS=90
 ```
 
-Knowledge-gap samples older than the configured retention are deleted. Resolved/ignored community reports older than their configured retention are deleted. Open reports are retained.
+Knowledge-gap samples older than the configured retention are deleted. Resolved/ignored community reports have their free-text note and evidence redacted after retention, while the minimal incident/audit row is preserved. Open reports are retained.
