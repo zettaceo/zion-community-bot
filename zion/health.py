@@ -46,9 +46,12 @@ class HealthService:
             for path in sensitive_paths
         )
 
+        integrity_ok, integrity_result = self.db.integrity_check()
+        db_size_mb = int(self.db.file_size_bytes() / 1024 / 1024)
+
         return HealthSnapshot(
             state=self.db.get_operating_state(),
-            db_ok=self.db.ping(),
+            db_ok=self.db.ping() and integrity_ok,
             telegram_configured=bool(self.settings.telegram_token),
             ai_enabled=self.settings.ai_enabled,
             ai_configured=bool(self.settings.mistral_api_key),
@@ -62,8 +65,38 @@ class HealthService:
                 "ai_provider": "mistral",
                 "ai_model": self.settings.mistral_model,
                 "sensitive_files_private": sensitive_files_private,
+                "sqlite_integrity_ok": integrity_ok,
+                "sqlite_integrity_result": integrity_result,
+                "db_size_mb": db_size_mb,
+                "disk_low": (
+                    disk_free_mb >= 0
+                    and disk_free_mb < self.settings.disk_warn_mb
+                ),
+                "disk_warn_mb": self.settings.disk_warn_mb,
             },
         )
+
+    def diagnostics(self) -> dict[str, object]:
+        snapshot = self.snapshot()
+        latency = self.db.ai_latency_stats(time.time() - 86400)
+        return {
+            "state": snapshot.state.value,
+            "db_ok": snapshot.db_ok,
+            "sqlite_integrity_ok": bool(
+                snapshot.details.get("sqlite_integrity_ok")
+            ),
+            "sqlite_integrity_result": str(
+                snapshot.details.get("sqlite_integrity_result", "unknown")
+            ),
+            "db_size_mb": int(snapshot.details.get("db_size_mb", 0)),
+            "disk_free_mb": snapshot.disk_free_mb,
+            "disk_low": bool(snapshot.details.get("disk_low")),
+            "sensitive_files_private": bool(
+                snapshot.details.get("sensitive_files_private")
+            ),
+            "wifi_interface_present": snapshot.wifi_interface_present,
+            "ai_latency_24h": latency,
+        }
 
     @staticmethod
     def format_uptime(seconds: int) -> str:
