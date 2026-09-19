@@ -2682,6 +2682,84 @@ def expire_temporary_state(rt: Runtime) -> None:
     rt.db.set_setting("operating_state_expires_at", "0")
 
 
+async def operational_alert_cycle(
+    application: Application,
+    rt: Runtime,
+) -> None:
+    snapshot = rt.health.snapshot()
+    _, p95_lag = update_lag_stats(rt)
+    issues: list[str] = []
+
+    if not snapshot.db_ok:
+        issues.append("database_or_integrity")
+    if snapshot.details.get("disk_low"):
+        issues.append("disk_low")
+    if not snapshot.details.get("sensitive_files_private"):
+        issues.append("sensitive_file_permissions")
+    if not snapshot.wifi_interface_present:
+        issues.append("wifi_interface_missing")
+    if (
+        rt.update_lags
+        and p95_lag > rt.settings.update_lag_warn_seconds
+    ):
+        issues.append("telegram_update_lag")
+
+    signature = "|".join(sorted(issues)) if issues else "OK"
+    previous = rt.db.get_setting("health_alert_signature")
+    if signature == previous:
+        return
+
+    rt.db.set_setting("health_alert_signature", signature)
+    if not issues:
+        return
+
+    incident_id = rt.db.create_incident(
+        chat_id=None,
+        user_id=None,
+        category="operational_health_warning",
+        severity=Severity.HIGH if not snapshot.db_ok else Severity.MEDIUM,
+        source="health",
+        evidence={
+            "issues": issues,
+            "disk_free_mb": snapshot.disk_free_mb,
+            "telegram_update_lag_p95": round(p95_lag, 3),
+        },
+        note="Operational alert; no automated destructive action executed.",
+    )
+
+    alert_text = (
+        "⚠️ ZION OPERATIONAL ALERT\n"
+        + "\n".join(f"• {issue}" for issue in issues)
+        + "\nUse /diagnostics para detalhes."
+    )
+
+    for operator_id in sorted(rt.settings.admin_user_ids):
+        success = False
+        try:
+            await application.bot.send_message(
+                chat_id=operator_id,
+                text=alert_text,
+            )
+            success = True
+        except Exception as exc:
+            logger.warning(
+                "Falha ao enviar alerta operacional para operator=%s: %s",
+                operator_id,
+                exc,
+            )
+        rt.db.record_action(
+            incident_id=incident_id,
+            chat_id=operator_id,
+            user_id=None,
+            action_type="operator_alert",
+            actor_type="health",
+            actor_id=None,
+            reason="operational_health_warning",
+            success=success,
+            metadata={"issues": issues},
+        )
+
+
 async def scheduler_loop(application: Application) -> None:
     last_housekeeping = 0.0
 
@@ -2722,6 +2800,7 @@ async def scheduler_loop(application: Application) -> None:
                         reports_redacted,
                         ama_questions_deleted,
                     )
+                await operational_alert_cycle(application, rt)
                 last_housekeeping = now
 
             state = rt.db.get_operating_state()
