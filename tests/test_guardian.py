@@ -100,6 +100,40 @@ class GuardianTests(unittest.TestCase):
         self.assertFalse(second.triggered)
         self.assertTrue(third.triggered)
 
+    def test_manual_warning_does_not_advance_flood_ban_counter(self) -> None:
+        now = 3000.0
+        self.db.add_strike(
+            chat_id=10,
+            user_id=40,
+            reason="manual warning",
+            severity="medium",
+            source="admin",
+            ttl_seconds=3600,
+            now=now,
+        )
+
+        self.guardian.record_message(
+            chat_id=10,
+            user_id=40,
+            message_id=1,
+            now=now + 1,
+        )
+        self.guardian.record_message(
+            chat_id=10,
+            user_id=40,
+            message_id=2,
+            now=now + 2,
+        )
+        result = self.guardian.record_message(
+            chat_id=10,
+            user_id=40,
+            message_id=3,
+            now=now + 3,
+        )
+
+        self.assertTrue(result.triggered)
+        self.assertEqual(result.strike_count, 1)
+
     def test_flood_triggers_at_threshold(self) -> None:
         now = 1000.0
 
