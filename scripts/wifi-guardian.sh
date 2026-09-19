@@ -9,7 +9,7 @@ CONNECTION_UUID="f8a48888-6457-4a62-91c3-c61e0fa11c05"
 # IMPORTANTE: 1-4 é o hub compartilhado com armazenamento.
 # O Guardião toca SOMENTE em 1-4.3.
 USB_DEVICE="1-4.3"
-USB_AUTH="/sys/bus/usb/devices/\${USB_DEVICE}/authorized"
+USB_AUTH="/sys/bus/usb/devices/${USB_DEVICE}/authorized"
 
 STATE_FILE="/run/zion-wifi-guardian.failures"
 LOCK_DIR="/run/zion-wifi-guardian.lock"
@@ -56,7 +56,7 @@ reset_failures() {
 }
 
 interface_exists() {
-    [[ -d "/sys/class/net/\${INTERFACE}" ]]
+    [[ -d "/sys/class/net/${INTERFACE}" ]]
 }
 
 nm_state_number() {
@@ -67,7 +67,7 @@ nm_state_number() {
             | head -n 1
     )"
 
-    printf '%s\n' "\${state%% *}"
+    printf '%s\n' "${state%% *}"
 }
 
 wifi_connected() {
@@ -84,11 +84,11 @@ bring_connection_up() {
 
 usb_reset() {
     if [[ ! -e "$USB_AUTH" ]]; then
-        log "RESET_USB_ABORTADO usb=\${USB_DEVICE} motivo=authorized_ausente"
+        log "RESET_USB_ABORTADO usb=${USB_DEVICE} motivo=authorized_ausente"
         return 1
     fi
 
-    log "RESET_USB_INICIO usb=\${USB_DEVICE} interface=\${INTERFACE}"
+    log "RESET_USB_INICIO usb=${USB_DEVICE} interface=${INTERFACE}"
 
     printf '0\n' > "$USB_AUTH" || return 1
     sleep "$USB_OFF_SECONDS"
@@ -96,7 +96,7 @@ usb_reset() {
     sleep "$USB_REENUMERATE_SECONDS"
 
     if ! interface_exists; then
-        log "RESET_USB_FALHOU usb=\${USB_DEVICE} motivo=interface_nao_retornou"
+        log "RESET_USB_FALHOU usb=${USB_DEVICE} motivo=interface_nao_retornou"
         return 1
     fi
 
@@ -104,11 +104,11 @@ usb_reset() {
     sleep "$RECONNECT_WAIT_SECONDS"
 
     if wifi_connected; then
-        log "RESET_USB_OK usb=\${USB_DEVICE} interface=\${INTERFACE}"
+        log "RESET_USB_OK usb=${USB_DEVICE} interface=${INTERFACE}"
         return 0
     fi
 
-    log "RESET_USB_SEM_CONEXAO usb=\${USB_DEVICE} interface=\${INTERFACE}"
+    log "RESET_USB_SEM_CONEXAO usb=${USB_DEVICE} interface=${INTERFACE}"
     return 1
 }
 
@@ -122,19 +122,19 @@ failures=$((failures + 1))
 write_failures "$failures"
 
 if interface_exists; then
-    log "WIFI_DESCONECTADO interface=\${INTERFACE} tentativa=\${failures}/\${USB_RESET_AFTER}"
+    log "WIFI_DESCONECTADO interface=${INTERFACE} tentativa=${failures}/${USB_RESET_AFTER}"
 
     if bring_connection_up; then
         sleep "$RECONNECT_WAIT_SECONDS"
 
         if wifi_connected; then
-            log "RECONEXAO_OK interface=\${INTERFACE}"
+            log "RECONEXAO_OK interface=${INTERFACE}"
             reset_failures
             exit 0
         fi
     fi
 else
-    log "WIFI_INTERFACE_AUSENTE interface=\${INTERFACE} tentativa=\${failures}/\${USB_RESET_AFTER}"
+    log "WIFI_INTERFACE_AUSENTE interface=${INTERFACE} tentativa=${failures}/${USB_RESET_AFTER}"
 fi
 
 if (( failures < USB_RESET_AFTER )); then
