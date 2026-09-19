@@ -182,6 +182,7 @@ class Guardian:
             chat_id,
             user_id,
             ts,
+            reasons=("flood", "legacy_flood"),
         )
 
         level_index = min(
