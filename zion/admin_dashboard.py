@@ -36,11 +36,26 @@ def _status_payload(
 
     integrity_ok, integrity_result = db.integrity_check()
     db_size_mb = int(db.file_size_bytes() / 1024 / 1024)
+    db_read_ok = True
+
+    try:
+        operating_state = db.get_operating_state().value
+    except Exception:
+        operating_state = "SAFE_MODE"
+        db_read_ok = False
+
+    try:
+        stats = db.stats()
+    except Exception:
+        stats = {}
+        db_read_ok = False
+
+    database_ok = db.ping() and integrity_ok and db_read_ok
 
     return {
         "zion_dashboard": "online",
-        "operating_state": db.get_operating_state().value,
-        "database": "ok" if db.ping() and integrity_ok else "fail",
+        "operating_state": operating_state,
+        "database": "ok" if database_ok else "fail",
         "sqlite_integrity": integrity_result,
         "database_size_mb": db_size_mb,
         "wifi_interface_present": wifi_present,
@@ -48,7 +63,7 @@ def _status_payload(
         "dashboard_uptime_seconds": int(
             time.monotonic() - started_monotonic
         ),
-        "stats": db.stats(),
+        "stats": stats,
     }
 
 
@@ -148,6 +163,17 @@ def main() -> None:
     started_monotonic = time.monotonic()
 
     class Handler(BaseHTTPRequestHandler):
+        def _security_headers(self) -> None:
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("X-Frame-Options", "DENY")
+            self.send_header("Referrer-Policy", "no-referrer")
+            self.send_header(
+                "Content-Security-Policy",
+                "default-src 'none'; style-src 'unsafe-inline'; "
+                "base-uri 'none'; frame-ancestors 'none'",
+            )
+
         def do_GET(self) -> None:
             payload = _status_payload(
                 db,
@@ -164,9 +190,11 @@ def main() -> None:
                     },
                     separators=(",", ":"),
                 ).encode("utf-8")
-                self.send_response(200)
+                self.send_response(
+                    200 if payload["database"] == "ok" else 503
+                )
                 self.send_header("Content-Type", "application/json")
-                self.send_header("Cache-Control", "no-store")
+                self._security_headers()
                 self.end_headers()
                 self.wfile.write(body)
                 return
@@ -182,7 +210,7 @@ def main() -> None:
                     "Content-Type",
                     "application/json; charset=utf-8",
                 )
-                self.send_header("Cache-Control", "no-store")
+                self._security_headers()
                 self.end_headers()
                 self.wfile.write(body)
                 return
@@ -197,7 +225,7 @@ def main() -> None:
                 "Content-Type",
                 "text/html; charset=utf-8",
             )
-            self.send_header("Cache-Control", "no-store")
+            self._security_headers()
             self.end_headers()
             self.wfile.write(body)
 
@@ -209,6 +237,7 @@ def main() -> None:
             )
 
     server = ThreadingHTTPServer((bind, port), Handler)
+    server.daemon_threads = True
     logger.info(
         "ZION dashboard listening on http://%s:%s",
         bind,
