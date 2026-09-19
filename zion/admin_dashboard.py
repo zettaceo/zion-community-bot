@@ -4,12 +4,13 @@ import html
 import json
 import logging
 import os
+import shutil
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from typing import Any
 
-from .config import Settings
 from .db import ZionDB
-from .health import HealthService
 from .logging_safe import configure_logging
 
 
@@ -17,22 +18,31 @@ logger = logging.getLogger("zion.dashboard")
 
 
 def _status_payload(
-    settings: Settings,
     db: ZionDB,
-    health: HealthService,
+    *,
+    root_dir: Path,
+    wifi_interface: str,
+    started_monotonic: float,
 ) -> dict[str, Any]:
-    snapshot = health.snapshot()
+    try:
+        disk = shutil.disk_usage(root_dir)
+        disk_free_mb = int(disk.free / 1024 / 1024)
+    except OSError:
+        disk_free_mb = -1
+
+    wifi_present = (
+        Path("/sys/class/net") / wifi_interface
+    ).exists()
+
     return {
-        "zion": "online",
-        "operating_state": snapshot.state.value,
-        "database": "ok" if snapshot.db_ok else "fail",
-        "ai_provider": "mistral",
-        "ai_enabled": settings.ai_enabled,
-        "ai_configured": snapshot.ai_configured,
-        "ai_observe": settings.ai_observe,
-        "wifi_interface_present": snapshot.wifi_interface_present,
-        "disk_free_mb": snapshot.disk_free_mb,
-        "dashboard_uptime_seconds": snapshot.uptime_seconds,
+        "zion_dashboard": "online",
+        "operating_state": db.get_operating_state().value,
+        "database": "ok" if db.ping() else "fail",
+        "wifi_interface_present": wifi_present,
+        "disk_free_mb": disk_free_mb,
+        "dashboard_uptime_seconds": int(
+            time.monotonic() - started_monotonic
+        ),
         "stats": db.stats(),
     }
 
@@ -70,10 +80,9 @@ th, td {{ text-align: left; padding: .55rem; border-bottom: 1px solid #252b36; }
 <h1>ZION Operations</h1>
 <small>Read-only localhost dashboard</small>
 <div class="card">
-<p class="ok">ZION: {html.escape(str(payload["zion"]))}</p>
+<p class="ok">Dashboard: {html.escape(str(payload["zion_dashboard"]))}</p>
 <p>State: {html.escape(str(payload["operating_state"]))}</p>
 <p>Database: {html.escape(str(payload["database"]))}</p>
-<p>AI: Mistral / enabled={html.escape(str(payload["ai_enabled"]))} / observe={html.escape(str(payload["ai_observe"]))}</p>
 <p>Wi-Fi interface: {html.escape(str(payload["wifi_interface_present"]))}</p>
 <p>Free disk: {html.escape(str(payload["disk_free_mb"]))} MB</p>
 </div>
@@ -87,10 +96,26 @@ th, td {{ text-align: left; padding: .55rem; border-bottom: 1px solid #252b36; }
 
 
 def main() -> None:
-    settings = Settings.from_env()
-    configure_logging(settings.log_path)
-
-    bind = os.getenv("ZION_DASHBOARD_BIND", "127.0.0.1").strip()
+    root_dir = Path(
+        os.getenv(
+            "ZION_DASHBOARD_ROOT",
+            "/home/zetta/zion-community-bot",
+        )
+    )
+    db_path = Path(
+        os.getenv(
+            "ZION_DASHBOARD_DB_PATH",
+            str(root_dir / "zion.db"),
+        )
+    )
+    wifi_interface = os.getenv(
+        "ZION_DASHBOARD_WIFI_INTERFACE",
+        "wlx78bdbc575d1c",
+    ).strip()
+    bind = os.getenv(
+        "ZION_DASHBOARD_BIND",
+        "127.0.0.1",
+    ).strip()
     port = int(os.getenv("ZION_DASHBOARD_PORT", "8765"))
 
     if bind not in {"127.0.0.1", "::1", "localhost"}:
@@ -98,13 +123,20 @@ def main() -> None:
             "ZION dashboard v1 only permits localhost binding."
         )
 
-    db = ZionDB(settings.db_path)
+    configure_logging(root_dir / "zion-dashboard.log")
+
+    db = ZionDB(db_path)
     db.initialize()
-    health = HealthService(settings, db)
+    started_monotonic = time.monotonic()
 
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self) -> None:
-            payload = _status_payload(settings, db, health)
+            payload = _status_payload(
+                db,
+                root_dir=root_dir,
+                wifi_interface=wifi_interface,
+                started_monotonic=started_monotonic,
+            )
 
             if self.path == "/healthz":
                 body = json.dumps(
