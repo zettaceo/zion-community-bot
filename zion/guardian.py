@@ -220,7 +220,18 @@ class Guardian:
         unauthorized: list[str] = []
 
         for domain in domains:
-            disposition = self.db.domain_disposition(domain)
+            labels = domain.split(".")
+            candidates = [
+                ".".join(labels[index:])
+                for index in range(max(1, len(labels) - 1))
+            ]
+
+            disposition = None
+            for candidate in candidates:
+                disposition = self.db.domain_disposition(candidate)
+                if disposition is not None:
+                    break
+
             if disposition == "allow":
                 continue
             if disposition == "block":
