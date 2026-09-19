@@ -810,7 +810,13 @@ async def diagnostics_command(
         f"SQLite journal size limit: "
         f"{pragmas['journal_size_limit']} bytes\n"
         f"SQLite busy timeout: {pragmas['busy_timeout_ms']} ms\n"
-        f"SQLite size: {diag['db_size_mb']} MB\n"
+        f"SQLite total/db/WAL: "
+        f"{diag['db_size_mb']}/{diag['db_file_mb']}/"
+        f"{diag['wal_size_mb']} MB\n"
+        f"SQLite DB threshold: {diag['db_warn_mb']} MB "
+        f"[{'WARNING' if diag['db_large'] else 'OK'}]\n"
+        f"SQLite WAL threshold: {diag['wal_warn_mb']} MB "
+        f"[{'WARNING' if diag['wal_large'] else 'OK'}]\n"
         f"Disk: {disk_state} ({diag['disk_free_mb']} MB free)\n"
         f"Sensitive files: "
         f"{'PRIVATE' if diag['sensitive_files_private'] else 'WARNING'}\n"
@@ -3234,6 +3240,10 @@ async def operational_alert_cycle(
         issues.append("scheduled_delivery_uncertain")
     if community.get("paused_recurring", 0) > 0:
         issues.append("recurring_delivery_paused")
+    if diagnostics.get("db_large"):
+        issues.append("sqlite_database_large")
+    if diagnostics.get("wal_large"):
+        issues.append("sqlite_wal_large")
     if snapshot.details.get("disk_low"):
         issues.append("disk_low")
     if not snapshot.details.get("sensitive_files_private"):
