@@ -1273,6 +1273,58 @@ class ZionDB:
             self._conn.commit()
         return status
 
+    def cancel_scheduled_message(
+        self,
+        schedule_id_or_prefix: str,
+        *,
+        chat_id: int | None = None,
+    ) -> bool:
+        value = schedule_id_or_prefix.strip()
+        if not value:
+            return False
+
+        chat_clause = "" if chat_id is None else " AND chat_id=?"
+        with self._lock:
+            params: list[Any] = [value, value + "%"]
+            if chat_id is not None:
+                params.append(chat_id)
+
+            rows = self._conn.execute(
+                """
+                SELECT id
+                FROM scheduled_messages
+                WHERE (id=? OR id LIKE ?)
+                  AND status IN ('pending', 'failed')
+                """
+                + chat_clause
+                + """
+                ORDER BY created_at DESC
+                LIMIT 2
+                """,
+                tuple(params),
+            ).fetchall()
+            unique_ids = list(dict.fromkeys(str(row["id"]) for row in rows))
+            if len(unique_ids) != 1:
+                return False
+
+            update_params: list[Any] = [unique_ids[0]]
+            update_clause = ""
+            if chat_id is not None:
+                update_clause = " AND chat_id=?"
+                update_params.append(chat_id)
+
+            cursor = self._conn.execute(
+                """
+                UPDATE scheduled_messages
+                SET status='cancelled', next_attempt_at=NULL
+                WHERE id=? AND status IN ('pending', 'failed')
+                """
+                + update_clause,
+                tuple(update_params),
+            )
+            self._conn.commit()
+        return cursor.rowcount > 0
+
     def retry_scheduled_message(
         self,
         schedule_id_or_prefix: str,
