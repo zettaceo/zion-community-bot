@@ -28,6 +28,14 @@ TELEGRAM_TOKEN_REGEX = re.compile(
     r"\d{6,}:[A-Za-z0-9_-]{20,}"
 )
 
+WALLET_SECRET_INPUT_REGEX = re.compile(
+    r"(?i)\b("
+    r"seed\s+phrase|recovery\s+phrase|mnemonic|"
+    r"frase\s+semente|frase\s+de\s+recupera[cç][aã]o|"
+    r"private\s+key|chave\s+privada"
+    r")\b\s*[:=\-]\s*([^\n]{20,})"
+)
+
 
 def sanitize_for_ai(text: str) -> str:
     sanitized = TELEGRAM_TOKEN_REGEX.sub(
@@ -36,6 +44,12 @@ def sanitize_for_ai(text: str) -> str:
     )
     sanitized = AI_CREDENTIAL_REGEX.sub(
         lambda match: f"{match.group(1)}=[REDACTED]",
+        sanitized,
+    )
+    sanitized = WALLET_SECRET_INPUT_REGEX.sub(
+        lambda match: (
+            f"{match.group(1)}: [REDACTED_WALLET_SECRET]"
+        ),
         sanitized,
     )
     return sanitized
