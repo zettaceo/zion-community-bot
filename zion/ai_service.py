@@ -16,14 +16,14 @@ logger = logging.getLogger("zion.ai")
 
 
 AI_CREDENTIAL_REGEX = re.compile(
-    r"(?i)\\b("
+    r"(?i)\b("
     r"api[_ -]?key|access[_ -]?key|client[_ -]?secret|"
     r"token|password|senha|secret|segredo"
-    r")\\b\\s*[:=\\-]\\s*([^\\s,;]{6,})"
+    r")\b\s*[:=\-]\s*([^\s,;]{6,})"
 )
 
 TELEGRAM_TOKEN_REGEX = re.compile(
-    r"(?<![A-Za-z0-9_])\\d{6,}:[A-Za-z0-9_-]{20,}"
+    r"\d{6,}:[A-Za-z0-9_-]{20,}"
 )
 
 
