@@ -4,6 +4,7 @@ import asyncio
 import hashlib
 import logging
 import re
+import threading
 import time
 
 from .config import Settings
@@ -52,6 +53,8 @@ class AIService:
         self.knowledge = knowledge
         self.client = MistralClient(settings)
         self._semaphore = asyncio.Semaphore(settings.ai_max_concurrency)
+        self._budget_lock = threading.Lock()
+        self._reserved_tokens = 0
         self._circuit_failures = self._load_int_setting(
             "ai_circuit_failures",
             0,
@@ -150,6 +153,45 @@ class AIService:
             and not self.circuit_open()
         )
 
+    @staticmethod
+    def _estimate_tokens(
+        text: str,
+        max_output_tokens: int,
+    ) -> int:
+        # Conservative approximation for a hard local budget gate.
+        # UTF-8 natural language is usually <= ~4 chars/token; using 3
+        # intentionally over-reserves rather than risking a cost overrun.
+        input_estimate = max(1, (len(text) + 2) // 3)
+        return input_estimate + max(1, max_output_tokens)
+
+    def _reserve_budget(self, estimated_tokens: int) -> int | None:
+        budget = self.settings.ai_daily_token_budget
+        if budget <= 0:
+            return 0
+
+        estimate = max(1, int(estimated_tokens))
+        with self._budget_lock:
+            used = self.tokens_used_today()
+            if (
+                used
+                + self._reserved_tokens
+                + estimate
+                > budget
+            ):
+                return None
+            self._reserved_tokens += estimate
+            return estimate
+
+    def _release_budget(self, reservation: int) -> None:
+        if reservation <= 0:
+            return
+
+        with self._budget_lock:
+            self._reserved_tokens = max(
+                0,
+                self._reserved_tokens - reservation,
+            )
+
     def tokens_used_today(self) -> int:
         now = time.time()
         utc_day_start = now - (now % 86400)
@@ -231,12 +273,30 @@ class AIService:
                 model=self.settings.mistral_model,
             )
 
+        reservation = self._reserve_budget(
+            self._estimate_tokens(
+                safe_question + "\n" + context,
+                self.settings.mistral_max_tokens,
+            )
+        )
+        if reservation is None:
+            return AIAnswer(
+                text=(
+                    "O orçamento diário de IA do ZION não possui saldo "
+                    "suficiente para esta solicitação."
+                ),
+                model=self.settings.mistral_model,
+            )
+
         try:
-            async with self._semaphore:
-                answer = await self.client.answer(
-                    question=safe_question,
-                    context=context,
-                )
+            try:
+                async with self._semaphore:
+                    answer = await self.client.answer(
+                        question=safe_question,
+                        context=context,
+                    )
+            finally:
+                self._release_budget(reservation)
 
             self._record_provider_success()
 
@@ -315,9 +375,21 @@ class AIService:
             )
 
         safe_text = sanitize_for_ai(text)
+        reservation = self._reserve_budget(
+            self._estimate_tokens(safe_text, 500)
+        )
+        if reservation is None:
+            return AIAnswer(
+                text="Orçamento diário de IA insuficiente para este resumo.",
+                model=self.settings.mistral_model,
+            )
+
         try:
-            async with self._semaphore:
-                answer = await self.client.summarize(safe_text)
+            try:
+                async with self._semaphore:
+                    answer = await self.client.summarize(safe_text)
+            finally:
+                self._release_budget(reservation)
 
             self._record_provider_success()
 
@@ -383,12 +455,24 @@ class AIService:
             target_language,
         )[:40] or "English"
 
+        reservation = self._reserve_budget(
+            self._estimate_tokens(safe_text, 700)
+        )
+        if reservation is None:
+            return AIAnswer(
+                text="Orçamento diário de IA insuficiente para esta tradução.",
+                model=self.settings.mistral_model,
+            )
+
         try:
-            async with self._semaphore:
-                answer = await self.client.translate(
-                    text=safe_text,
-                    target_language=safe_target,
-                )
+            try:
+                async with self._semaphore:
+                    answer = await self.client.translate(
+                        text=safe_text,
+                        target_language=safe_target,
+                    )
+            finally:
+                self._release_budget(reservation)
 
             self._record_provider_success()
 
@@ -442,10 +526,18 @@ class AIService:
             return None
 
         safe_text = sanitize_for_ai(text)
+        reservation = self._reserve_budget(
+            self._estimate_tokens(safe_text, 260)
+        )
+        if reservation is None:
+            return None
 
         try:
-            async with self._semaphore:
-                result = await self.client.classify(safe_text)
+            try:
+                async with self._semaphore:
+                    result = await self.client.classify(safe_text)
+            finally:
+                self._release_budget(reservation)
 
             self._record_provider_success()
 
