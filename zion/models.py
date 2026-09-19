@@ -45,6 +45,15 @@ class FloodDecision:
 
 
 @dataclass(slots=True)
+class ChatBurstDecision:
+    triggered: bool = False
+    message_count: int = 0
+    unique_users: int = 0
+    window_seconds: int = 0
+    elevated_seconds: int = 0
+
+
+@dataclass(slots=True)
 class LinkDecision:
     has_links: bool = False
     domains: list[str] = field(default_factory=list)
