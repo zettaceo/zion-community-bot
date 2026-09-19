@@ -6,7 +6,7 @@ from pathlib import Path
 
 from .config import Settings
 from .db import ZionDB
-from .models import HealthSnapshot
+from .models import HealthSnapshot, OperatingState
 
 
 def _private_file(path: Path) -> bool:
@@ -58,8 +58,13 @@ class HealthService:
         integrity_ok, integrity_result = self._integrity_status()
         db_size_mb = int(self.db.file_size_bytes() / 1024 / 1024)
 
+        try:
+            state = self.db.get_operating_state()
+        except Exception:
+            state = OperatingState.SAFE_MODE
+
         return HealthSnapshot(
-            state=self.db.get_operating_state(),
+            state=state,
             db_ok=self.db.ping() and integrity_ok,
             telegram_configured=bool(self.settings.telegram_token),
             ai_enabled=self.settings.ai_enabled,
