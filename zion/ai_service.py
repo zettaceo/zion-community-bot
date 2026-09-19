@@ -71,6 +71,34 @@ class AIService:
     ) -> AIAnswer:
         safe_question = sanitize_for_ai(question)
         context = self.knowledge.render_context(safe_question)
+        question_hash = self._hash_text(safe_question)
+
+        if not context.strip():
+            self.db.record_knowledge_gap(
+                question_hash=question_hash,
+                sample_text=safe_question,
+            )
+            self.db.record_ai_event(
+                chat_id=chat_id,
+                user_id=user_id,
+                purpose="support_answer",
+                model=self.settings.mistral_model,
+                success=True,
+                input_hash=question_hash,
+                metadata={
+                    "knowledge_hits": 0,
+                    "provider_called": False,
+                },
+            )
+            return AIAnswer(
+                text=(
+                    "Não encontrei informação oficial suficiente na base "
+                    "de conhecimento do ZION para confirmar isso. "
+                    "A pergunta foi registrada como lacuna de conhecimento "
+                    "para revisão da equipe."
+                ),
+                model=self.settings.mistral_model,
+            )
 
         if not self.enabled:
             return AIAnswer(
@@ -94,7 +122,7 @@ class AIService:
                 latency_ms=answer.latency_ms,
                 input_tokens=answer.input_tokens,
                 output_tokens=answer.output_tokens,
-                input_hash=self._hash_text(question),
+                input_hash=question_hash,
                 metadata={
                     "knowledge_hits": len(self.knowledge.search(safe_question)),
                 },
