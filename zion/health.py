@@ -110,6 +110,7 @@ class HealthService:
             ),
             "wifi_interface_present": snapshot.wifi_interface_present,
             "ai_latency_24h": latency,
+            "schema_version": self.db.schema_version(),
         }
 
     @staticmethod
