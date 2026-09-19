@@ -11,7 +11,7 @@ from .config import Settings
 from .db import ZionDB
 from .knowledge import KnowledgeBase
 from .mistral import MistralClient
-from .models import AIAnswer, AIClassification
+from .models import AIAnswer, AIClassification, OperatingState
 
 
 logger = logging.getLogger("zion.ai")
@@ -81,6 +81,18 @@ class AIService:
     @property
     def enabled(self) -> bool:
         return self.client.configured
+
+    def operating_state(self) -> OperatingState:
+        try:
+            return self.db.get_operating_state()
+        except Exception:
+            return OperatingState.SAFE_MODE
+
+    def state_allows_ai(self) -> bool:
+        return self.operating_state() in {
+            OperatingState.NORMAL,
+            OperatingState.ELEVATED,
+        }
 
     def _load_int_setting(
         self,
@@ -163,6 +175,7 @@ class AIService:
     def provider_available(self) -> bool:
         return (
             self.enabled
+            and self.state_allows_ai()
             and self.budget_available()
             and not self.circuit_open()
         )
@@ -234,6 +247,16 @@ class AIService:
         user_id: int | None,
         question: str,
     ) -> AIAnswer:
+        if not self.state_allows_ai():
+            return AIAnswer(
+                text=(
+                    "A camada de IA está pausada pelo estado operacional "
+                    f"{self.operating_state().value}. "
+                    "O Guardian determinístico continua ativo."
+                ),
+                model=self.settings.mistral_model,
+            )
+
         safe_question = sanitize_for_ai(question)
         context = self.knowledge.render_context(safe_question)
         question_hash = self._hash_text(safe_question)
@@ -368,6 +391,15 @@ class AIService:
         user_id: int | None,
         text: str,
     ) -> AIAnswer:
+        if not self.state_allows_ai():
+            return AIAnswer(
+                text=(
+                    "A camada de IA está pausada pelo estado operacional "
+                    f"{self.operating_state().value}."
+                ),
+                model=self.settings.mistral_model,
+            )
+
         if not self.enabled:
             return AIAnswer(
                 text="A camada de IA Mistral do ZION ainda não está habilitada.",
@@ -442,6 +474,15 @@ class AIService:
         text: str,
         target_language: str,
     ) -> AIAnswer:
+        if not self.state_allows_ai():
+            return AIAnswer(
+                text=(
+                    "A camada de IA está pausada pelo estado operacional "
+                    f"{self.operating_state().value}."
+                ),
+                model=self.settings.mistral_model,
+            )
+
         if not self.enabled:
             return AIAnswer(
                 text="A camada de IA Mistral do ZION ainda não está habilitada.",
@@ -528,7 +569,11 @@ class AIService:
         user_id: int | None,
         text: str,
     ) -> AIClassification | None:
-        if not self.enabled or not self.settings.ai_observe:
+        if (
+            not self.enabled
+            or not self.settings.ai_observe
+            or not self.state_allows_ai()
+        ):
             return None
 
         if not self.budget_available():
