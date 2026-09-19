@@ -209,6 +209,47 @@ class DatabaseTests(unittest.TestCase):
             150,
         )
 
+    def test_database_rejects_invalid_domain_disposition(self) -> None:
+        with self.assertRaises(ValueError):
+            self.db.set_domain(
+                "example.com",
+                "maybe",
+                "test",
+            )
+
+    def test_database_rejects_invalid_incident_fields(self) -> None:
+        with self.assertRaises(ValueError):
+            self.db.create_incident(
+                chat_id=1,
+                user_id=2,
+                category="test",
+                severity="unknown",
+                source="test",
+            )
+
+        with self.assertRaises(ValueError):
+            self.db.create_incident(
+                chat_id=1,
+                user_id=2,
+                category="test",
+                severity=Severity.LOW,
+                source="test",
+                status="pending",
+            )
+
+    def test_incident_note_is_bounded(self) -> None:
+        incident_id = self.db.create_incident(
+            chat_id=1,
+            user_id=2,
+            category="test",
+            severity=Severity.LOW,
+            source="test",
+            note="x" * 5000,
+        )
+        incident = self.db.get_incident(incident_id)
+        self.assertIsNotNone(incident)
+        self.assertEqual(len(incident["note"]), 2000)
+
     def test_incident_and_action(self) -> None:
         incident = self.db.create_incident(
             chat_id=1,
