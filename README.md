@@ -75,25 +75,33 @@ Member/basic:
 - `/start`
 - `/rules`
 - `/status`
-- `/health`
 - `/id`
 - `/ask <question>`
-- `/aistatus`
 - `/summary`
 - `/translate`
 - `/report` as a reply
 
 Admin:
 
+- `/health`
+- `/guardian`
+- `/aistatus`
 - `/stats`
+- `/brief`
 - `/gaps`
 - `/resolvegap <hash>`
 - `/incidents [limit]`
+- `/incident <id-prefix>`
+- `/resolveincident <id-prefix>`
+- `/strikes`
 - `/user` as a reply or with numeric ID
 - `/state [STATE]`
 - `/warn [reason]` as a reply
 - `/mute 10m` as a reply
 - `/ban` as a reply
+- `/unban <user_id>`
+- `/announce <message>`
+- `/poll Question | Option 1 | Option 2`
 - `/lockdown`
 - `/unlock`
 - `/allowdomain example.com`
@@ -124,3 +132,9 @@ bash scripts/apply-dashboard.sh
 Open `http://127.0.0.1:8765/` on the ZION machine.
 
 It exposes aggregate health/counters only; moderation writes remain behind Telegram admin authorization.
+
+## AI cost guardrails
+
+Mistral calls are bounded by per-user request limits, global concurrency and a daily combined token budget. The default is 50,000 prompt+completion tokens per UTC day and can be changed with `ZION_AI_DAILY_TOKEN_BUDGET`; `0` means unlimited.
+
+Observe-only moderation has its own per-user limiter so one member cannot consume the entire AI budget simply by posting repeatedly.
