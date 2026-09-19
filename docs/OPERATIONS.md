@@ -26,6 +26,8 @@ Telegram:
 
 Admin:
 
+`/diagnostics`
+
 `/stats`
 
 `/incidents`
@@ -120,3 +122,31 @@ ZION_REPORT_RETENTION_DAYS=90
 ```
 
 Knowledge-gap samples older than the configured retention are deleted. Resolved/ignored community reports have their free-text note and evidence redacted after retention, while the minimal incident/audit row is preserved. Open reports are retained.
+
+
+## v1.1 diagnostics
+
+`/diagnostics` reports:
+- SQLite quick-check status;
+- SQLite/WAL/SHM aggregate size;
+- free disk and low-disk threshold state;
+- sensitive runtime file permissions;
+- configured Wi-Fi interface presence;
+- recent Telegram update-lag latest/p95 sample;
+- successful Mistral latency average/p95 over 24 hours.
+
+The hourly scheduler deduplicates operational alerts so unchanged conditions do not create repeated notifications.
+
+## AMA retention
+
+Closed AMA question text is pruned according to:
+
+```text
+ZION_AMA_RETENTION_DAYS=30
+```
+
+## Private remote operations
+
+Use `scripts/remote-access-preflight.sh` for a read-only host check after physical access is available.
+
+Follow `docs/REMOTE-ACCESS.md` for Tailscale + SSH setup and `docs/DEPLOYMENT-MODEL.md` for the deployment trust boundary.
