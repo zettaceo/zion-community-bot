@@ -139,6 +139,19 @@ class AIService:
                     context=context,
                 )
 
+            source_names = sorted(
+                {
+                    chunk.source
+                    for chunk in self.knowledge.search(safe_question)
+                }
+            )
+            if source_names:
+                answer.text = (
+                    answer.text.rstrip()
+                    + "\n\nFontes ZION: "
+                    + ", ".join(source_names)
+                )
+
             self.db.record_ai_event(
                 chat_id=chat_id,
                 user_id=user_id,
@@ -305,9 +318,11 @@ class AIService:
         if not self.budget_available():
             return None
 
+        safe_text = sanitize_for_ai(text)
+
         try:
             async with self._semaphore:
-                result = await self.client.classify(sanitize_for_ai(text))
+                result = await self.client.classify(safe_text)
 
             self.db.record_ai_event(
                 chat_id=chat_id,
@@ -318,7 +333,7 @@ class AIService:
                 category=result.category,
                 risk=result.risk,
                 requires_human=result.requires_human,
-                input_hash=self._hash_text(text),
+                input_hash=self._hash_text(safe_text),
             )
             return result
 
@@ -330,7 +345,7 @@ class AIService:
                 purpose="moderation_observe",
                 model=self.settings.mistral_model,
                 success=False,
-                input_hash=self._hash_text(text),
+                input_hash=self._hash_text(safe_text),
                 metadata={"error_type": type(exc).__name__},
             )
             return None
