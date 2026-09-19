@@ -80,6 +80,7 @@ Member/basic:
 - `/summary`
 - `/translate`
 - `/report` as a reply
+- `/ama <question>` when an AMA is open
 
 Admin:
 
@@ -110,7 +111,6 @@ Admin:
 - `/recurring <interval> <ISO8601-with-timezone> <message>`
 - `/cancelrecurring <id>`
 - `/amaopen <tema>`
-- `/ama <pergunta>`
 - `/amalist`
 - `/amaclose`
 - `/diagnostics`
@@ -188,5 +188,7 @@ New development surfaces include:
 - SQLite quick-check, DB size, Telegram update-lag and AI latency diagnostics;
 - deduplicated operational alerts to explicit ZION operators;
 - private Tailscale + SSH remote-access runbook.
+
+Operational alerts are deduplicated and unchanged active conditions are reminded no more often than `ZION_HEALTH_ALERT_REPEAT_SECONDS` (default: 6 hours).
 
 Production remains on the explicitly deployed stable commit until a separate review and cutover is approved.
