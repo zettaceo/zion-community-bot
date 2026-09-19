@@ -8,6 +8,16 @@ from pathlib import Path
 
 WORD_REGEX = re.compile(r"[A-Za-zÀ-ÿ0-9_'-]{2,}")
 
+STOPWORDS = {
+    "a", "as", "ao", "aos", "com", "como", "da", "das", "de", "do",
+    "dos", "e", "em", "esta", "este", "eu", "isso", "isto", "na", "nas",
+    "no", "nos", "o", "os", "ou", "para", "por", "que", "qual", "quais",
+    "se", "sem", "ser", "sobre", "um", "uma",
+    "a", "an", "and", "are", "as", "at", "be", "by", "for", "from",
+    "how", "in", "is", "it", "of", "on", "or", "that", "the", "this",
+    "to", "what", "when", "where", "which", "who", "why", "with",
+}
+
 
 def _normalize(text: str) -> str:
     folded = unicodedata.normalize("NFKD", text.lower())
@@ -15,9 +25,14 @@ def _normalize(text: str) -> str:
 
 
 def _tokens(text: str) -> set[str]:
-    return {
+    tokens = {
         _normalize(match.group(0))
         for match in WORD_REGEX.finditer(text or "")
+    }
+    return {
+        token
+        for token in tokens
+        if token not in STOPWORDS
     }
 
 
@@ -91,14 +106,30 @@ class KnowledgeBase:
         scored.sort(key=lambda item: item[0], reverse=True)
         return [chunk for _, chunk in scored[: max(1, limit)]]
 
-    def render_context(self, query: str, limit: int = 4) -> str:
+    def render_context(
+        self,
+        query: str,
+        limit: int = 4,
+        max_chars: int = 8000,
+    ) -> str:
         chunks = self.search(query, limit)
         if not chunks:
             return ""
 
+        remaining = max(256, int(max_chars))
         rendered: list[str] = []
+
         for chunk in chunks:
-            rendered.append(
-                f"[Fonte: {chunk.source} — {chunk.heading}]\n{chunk.text}"
-            )
+            prefix = f"[Fonte: {chunk.source} — {chunk.heading}]\n"
+            if len(prefix) >= remaining:
+                break
+
+            body_budget = remaining - len(prefix)
+            body = chunk.text[:body_budget]
+            rendered.append(prefix + body)
+            remaining -= len(prefix) + len(body) + 2
+
+            if remaining <= 0:
+                break
+
         return "\n\n".join(rendered)
