@@ -2341,15 +2341,14 @@ def build_application(settings: Settings | None = None) -> Application:
             welcome_handler,
         )
     )
+    # Toda mensagem comum entra no Guardian, inclusive sticker,
+    # voice, audio, animation e mídia sem legenda. Isso evita bypass
+    # do anti-flood por tipos de mensagem não textuais.
     app.add_handler(
         MessageHandler(
-            (
-                filters.TEXT
-                | filters.PHOTO
-                | filters.VIDEO
-                | filters.Document.ALL
-            )
-            & ~filters.COMMAND,
+            filters.ALL
+            & ~filters.COMMAND
+            & ~filters.StatusUpdate.ALL,
             moderation_handler,
         )
     )
