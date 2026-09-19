@@ -39,6 +39,28 @@ class ProcessLockTests(unittest.TestCase):
             finally:
                 second.close()
 
+    def test_lock_path_symlink_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            state = root / "state"
+            state.mkdir()
+            target = state / "target.lock"
+            target.write_text("", encoding="utf-8")
+            link = state / "runtime.lock"
+            link.symlink_to(target)
+
+            with self.assertRaises(RuntimeError):
+                ProcessLock(link)
+
+    def test_lock_descriptor_is_not_inheritable(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "state" / "runtime.lock"
+            lock = ProcessLock(path)
+            try:
+                self.assertFalse(os.get_inheritable(lock._fd))
+            finally:
+                lock.close()
+
     def test_sigkill_releases_kernel_lock_for_restart(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "state" / "runtime.lock"
