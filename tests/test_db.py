@@ -130,9 +130,15 @@ class DatabaseTests(unittest.TestCase):
             )
             self.db._conn.commit()
 
-        removed = self.db.prune_resolved_user_reports(200.0)
-        self.assertEqual(removed, 1)
-        self.assertIsNone(self.db.get_incident(report))
+        redacted = self.db.redact_resolved_user_reports(200.0)
+        self.assertEqual(redacted, 1)
+        incident = self.db.get_incident(report)
+        self.assertIsNotNone(incident)
+        self.assertEqual(incident["note"], "")
+        self.assertEqual(
+            incident["evidence_json"],
+            '{"retention_redacted":true}',
+        )
 
     def test_knowledge_gap_rollup(self) -> None:
         self.db.record_knowledge_gap(
