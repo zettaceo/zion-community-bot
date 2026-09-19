@@ -74,6 +74,10 @@ def redact_secrets(value: object) -> str:
         text,
     )
     text = BEARER_REGEX.sub(r"\1[REDACTED]", text)
+    text = LABELED_CREDENTIAL_REGEX.sub(
+        lambda match: f"{match.group(1)}=[REDACTED]",
+        text,
+    )
     text = SECRET_PARAMETER_REGEX.sub(
         r"\1[REDACTED]",
         text,
