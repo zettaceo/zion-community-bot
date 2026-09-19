@@ -244,17 +244,36 @@ def _json(value: dict[str, Any] | None) -> str:
 
 
 class ZionDB:
-    def __init__(self, path: Path):
+    def __init__(
+        self,
+        path: Path,
+        *,
+        readonly: bool = False,
+    ):
         self.path = path
-        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.readonly = readonly
+        if not readonly:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
-        self._conn = sqlite3.connect(
-            str(path),
-            timeout=5,
-            check_same_thread=False,
-        )
+
+        if readonly:
+            database = self.path.resolve().as_uri() + "?mode=ro"
+            self._conn = sqlite3.connect(
+                database,
+                uri=True,
+                timeout=5,
+                check_same_thread=False,
+            )
+        else:
+            self._conn = sqlite3.connect(
+                str(path),
+                timeout=5,
+                check_same_thread=False,
+            )
+
         self._conn.row_factory = sqlite3.Row
-        self._secure_runtime_permissions()
+        if not readonly:
+            self._secure_runtime_permissions()
 
     def _secure_runtime_permissions(self) -> None:
         for candidate in (
@@ -272,6 +291,10 @@ class ZionDB:
                 pass
 
     def initialize(self) -> None:
+        if self.readonly:
+            raise RuntimeError(
+                "Cannot initialize schema through a read-only ZionDB."
+            )
         with self._lock:
             self._conn.executescript(SCHEMA)
             self._apply_schema_migrations_locked()
