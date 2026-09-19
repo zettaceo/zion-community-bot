@@ -18,6 +18,8 @@ ExecStart=/home/zetta/zion-community-bot/.venv/bin/python /home/zetta/zion-commu
 
 Restart=always
 RestartSec=10
+# ExecStartPre pode aguardar DNS por tempo indefinido durante boot/offline.
+TimeoutStartSec=0
 TimeoutStopSec=20
 
 # Arquivos criados pelo processo ficam privados por padrão.
