@@ -29,6 +29,15 @@ class DashboardTests(unittest.TestCase):
             self.assertNotIn("mistral_api_key", payload)
             db.close()
 
+            readonly = ZionDB(root / "zion.db", readonly=True)
+            try:
+                self.assertTrue(readonly.ping())
+                self.assertEqual(readonly.get_operating_state().value, "NORMAL")
+                with self.assertRaises(RuntimeError):
+                    readonly.initialize()
+            finally:
+                readonly.close()
+
 
 if __name__ == "__main__":
     unittest.main()
