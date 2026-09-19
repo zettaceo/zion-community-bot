@@ -1127,10 +1127,12 @@ class ZionDB:
         with self._lock:
             rows = self._conn.execute(
                 """
-                SELECT id, chat_id, send_at, text, created_by
+                SELECT id, chat_id, send_at, text, created_by,
+                       attempts, next_attempt_at
                 FROM scheduled_messages
-                WHERE status='pending' AND send_at <= ?
-                ORDER BY send_at ASC
+                WHERE status='pending'
+                  AND COALESCE(next_attempt_at, send_at) <= ?
+                ORDER BY COALESCE(next_attempt_at, send_at) ASC
                 LIMIT ?
                 """,
                 (ts, safe_limit),
@@ -1142,21 +1144,122 @@ class ZionDB:
         schedule_id: str,
         *,
         success: bool,
-    ) -> None:
+        max_attempts: int,
+        retry_seconds: int,
+        error_type: str | None = None,
+        now: float | None = None,
+    ) -> str:
+        ts = time.time() if now is None else now
+        safe_max_attempts = max(1, int(max_attempts))
+        safe_retry_seconds = max(10, int(retry_seconds))
+
         with self._lock:
+            row = self._conn.execute(
+                """
+                SELECT attempts, status
+                FROM scheduled_messages
+                WHERE id=?
+                """,
+                (schedule_id,),
+            ).fetchone()
+            if not row:
+                return "missing"
+
+            current_status = str(row["status"])
+            if current_status not in {"pending", "failed"}:
+                return current_status
+
+            attempts = int(row["attempts"] or 0) + 1
+            if success:
+                status = "sent"
+                next_attempt_at = None
+                sent_at = ts
+                last_error_type = None
+            elif attempts >= safe_max_attempts:
+                status = "failed"
+                next_attempt_at = None
+                sent_at = None
+                last_error_type = (error_type or "delivery_error")[:120]
+            else:
+                status = "pending"
+                next_attempt_at = ts + safe_retry_seconds
+                sent_at = None
+                last_error_type = (error_type or "delivery_error")[:120]
+
             self._conn.execute(
                 """
                 UPDATE scheduled_messages
-                SET status=?, sent_at=?
+                SET status=?, sent_at=?, attempts=?,
+                    next_attempt_at=?, last_error_type=?
                 WHERE id=?
                 """,
                 (
-                    "sent" if success else "failed",
-                    time.time(),
+                    status,
+                    sent_at,
+                    attempts,
+                    next_attempt_at,
+                    last_error_type,
                     schedule_id,
                 ),
             )
             self._conn.commit()
+        return status
+
+    def retry_scheduled_message(
+        self,
+        schedule_id_or_prefix: str,
+        now: float | None = None,
+    ) -> bool:
+        value = schedule_id_or_prefix.strip()
+        if not value:
+            return False
+        ts = time.time() if now is None else now
+
+        with self._lock:
+            rows = self._conn.execute(
+                """
+                SELECT id
+                FROM scheduled_messages
+                WHERE (id=? OR id LIKE ?)
+                  AND status='failed'
+                ORDER BY created_at DESC
+                LIMIT 2
+                """,
+                (value, value + "%"),
+            ).fetchall()
+            unique_ids = list(dict.fromkeys(str(row["id"]) for row in rows))
+            if len(unique_ids) != 1:
+                return False
+
+            cursor = self._conn.execute(
+                """
+                UPDATE scheduled_messages
+                SET status='pending', attempts=0,
+                    next_attempt_at=?, last_error_type=NULL
+                WHERE id=? AND status='failed'
+                """,
+                (ts, unique_ids[0]),
+            )
+            self._conn.commit()
+        return cursor.rowcount > 0
+
+    def list_scheduled_messages(
+        self,
+        limit: int = 10,
+    ) -> list[dict[str, Any]]:
+        safe_limit = max(1, min(int(limit), 50))
+        with self._lock:
+            rows = self._conn.execute(
+                """
+                SELECT id, chat_id, send_at, status, attempts,
+                       next_attempt_at, last_error_type, created_at, sent_at
+                FROM scheduled_messages
+                ORDER BY created_at DESC
+                LIMIT ?
+                """,
+                (safe_limit,),
+            ).fetchall()
+        return [dict(row) for row in rows]
 
     def schedule_recurring_message(
         self,
@@ -1201,7 +1304,8 @@ class ZionDB:
             rows = self._conn.execute(
                 """
                 SELECT id, chat_id, interval_seconds,
-                       next_send_at, text, created_by
+                       next_send_at, text, created_by,
+                       consecutive_failures, last_error_type
                 FROM recurring_messages
                 WHERE status='active' AND next_send_at <= ?
                 ORDER BY next_send_at ASC
@@ -1216,45 +1320,127 @@ class ZionDB:
         schedule_id: str,
         *,
         success: bool,
+        max_failures: int,
+        retry_seconds: int,
+        error_type: str | None = None,
         now: float | None = None,
-    ) -> None:
+    ) -> str:
         ts = time.time() if now is None else now
+        safe_max_failures = max(1, int(max_failures))
+        safe_retry_seconds = max(10, int(retry_seconds))
+
         with self._lock:
             row = self._conn.execute(
                 """
-                SELECT interval_seconds, next_send_at
+                SELECT interval_seconds, next_send_at,
+                       consecutive_failures, status
                 FROM recurring_messages
-                WHERE id=? AND status='active'
+                WHERE id=?
                 """,
                 (schedule_id,),
             ).fetchone()
             if not row:
-                return
+                return "missing"
+
+            current_status = str(row["status"])
+            if current_status != "active":
+                return current_status
 
             interval = max(300, int(row["interval_seconds"]))
             next_at = float(row["next_send_at"])
+
             if success:
                 while next_at <= ts:
                     next_at += interval
-                self._conn.execute(
-                    """
-                    UPDATE recurring_messages
-                    SET next_send_at=?, last_sent_at=?
-                    WHERE id=?
-                    """,
-                    (next_at, ts, schedule_id),
-                )
+                status = "active"
+                failures = 0
+                last_error_type = None
+                last_sent_at = ts
             else:
-                # Failed delivery is retried later without creating a tight loop.
-                self._conn.execute(
-                    """
-                    UPDATE recurring_messages
-                    SET next_send_at=?
-                    WHERE id=?
-                    """,
-                    (ts + min(interval, 300), schedule_id),
-                )
+                failures = int(row["consecutive_failures"] or 0) + 1
+                last_error_type = (error_type or "delivery_error")[:120]
+                last_sent_at = None
+                if failures >= safe_max_failures:
+                    status = "paused"
+                else:
+                    status = "active"
+                    next_at = ts + min(interval, safe_retry_seconds)
+
+            self._conn.execute(
+                """
+                UPDATE recurring_messages
+                SET status=?, next_send_at=?, last_sent_at=?,
+                    consecutive_failures=?, last_error_type=?
+                WHERE id=?
+                """,
+                (
+                    status,
+                    next_at,
+                    last_sent_at,
+                    failures,
+                    last_error_type,
+                    schedule_id,
+                ),
+            )
             self._conn.commit()
+        return status
+
+    def resume_recurring_message(
+        self,
+        schedule_id_or_prefix: str,
+        now: float | None = None,
+    ) -> bool:
+        value = schedule_id_or_prefix.strip()
+        if not value:
+            return False
+        ts = time.time() if now is None else now
+
+        with self._lock:
+            rows = self._conn.execute(
+                """
+                SELECT id
+                FROM recurring_messages
+                WHERE (id=? OR id LIKE ?)
+                  AND status='paused'
+                ORDER BY created_at DESC
+                LIMIT 2
+                """,
+                (value, value + "%"),
+            ).fetchall()
+            unique_ids = list(dict.fromkeys(str(row["id"]) for row in rows))
+            if len(unique_ids) != 1:
+                return False
+
+            cursor = self._conn.execute(
+                """
+                UPDATE recurring_messages
+                SET status='active', consecutive_failures=0,
+                    next_send_at=?, last_error_type=NULL
+                WHERE id=? AND status='paused'
+                """,
+                (ts, unique_ids[0]),
+            )
+            self._conn.commit()
+        return cursor.rowcount > 0
+
+    def list_recurring_messages(
+        self,
+        limit: int = 10,
+    ) -> list[dict[str, Any]]:
+        safe_limit = max(1, min(int(limit), 50))
+        with self._lock:
+            rows = self._conn.execute(
+                """
+                SELECT id, chat_id, interval_seconds, next_send_at,
+                       status, consecutive_failures, last_error_type,
+                       created_at, last_sent_at
+                FROM recurring_messages
+                ORDER BY created_at DESC
+                LIMIT ?
+                """,
+                (safe_limit,),
+            ).fetchall()
+        return [dict(row) for row in rows]
 
     def cancel_recurring_message(
         self,
