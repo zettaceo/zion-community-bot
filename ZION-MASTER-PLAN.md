@@ -136,6 +136,7 @@ Cost/abuse controls:
 - separate per-user observe-mode limiter;
 - global concurrency semaphore;
 - configurable daily token budget;
+- persistent circuit breaker after consecutive provider failures;
 - AI disabled by default.
 
 The API key never belongs in Git.
@@ -150,6 +151,8 @@ Contract:
 - approved facts only;
 - source sections supplied to Mistral;
 - if retrieval cannot support an answer, ZION says it cannot confirm;
+- unanswered explicit support questions can become knowledge gaps;
+- knowledge-gap samples are sanitized and retained for a bounded period;
 - `/reloadkb` reloads Markdown after an admin edit.
 
 Future:
@@ -245,8 +248,9 @@ v1 exposes:
 
 System-level resilience already includes:
 - systemd process supervision;
-- DNS readiness gate;
-- USB Wi-Fi Guardian.
+- indefinite DNS readiness gate without boot restart churn;
+- USB Wi-Fi Guardian;
+- persistent Mistral circuit breaker.
 
 Future observability:
 - latency percentiles;
