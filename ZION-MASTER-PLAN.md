@@ -164,6 +164,13 @@ Future:
 
 ## Admin command surface
 
+### Privilege model
+
+ZION separates chat moderators from explicit operators.
+
+Telegram group administrators may perform chat-local moderation/community actions. Global/system policy and telemetry require a user ID explicitly configured in `ZION_ADMIN_USER_IDS`.
+
+
 Public/basic:
 - `/start`
 - `/rules`
