@@ -155,3 +155,12 @@ The breaker state is persisted in SQLite, so restarting the bot does not immedia
 Only explicit `/ask` questions that cannot be answered from approved knowledge are retained as knowledge-gap samples. They are sanitized before storage and expire according to `ZION_KNOWLEDGE_GAP_RETENTION_DAYS` (default: 30 days).
 
 Resolved/ignored user reports are pruned according to `ZION_REPORT_RETENTION_DAYS` (default: 90 days).
+
+## Admin roles
+
+ZION distinguishes two privilege levels:
+
+- **Chat moderator**: Telegram owner/administrator in the current group, or an explicitly configured ZION operator. Can perform chat-local moderation and community operations such as warn/mute/ban, announcements, polls and scheduling.
+- **ZION operator**: user ID explicitly listed in `ZION_ADMIN_USER_IDS`. Required for global/system controls and telemetry such as state/lockdown, domain policy, incidents, Mistral status/budget, knowledge gaps and knowledge reload.
+
+This prevents an administrator from an unrelated group from changing global ZION policy.
