@@ -89,7 +89,10 @@ class HealthService:
         foreign_key_violations = list(
             integrity.get("foreign_key_violations", [])
         )
-        db_size_mb = int(self.db.file_size_bytes() / 1024 / 1024)
+        db_sizes = self.db.file_sizes_bytes()
+        db_size_mb = int(db_sizes["total"] / 1024 / 1024)
+        db_file_mb = int(db_sizes["database"] / 1024 / 1024)
+        wal_size_mb = int(db_sizes["wal"] / 1024 / 1024)
 
         try:
             state = self.db.get_operating_state()
@@ -119,6 +122,16 @@ class HealthService:
                     foreign_key_violations[:20]
                 ),
                 "db_size_mb": db_size_mb,
+                "db_file_mb": db_file_mb,
+                "wal_size_mb": wal_size_mb,
+                "db_large": (
+                    db_file_mb >= self.settings.db_warn_mb
+                ),
+                "wal_large": (
+                    wal_size_mb >= self.settings.wal_warn_mb
+                ),
+                "db_warn_mb": self.settings.db_warn_mb,
+                "wal_warn_mb": self.settings.wal_warn_mb,
                 "disk_low": (
                     disk_free_mb >= 0
                     and disk_free_mb < self.settings.disk_warn_mb
@@ -177,6 +190,12 @@ class HealthService:
                 )
             ),
             "db_size_mb": int(snapshot.details.get("db_size_mb", 0)),
+            "db_file_mb": int(snapshot.details.get("db_file_mb", 0)),
+            "wal_size_mb": int(snapshot.details.get("wal_size_mb", 0)),
+            "db_large": bool(snapshot.details.get("db_large")),
+            "wal_large": bool(snapshot.details.get("wal_large")),
+            "db_warn_mb": int(snapshot.details.get("db_warn_mb", 0)),
+            "wal_warn_mb": int(snapshot.details.get("wal_warn_mb", 0)),
             "disk_free_mb": snapshot.disk_free_mb,
             "disk_low": bool(snapshot.details.get("disk_low")),
             "sensitive_files_private": bool(
