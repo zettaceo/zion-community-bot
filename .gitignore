@@ -18,6 +18,10 @@ __pycache__/
 *.log
 logs/
 
+# Estado local persistente do ZION
+zion_state.json
+zion_state.json.tmp
+
 # Cache e testes
 .pytest_cache/
 .mypy_cache/
