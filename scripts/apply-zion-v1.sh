@@ -12,8 +12,13 @@ if [[ ! -x "$PYTHON" ]]; then
   exit 1
 fi
 
-echo "[2/7] Instalando/confirmando dependências..."
-"$PYTHON" -m pip install -r requirements.txt
+echo "[2/7] Conferindo dependências sem alterar o ambiente..."
+"$PYTHON" - <<'PY'
+import httpx
+import telegram
+from dotenv import load_dotenv
+print("dependencies: OK")
+PY
 
 echo "[3/7] Validando código, testes e segredos..."
 bash "$ROOT/scripts/validate.sh"
