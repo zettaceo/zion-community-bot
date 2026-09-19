@@ -50,6 +50,13 @@ class GuardianTests(unittest.TestCase):
         )
         self.assertFalse(decision.should_delete)
 
+    def test_runtime_parent_domain_allows_subdomain(self) -> None:
+        self.db.set_domain("trusted.example", "allow", "test")
+        decision = self.guardian.evaluate_links(
+            "https://sub.trusted.example/path"
+        )
+        self.assertFalse(decision.should_delete)
+
     def test_secret_requires_sensitive_label(self) -> None:
         ordinary_hash = "0x" + ("a" * 64)
         self.assertFalse(
