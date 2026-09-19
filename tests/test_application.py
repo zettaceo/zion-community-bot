@@ -36,6 +36,7 @@ class ApplicationBuildTests(unittest.TestCase):
                     "amalist",
                     "amaclose",
                     "recurring",
+                    "cancelscheduled",
                     "cancelrecurring",
                     "jobs",
                     "retryscheduled",
