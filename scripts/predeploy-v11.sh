@@ -118,47 +118,44 @@ if [[ -f "$PROD_LEGACY" ]]; then
   chmod 600 "$COPY_LEGACY"
 fi
 
-"$PYTHON" - <<PY
-import sqlite3
+PROD_ENV="$PROD_ENV" COPY_DB="$COPY_DB" "$PYTHON" - <<'PY'
+import os
 from pathlib import Path
 
-source = Path("$PROD_DB")
-target = Path("$COPY_DB")
+from dotenv import load_dotenv
 
-src = sqlite3.connect(
-    source.resolve().as_uri() + "?mode=ro",
-    uri=True,
-    timeout=5,
-)
-dst = sqlite3.connect(str(target))
+env_path = Path(os.environ["PROD_ENV"])
+load_dotenv(env_path, override=True)
+
+from zion.config import Settings
+from zion.db import ZionDB
+
+settings = Settings.from_env()
+source = settings.db_path
+target = Path(os.environ["COPY_DB"])
+
+if not source.is_file():
+    raise RuntimeError(
+        f"production database not found at {source}"
+    )
+
+db = ZionDB(source, readonly=True)
 try:
-    before = src.execute("PRAGMA quick_check").fetchone()
-    before_result = str(before[0]) if before else "no_result"
-    if before_result.lower() != "ok":
+    verification = db.verify_integrity(full=True)
+    if not verification["ok"]:
         raise RuntimeError(
-            f"production quick_check failed: {before_result}"
+            "production SQLite verification failed: "
+            f"{verification}"
         )
-
-    src.backup(dst)
-
-    copied = dst.execute("PRAGMA quick_check").fetchone()
-    copied_result = str(copied[0]) if copied else "no_result"
-    if copied_result.lower() != "ok":
-        raise RuntimeError(
-            f"backup quick_check failed: {copied_result}"
-        )
-
-    tables = dst.execute(
-        "SELECT COUNT(*) FROM sqlite_master "
-        "WHERE type='table' AND name NOT LIKE 'sqlite_%'"
-    ).fetchone()[0]
+    metadata = db.backup_to(target)
 finally:
-    dst.close()
-    src.close()
+    db.close()
 
-print(f"production_quick_check={before_result}")
-print(f"backup_quick_check={copied_result}")
-print(f"backup_user_tables={tables}")
+print("production_integrity=OK")
+print("production_foreign_keys=OK")
+print(f"backup_schema_version={metadata['schema_version']}")
+print(f"backup_size_bytes={metadata['size_bytes']}")
+print(f"backup_sha256={metadata['sha256']}")
 PY
 
 echo
@@ -177,10 +174,11 @@ try:
     db.initialize()
     migrate_legacy_guardian_state(db, legacy_path)
 
-    integrity_ok, integrity_result = db.integrity_check()
-    if not integrity_ok:
+    verification = db.verify_integrity(full=True)
+    if not verification["ok"]:
         raise RuntimeError(
-            f"candidate migration quick_check failed: {integrity_result}"
+            "candidate migration verification failed: "
+            f"{verification}"
         )
 
     pragmas = db.runtime_pragmas()
@@ -190,11 +188,16 @@ try:
         )
     if int(pragmas["foreign_keys"]) != 1:
         raise RuntimeError("candidate foreign_keys disabled")
+    if int(pragmas["synchronous"]) != 2:
+        raise RuntimeError(
+            f"candidate synchronous={pragmas['synchronous']}"
+        )
 
     print(f"candidate_schema_version={db.schema_version()}")
-    print(f"candidate_quick_check={integrity_result}")
+    print("candidate_integrity=OK")
+    print("candidate_foreign_keys=OK")
     print(f"candidate_journal_mode={pragmas['journal_mode']}")
-    print(f"candidate_foreign_keys={pragmas['foreign_keys']}")
+    print(f"candidate_synchronous={pragmas['synchronous']}")
     print(f"candidate_db_size_bytes={db.file_size_bytes()}")
 finally:
     db.close()
