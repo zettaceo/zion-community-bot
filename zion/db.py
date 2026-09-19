@@ -501,10 +501,11 @@ class ZionDB:
                 for chat_id, user_id, message_id, created_at in recent_messages:
                     self._conn.execute(
                         """
-                        INSERT OR IGNORE INTO recent_messages(
+                        INSERT INTO recent_messages(
                             chat_id, user_id, message_id, created_at
                         )
                         VALUES (?, ?, ?, ?)
+                        ON CONFLICT(chat_id, message_id) DO NOTHING
                         """,
                         (
                             chat_id,
@@ -564,12 +565,13 @@ class ZionDB:
                         ).hex
                         self._conn.execute(
                             """
-                            INSERT OR IGNORE INTO strikes(
+                            INSERT INTO strikes(
                                 id, chat_id, user_id, reason,
                                 severity, source, occurred_at,
                                 expires_at, metadata_json
                             )
                             VALUES (?, ?, ?, 'legacy_flood', ?, ?, ?, ?, ?)
+                            ON CONFLICT(id) DO NOTHING
                             """,
                             (
                                 strike_id,
