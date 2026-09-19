@@ -9,6 +9,15 @@ from .db import ZionDB
 from .models import HealthSnapshot
 
 
+def _private_file(path: Path) -> bool:
+    if not path.exists():
+        return True
+    try:
+        return (path.stat().st_mode & 0o077) == 0
+    except OSError:
+        return False
+
+
 class HealthService:
     def __init__(self, settings: Settings, db: ZionDB):
         self.settings = settings
@@ -23,6 +32,19 @@ class HealthService:
             disk_free_mb = -1
 
         wifi_path = Path("/sys/class/net") / self.settings.wifi_interface
+
+        sensitive_paths = (
+            self.settings.root_dir / ".env",
+            self.settings.db_path,
+            Path(str(self.settings.db_path) + "-wal"),
+            Path(str(self.settings.db_path) + "-shm"),
+            self.settings.log_path,
+            self.settings.legacy_state_path,
+        )
+        sensitive_files_private = all(
+            _private_file(path)
+            for path in sensitive_paths
+        )
 
         return HealthSnapshot(
             state=self.db.get_operating_state(),
@@ -39,6 +61,7 @@ class HealthService:
                 "database": self.settings.db_path.name,
                 "ai_provider": "mistral",
                 "ai_model": self.settings.mistral_model,
+                "sensitive_files_private": sensitive_files_private,
             },
         )
 
