@@ -46,6 +46,7 @@ def make_settings(root: Path) -> Settings:
         health_alert_repeat_seconds=21600,
         schedule_max_attempts=5,
         schedule_retry_seconds=60,
+        delivery_claim_timeout_seconds=300,
         recurring_max_failures=10,
         ama_retention_days=30,
         ai_enabled=False,
