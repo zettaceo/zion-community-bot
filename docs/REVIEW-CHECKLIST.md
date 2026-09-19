@@ -47,6 +47,8 @@ Never paste the API key into chat or logs.
 ## Safety acceptance
 
 - [ ] Private DM from a non-allowlisted user cannot run admin commands.
+- [ ] A Telegram admin who is not in ZION_ADMIN_USER_IDS cannot run global operator commands.
+- [ ] An unrelated group administrator cannot change ZION global state/domain/AI policy.
 - [ ] Criticism is not automatically moderated.
 - [ ] Mistral outage does not disable flood/link protection.
 - [ ] Mistral daily token budget is visible in admin /aistatus.
