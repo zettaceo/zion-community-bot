@@ -1,14 +1,44 @@
 from __future__ import annotations
 
+import asyncio
 import tempfile
 import unittest
 from pathlib import Path
 
 from tests.helpers import make_settings
-from zion.telegram_app import Runtime, build_application
+from zion.telegram_app import Runtime, build_application, post_init
 
 
 class ApplicationBuildTests(unittest.TestCase):
+    def test_post_init_refuses_second_scheduler_task(self) -> None:
+        async def scenario() -> None:
+            with tempfile.TemporaryDirectory() as tmp:
+                settings = make_settings(Path(tmp))
+                application = build_application(settings)
+                runtime = application.bot_data["zion_runtime"]
+
+                existing = asyncio.create_task(
+                    asyncio.sleep(60),
+                    name="existing-zion-scheduler",
+                )
+                application.bot_data["zion_scheduler_task"] = existing
+
+                try:
+                    await post_init(application)
+                    self.assertIs(
+                        application.bot_data["zion_scheduler_task"],
+                        existing,
+                    )
+                finally:
+                    existing.cancel()
+                    try:
+                        await existing
+                    except asyncio.CancelledError:
+                        pass
+                    runtime.close()
+
+        asyncio.run(scenario())
+
     def test_application_builds_without_network(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             settings = make_settings(Path(tmp))
