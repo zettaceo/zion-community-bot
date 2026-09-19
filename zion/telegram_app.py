@@ -2740,11 +2740,27 @@ async def operational_alert_cycle(
 
     signature = "|".join(sorted(issues)) if issues else "OK"
     previous = rt.db.get_setting("health_alert_signature")
+
+    now = time.time()
+    raw_last_sent = rt.db.get_setting("health_alert_last_sent_at") or "0"
+    try:
+        last_sent_at = float(raw_last_sent)
+    except ValueError:
+        last_sent_at = 0.0
+
     if signature == previous:
-        return
+        if signature == "OK":
+            return
+        if (
+            now - last_sent_at
+            < rt.settings.health_alert_repeat_seconds
+        ):
+            return
 
     rt.db.set_setting("health_alert_signature", signature)
+
     if not issues:
+        rt.db.set_setting("health_alert_last_sent_at", "0")
         if previous and previous != "OK":
             for operator_id in sorted(rt.settings.admin_user_ids):
                 success = False
@@ -2754,7 +2770,8 @@ async def operational_alert_cycle(
                         text=(
                             "✅ ZION OPERATIONAL RECOVERY\n"
                             "Os alertas operacionais anteriormente ativos "
-                            "não estão mais presentes. Use /diagnostics para confirmar."
+                            "não estão mais presentes. "
+                            "Use /diagnostics para confirmar."
                         ),
                     )
                     success = True
@@ -2781,14 +2798,23 @@ async def operational_alert_cycle(
         chat_id=None,
         user_id=None,
         category="operational_health_warning",
-        severity=Severity.HIGH if not snapshot.db_ok else Severity.MEDIUM,
+        severity=(
+            Severity.HIGH
+            if not snapshot.db_ok
+            else Severity.MEDIUM
+        ),
         source="health",
         evidence={
             "issues": issues,
             "disk_free_mb": snapshot.disk_free_mb,
             "telegram_update_lag_p95": round(p95_lag, 3),
+            "repeat_interval_seconds": (
+                rt.settings.health_alert_repeat_seconds
+            ),
         },
-        note="Operational alert; no automated destructive action executed.",
+        note=(
+            "Operational alert; no automated destructive action executed."
+        ),
     )
 
     alert_text = (
@@ -2822,6 +2848,8 @@ async def operational_alert_cycle(
             success=success,
             metadata={"issues": issues},
         )
+
+    rt.db.set_setting("health_alert_last_sent_at", str(now))
 
 
 async def scheduler_loop(application: Application) -> None:
