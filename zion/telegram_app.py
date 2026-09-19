@@ -283,6 +283,28 @@ async def ban_user_safe(
         return False
 
 
+async def unban_user_safe(
+    context: ContextTypes.DEFAULT_TYPE,
+    chat_id: int,
+    user_id: int,
+) -> bool:
+    try:
+        await context.bot.unban_chat_member(
+            chat_id=chat_id,
+            user_id=user_id,
+            only_if_banned=True,
+        )
+        return True
+    except Exception as exc:
+        logger.warning(
+            "Falha ao desbanir chat=%s user=%s: %s",
+            chat_id,
+            user_id,
+            exc,
+        )
+        return False
+
+
 async def start_command(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
@@ -647,6 +669,28 @@ async def translate_command(
     await update.effective_message.reply_text(answer.text[:3900])
 
 
+async def guardian_command(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+) -> None:
+    if not update.effective_message:
+        return
+
+    rt = runtime(context)
+    await update.effective_message.reply_text(
+        "ZION GUARDIAN\n"
+        f"State: {rt.db.get_operating_state().value}\n"
+        f"Flood: {rt.settings.flood_max_messages} msgs/"
+        f"{rt.settings.flood_window_seconds}s\n"
+        f"Purge window: {rt.settings.flood_purge_window_seconds}s\n"
+        f"Ban after active strikes: {rt.settings.flood_ban_after_strikes}\n"
+        f"Links globally enabled: {rt.settings.allow_links}\n"
+        f"Raid threshold: {rt.settings.raid_max_joins} joins/"
+        f"{rt.settings.raid_window_seconds}s\n"
+        "AI punitive authority: NONE"
+    )
+
+
 async def stats_command(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
@@ -751,6 +795,153 @@ async def incidents_command(
             f"{item['category']} | user={item['user_id']} | {when}"
         )
 
+    await update.effective_message.reply_text("\n".join(lines)[:3900])
+
+
+async def incident_command(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+) -> None:
+    if not await require_admin(update, context):
+        return
+    if not update.effective_message:
+        return
+
+    if not context.args:
+        await update.effective_message.reply_text(
+            "Use: /incident <id-ou-prefixo>"
+        )
+        return
+
+    incident = runtime(context).db.get_incident(context.args[0])
+    if not incident:
+        await update.effective_message.reply_text(
+            "Incidente não encontrado ou prefixo ambíguo."
+        )
+        return
+
+    try:
+        evidence = incident.get("evidence_json") or "{}"
+        evidence_text = str(evidence)[:900]
+    except Exception:
+        evidence_text = "{}"
+
+    when = datetime.fromtimestamp(
+        float(incident["created_at"]),
+        tz=timezone.utc,
+    ).isoformat()
+
+    await update.effective_message.reply_text(
+        "ZION INCIDENT\n"
+        f"ID: {incident['id']}\n"
+        f"Status: {incident['status']}\n"
+        f"Severity: {incident['severity']}\n"
+        f"Category: {incident['category']}\n"
+        f"Source: {incident['source']}\n"
+        f"Chat: {incident['chat_id']}\n"
+        f"User: {incident['user_id']}\n"
+        f"Created: {when}\n"
+        f"Note: {incident.get('note') or '-'}\n"
+        f"Evidence: {evidence_text}"
+    )
+
+
+async def resolve_incident_command(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+) -> None:
+    if not await require_admin(update, context):
+        return
+    if not update.effective_message or not update.effective_user:
+        return
+
+    if not context.args:
+        await update.effective_message.reply_text(
+            "Use: /resolveincident <id-ou-prefixo>"
+        )
+        return
+
+    rt = runtime(context)
+    incident = rt.db.get_incident(context.args[0])
+    if not incident:
+        await update.effective_message.reply_text(
+            "Incidente não encontrado ou prefixo ambíguo."
+        )
+        return
+
+    success = rt.db.set_incident_status(
+        str(incident["id"]),
+        "resolved",
+    )
+    rt.db.record_action(
+        incident_id=str(incident["id"]),
+        chat_id=incident.get("chat_id"),
+        user_id=incident.get("user_id"),
+        action_type="resolve_incident",
+        actor_type="admin",
+        actor_id=str(update.effective_user.id),
+        reason="manual_admin_review",
+        success=success,
+    )
+    await update.effective_message.reply_text(
+        "Incidente marcado como resolvido."
+        if success
+        else "Não foi possível resolver o incidente."
+    )
+
+
+async def strikes_command(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+) -> None:
+    if not await require_admin(update, context):
+        return
+    if not update.effective_message or not update.effective_chat:
+        return
+
+    replied = update.effective_message.reply_to_message
+    if replied and replied.from_user:
+        target_id = replied.from_user.id
+    elif context.args:
+        try:
+            target_id = int(context.args[0])
+        except ValueError:
+            target_id = 0
+    else:
+        target_id = 0
+
+    if not target_id:
+        await update.effective_message.reply_text(
+            "Responda a uma mensagem com /strikes ou use /strikes <user_id>."
+        )
+        return
+
+    rows = runtime(context).db.list_active_strikes(
+        update.effective_chat.id,
+        target_id,
+        limit=20,
+    )
+    if not rows:
+        await update.effective_message.reply_text(
+            f"Usuário {target_id}: nenhum strike ativo."
+        )
+        return
+
+    lines = [f"ZION STRIKES | user={target_id}"]
+    for item in rows:
+        expires = item.get("expires_at")
+        expires_text = (
+            datetime.fromtimestamp(
+                float(expires),
+                tz=timezone.utc,
+            ).isoformat()
+            if expires
+            else "never"
+        )
+        lines.append(
+            f"{item['id'][:8]} | {item['severity']} | "
+            f"{item['reason']} | exp={expires_text}"
+        )
     await update.effective_message.reply_text("\n".join(lines)[:3900])
 
 
@@ -1115,6 +1306,65 @@ async def ban_command(
             f"⛔ {user_display_name(target)} foi banido."
             if success
             else "Falha ao banir. Verifique as permissões do bot."
+        )
+    )
+
+
+async def unban_command(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+) -> None:
+    if not await require_admin(update, context):
+        return
+    if (
+        not update.effective_message
+        or not update.effective_chat
+        or not update.effective_user
+    ):
+        return
+
+    if not context.args:
+        await update.effective_message.reply_text(
+            "Use: /unban <user_id>"
+        )
+        return
+
+    try:
+        target_id = int(context.args[0])
+    except ValueError:
+        await update.effective_message.reply_text(
+            "user_id inválido."
+        )
+        return
+
+    success = await unban_user_safe(
+        context,
+        update.effective_chat.id,
+        target_id,
+    )
+    rt = runtime(context)
+    incident_id = rt.db.create_incident(
+        chat_id=update.effective_chat.id,
+        user_id=target_id,
+        category="manual_unban",
+        severity=Severity.INFO,
+        source="admin",
+    )
+    rt.db.record_action(
+        incident_id=incident_id,
+        chat_id=update.effective_chat.id,
+        user_id=target_id,
+        action_type="unban",
+        actor_type="admin",
+        actor_id=str(update.effective_user.id),
+        reason="manual_admin_command",
+        success=success,
+    )
+    await update.effective_message.reply_text(
+        (
+            f"✅ Usuário {target_id} desbanido."
+            if success
+            else "Falha ao desbanir. Verifique o ID e permissões."
         )
     )
 
@@ -1822,6 +2072,7 @@ def build_application(settings: Settings | None = None) -> Application:
         "start": start_command,
         "status": status_command,
         "health": health_command,
+        "guardian": guardian_command,
         "rules": rules_command,
         "id": id_command,
         "ask": ask_command,
@@ -1833,6 +2084,9 @@ def build_application(settings: Settings | None = None) -> Application:
         "gaps": gaps_command,
         "resolvegap": resolve_gap_command,
         "incidents": incidents_command,
+        "incident": incident_command,
+        "resolveincident": resolve_incident_command,
+        "strikes": strikes_command,
         "user": user_command,
         "state": state_command,
         "lockdown": lockdown_command,
@@ -1842,6 +2096,7 @@ def build_application(settings: Settings | None = None) -> Application:
         "warn": warn_command,
         "mute": mute_command,
         "ban": ban_command,
+        "unban": unban_command,
         "report": report_command,
         "schedule": schedule_command,
         "reloadkb": reload_knowledge_command,
