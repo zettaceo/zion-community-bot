@@ -308,6 +308,9 @@ class PersistenceHardeningTests(unittest.TestCase):
         conn = sqlite3.connect(future_path)
         try:
             conn.execute(
+                f"PRAGMA application_id={ZION_APPLICATION_ID}"
+            )
+            conn.execute(
                 """
                 CREATE TABLE schema_migrations (
                     version INTEGER PRIMARY KEY,
