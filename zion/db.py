@@ -477,6 +477,132 @@ class ZionDB:
                 pass
         return total
 
+    def import_legacy_guardian_state(
+        self,
+        *,
+        marker: str,
+        recent_messages: list[tuple[int, int, int, float]],
+        containments: list[tuple[int, int, float, str, float]],
+        strikes: list[
+            tuple[int, int, int, float, int]
+        ],
+        now: float,
+    ) -> None:
+        """Atomically import the legacy JSON guardian state.
+
+        The marker is committed in the same transaction as the data so a
+        process failure cannot leave a partially imported state that is then
+        duplicated on the next startup.
+        """
+        with self._lock:
+            try:
+                self._conn.execute("BEGIN IMMEDIATE")
+
+                for chat_id, user_id, message_id, created_at in recent_messages:
+                    self._conn.execute(
+                        """
+                        INSERT OR IGNORE INTO recent_messages(
+                            chat_id, user_id, message_id, created_at
+                        )
+                        VALUES (?, ?, ?, ?)
+                        """,
+                        (
+                            chat_id,
+                            user_id,
+                            message_id,
+                            created_at,
+                        ),
+                    )
+
+                for (
+                    chat_id,
+                    user_id,
+                    blocked_until,
+                    reason,
+                    updated_at,
+                ) in containments:
+                    self._conn.execute(
+                        """
+                        INSERT INTO containments(
+                            chat_id, user_id, blocked_until,
+                            reason, updated_at
+                        )
+                        VALUES (?, ?, ?, ?, ?)
+                        ON CONFLICT(chat_id, user_id) DO UPDATE SET
+                            blocked_until=MAX(
+                                containments.blocked_until,
+                                excluded.blocked_until
+                            ),
+                            reason=excluded.reason,
+                            updated_at=excluded.updated_at
+                        """,
+                        (
+                            chat_id,
+                            user_id,
+                            blocked_until,
+                            reason,
+                            updated_at,
+                        ),
+                    )
+
+                for (
+                    chat_id,
+                    user_id,
+                    count,
+                    last_strike,
+                    ttl_seconds,
+                ) in strikes:
+                    expires_at = last_strike + ttl_seconds
+                    for index in range(max(0, count)):
+                        strike_id = uuid.uuid5(
+                            uuid.NAMESPACE_URL,
+                            (
+                                "zion:legacy_flood:"
+                                f"{chat_id}:{user_id}:"
+                                f"{last_strike:.6f}:{index + 1}"
+                            ),
+                        ).hex
+                        self._conn.execute(
+                            """
+                            INSERT OR IGNORE INTO strikes(
+                                id, chat_id, user_id, reason,
+                                severity, source, occurred_at,
+                                expires_at, metadata_json
+                            )
+                            VALUES (?, ?, ?, 'legacy_flood', ?, ?, ?, ?, ?)
+                            """,
+                            (
+                                strike_id,
+                                chat_id,
+                                user_id,
+                                Severity.MEDIUM.value,
+                                "legacy_import",
+                                last_strike,
+                                expires_at,
+                                _json(
+                                    {
+                                        "legacy_index": index + 1,
+                                        "legacy_count": count,
+                                    }
+                                ),
+                            ),
+                        )
+
+                self._conn.execute(
+                    """
+                    INSERT INTO settings(key, value, updated_at)
+                    VALUES (?, '1', ?)
+                    ON CONFLICT(key) DO UPDATE SET
+                        value='1',
+                        updated_at=excluded.updated_at
+                    """,
+                    (marker, now),
+                )
+                self._conn.commit()
+            except Exception:
+                self._conn.rollback()
+                raise
+
     def upsert_user(
         self,
         *,
