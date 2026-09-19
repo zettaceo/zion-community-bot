@@ -134,3 +134,12 @@ Chat-wide burst detection is deliberately non-punitive. Its only automatic polic
 Remote shell access is designed for Tailscale + SSH public-key authentication. TCP/22 must not be exposed by router port forwarding. Private SSH keys and Tailscale authentication material never belong in Git.
 
 See `docs/REMOTE-ACCESS.md` and `docs/DEPLOYMENT-MODEL.md`.
+
+
+## High-confidence credential exposure
+
+In addition to wallet-secret detection, ZION v1.1 deterministically protects high-confidence credential patterns such as Telegram bot tokens, Bearer authorization values, labeled API keys/passwords and exact secret values already present in the local runtime environment.
+
+This protection runs before administrator exemptions and before AI processing. When triggered, the message is removed, the sensitive body is not stored in the incident evidence, and the sender is advised to rotate a real credential.
+
+Generic crypto terminology such as `token=USDC` is not treated as a credential by this detector.
