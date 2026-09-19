@@ -7,7 +7,15 @@ Wants=zion.service
 Type=simple
 User=zetta
 WorkingDirectory=/home/zetta/zion-community-bot
-EnvironmentFile=/home/zetta/zion-community-bot/.env
+
+# Deliberately do NOT load the bot .env here.
+# Dashboard receives only non-secret runtime locations.
+Environment=ZION_DASHBOARD_ROOT=/home/zetta/zion-community-bot
+Environment=ZION_DASHBOARD_DB_PATH=/home/zetta/zion-community-bot/zion.db
+Environment=ZION_DASHBOARD_WIFI_INTERFACE=wlx78bdbc575d1c
+Environment=ZION_DASHBOARD_BIND=127.0.0.1
+Environment=ZION_DASHBOARD_PORT=8765
+
 ExecStart=/home/zetta/zion-community-bot/.venv/bin/python -m zion.admin_dashboard
 Restart=on-failure
 RestartSec=10
