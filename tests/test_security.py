@@ -83,6 +83,14 @@ class SecurityTests(unittest.TestCase):
         self.assertNotIn(fake, result)
         self.assertIn("[REDACTED_TELEGRAM_TOKEN]", result)
 
+    def test_labeled_password_is_redacted_from_logs(self) -> None:
+        secret = "example-password-123456"
+        value = redact_secrets(
+            f"password: {secret}"
+        )
+        self.assertNotIn(secret, value)
+        self.assertIn("[REDACTED]", value)
+
     def test_bearer_redacted(self) -> None:
         result = redact_secrets(
             "Authorization: Bearer fake-secret-value-123"
