@@ -239,6 +239,81 @@ async def delete_message_safe(
         return False
 
 
+async def protect_wallet_secret(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    text: str,
+    *,
+    source: str,
+    notice_text: str,
+    source_message_id: int | None = None,
+    source_user_id: int | None = None,
+) -> bool:
+    if (
+        not update.effective_message
+        or not update.effective_user
+        or not update.effective_chat
+    ):
+        return False
+
+    rt = runtime(context)
+    sensitive = rt.guardian.sensitive_content(text)
+    if not sensitive.detected:
+        return False
+
+    message_id_to_delete = (
+        source_message_id
+        if source_message_id is not None
+        else update.effective_message.message_id
+    )
+    user_id = (
+        source_user_id
+        if source_user_id is not None
+        else update.effective_user.id
+    )
+
+    deleted = await delete_message_safe(
+        context,
+        update.effective_chat.id,
+        message_id_to_delete,
+    )
+    incident_id = rt.db.create_incident(
+        chat_id=update.effective_chat.id,
+        user_id=user_id,
+        category=sensitive.kind,
+        severity=Severity.CRITICAL,
+        source=source,
+        evidence={
+            "message_id": message_id_to_delete,
+            "content_not_stored": True,
+        },
+        note=sensitive.reason,
+    )
+    rt.db.record_action(
+        incident_id=incident_id,
+        chat_id=update.effective_chat.id,
+        user_id=user_id,
+        action_type="delete",
+        actor_type="guardian",
+        actor_id=None,
+        reason=sensitive.kind,
+        success=deleted,
+    )
+
+    try:
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text=notice_text,
+        )
+    except Exception as exc:
+        logger.warning(
+            "Falha ao enviar aviso de segredo de carteira: %s",
+            exc,
+        )
+
+    return True
+
+
 async def mute_user_safe(
     context: ContextTypes.DEFAULT_TYPE,
     chat_id: int,
@@ -452,67 +527,19 @@ async def protect_sensitive_command_input(
     source_message_id: int | None = None,
     source_user_id: int | None = None,
 ) -> bool:
-    if (
-        not update.effective_message
-        or not update.effective_user
-        or not update.effective_chat
-    ):
-        return False
-
-    rt = runtime(context)
-    sensitive = rt.guardian.sensitive_content(text)
-    if not sensitive.detected:
-        return False
-
-    message_id_to_delete = (
-        source_message_id
-        if source_message_id is not None
-        else update.effective_message.message_id
-    )
-    deleted = await delete_message_safe(
+    return await protect_wallet_secret(
+        update,
         context,
-        update.effective_chat.id,
-        message_id_to_delete,
-    )
-    incident_id = rt.db.create_incident(
-        chat_id=update.effective_chat.id,
-        user_id=(
-            source_user_id
-            if source_user_id is not None
-            else update.effective_user.id
-        ),
-        category=sensitive.kind,
-        severity=Severity.CRITICAL,
-        source="guardian_command_input",
-        evidence={
-            "message_id": message_id_to_delete,
-            "content_not_stored": True,
-        },
-        note=sensitive.reason,
-    )
-    rt.db.record_action(
-        incident_id=incident_id,
-        chat_id=update.effective_chat.id,
-        user_id=(
-            source_user_id
-            if source_user_id is not None
-            else update.effective_user.id
-        ),
-        action_type="delete",
-        actor_type="guardian",
-        actor_id=None,
-        reason=sensitive.kind,
-        success=deleted,
-    )
-    await context.bot.send_message(
-        chat_id=update.effective_chat.id,
-        text=(
+        text,
+        source="guardian_ai_input",
+        notice_text=(
             "🚨 ZION bloqueou a solicitação porque ela parece conter "
             "uma seed phrase/chave privada. Esse conteúdo não foi enviado "
             "à Mistral."
         ),
+        source_message_id=source_message_id,
+        source_user_id=source_user_id,
     )
-    return True
 
 
 async def ask_command(
@@ -1854,11 +1881,7 @@ async def command_guard_handler(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
 ) -> None:
-    """Apply flood/containment/lockdown to commands too.
-
-    Without this preflight, a user could bypass anti-flood by sending
-    repeated Telegram commands, because normal moderation excludes commands.
-    """
+    """Apply universal secret protection and deterministic command policy."""
     if (
         not update.effective_message
         or not update.effective_user
@@ -1872,6 +1895,19 @@ async def command_guard_handler(
     rt = runtime(context)
 
     record_user(update, context, increment_messages=True)
+
+    text = message.text or message.caption or ""
+    if await protect_wallet_secret(
+        update,
+        context,
+        text,
+        source="guardian_command_preflight",
+        notice_text=(
+            "🚨 ZION bloqueou um comando que aparentava conter "
+            "segredo de carteira. O conteúdo não foi processado."
+        ),
+    ):
+        raise ApplicationHandlerStop
 
     if await is_admin(update, context):
         return
@@ -1909,49 +1945,6 @@ async def command_guard_handler(
     )
     if flood.triggered:
         await _enforce_flood(update, context, flood)
-        raise ApplicationHandlerStop
-
-    text = message.text or message.caption or ""
-
-    sensitive = rt.guardian.sensitive_content(text)
-    if sensitive.detected:
-        deleted = await delete_message_safe(
-            context,
-            chat.id,
-            message.message_id,
-        )
-        incident_id = rt.db.create_incident(
-            chat_id=chat.id,
-            user_id=user.id,
-            category=sensitive.kind,
-            severity=Severity.CRITICAL,
-            source="guardian_command_preflight",
-            evidence={
-                "message_id": message.message_id,
-                "content_not_stored": True,
-            },
-            note=sensitive.reason,
-        )
-        rt.db.record_action(
-            incident_id=incident_id,
-            chat_id=chat.id,
-            user_id=user.id,
-            action_type="delete",
-            actor_type="guardian",
-            actor_id=None,
-            reason=sensitive.kind,
-            success=deleted,
-        )
-        try:
-            await context.bot.send_message(
-                chat_id=chat.id,
-                text=(
-                    "🚨 ZION bloqueou um comando que aparentava conter "
-                    "segredo de carteira. O conteúdo não foi processado."
-                ),
-            )
-        except Exception:
-            pass
         raise ApplicationHandlerStop
 
     links = rt.guardian.evaluate_links(text)
@@ -2003,89 +1996,6 @@ async def moderation_handler(
     rt = runtime(context)
 
     record_user(update, context, increment_messages=True)
-
-    admin = await is_admin(update, context)
-
-    if rt.db.get_operating_state() == OperatingState.LOCKDOWN and not admin:
-        deleted = await delete_message_safe(
-            context,
-            chat.id,
-            message.message_id,
-        )
-        rt.db.record_action(
-            incident_id=None,
-            chat_id=chat.id,
-            user_id=user.id,
-            action_type="delete",
-            actor_type="guardian",
-            actor_id=None,
-            reason="lockdown",
-            success=deleted,
-        )
-        return
-
-    if admin:
-        return
-
-    remaining = rt.guardian.containment_remaining(chat.id, user.id)
-    if remaining > 0:
-        await delete_message_safe(
-            context,
-            chat.id,
-            message.message_id,
-        )
-        return
-
-    flood = rt.guardian.record_message(
-        chat_id=chat.id,
-        user_id=user.id,
-        message_id=message.message_id,
-    )
-
-    if flood.triggered:
-        await _enforce_flood(update, context, flood)
-        return
-
-    text = message.text or message.caption or ""
-
-    sensitive = rt.guardian.sensitive_content(text)
-    if sensitive.detected:
-        deleted = await delete_message_safe(
-            context,
-            chat.id,
-            message.message_id,
-        )
-        incident_id = rt.db.create_incident(
-            chat_id=chat.id,
-            user_id=user.id,
-            category=sensitive.kind,
-            severity=Severity.CRITICAL,
-            source="guardian",
-            evidence={
-                "message_id": message.message_id,
-                "content_not_stored": True,
-            },
-            note=sensitive.reason,
-        )
-        rt.db.record_action(
-            incident_id=incident_id,
-            chat_id=chat.id,
-            user_id=user.id,
-            action_type="delete",
-            actor_type="guardian",
-            actor_id=None,
-            reason=sensitive.kind,
-            success=deleted,
-        )
-        await context.bot.send_message(
-            chat_id=chat.id,
-            text=(
-                f"🚨 {user_display_name(user)}: mensagem removida por "
-                "possível exposição de segredo de carteira. "
-                "Nunca publique seed phrase ou chave privada."
-            ),
-        )
-        return
 
     links = rt.guardian.evaluate_links(text)
     if links.should_delete:
