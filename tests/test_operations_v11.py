@@ -54,6 +54,38 @@ class V11OperationalAlertTests(unittest.TestCase):
             finally:
                 rt.close()
 
+    def test_database_alert_still_sends_when_persistence_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            settings = replace(
+                make_settings(Path(tmp)),
+                wifi_interface="lo",
+                disk_warn_mb=1,
+            )
+            rt = Runtime(settings)
+            app = FakeApplication()
+
+            def fail(*args, **kwargs):
+                raise RuntimeError("forced database failure")
+
+            try:
+                rt.db.ping = lambda: False
+                rt.db.integrity_check = lambda: (False, "forced")
+                rt.db.get_setting = fail
+                rt.db.set_setting = fail
+                rt.db.community_stats = fail
+                rt.db.create_incident = fail
+                rt.db.record_action = fail
+
+                asyncio.run(operational_alert_cycle(app, rt))
+
+                self.assertEqual(len(app.bot.sent), 1)
+                self.assertIn(
+                    "database_or_integrity",
+                    app.bot.sent[0][1],
+                )
+            finally:
+                rt.close()
+
     def test_failed_delivery_alerts_and_recovery(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             settings = replace(
