@@ -475,7 +475,7 @@ class PersistenceHardeningTests(unittest.TestCase):
         self.db.close()
 
         repo = Path(__file__).resolve().parent.parent
-        code = r"""
+        code = r'''
 import sys
 import time
 from pathlib import Path
@@ -506,7 +506,7 @@ db._conn.execute(
 )
 print("READY", flush=True)
 time.sleep(30)
-"""
+'''
         env = os.environ.copy()
         env["PYTHONPATH"] = str(repo)
 
