@@ -1585,10 +1585,14 @@ class ZionDB:
         self,
         *,
         now: float | None = None,
-        stale_after_seconds: int = 300,
+        stale_after_seconds: int | None = 300,
     ) -> dict[str, int]:
         ts = time.time() if now is None else now
-        cutoff = ts - max(0, int(stale_after_seconds))
+        cutoff = (
+            None
+            if stale_after_seconds is None
+            else ts - max(0, int(stale_after_seconds))
+        )
 
         with self._lock:
             scheduled = self._conn.execute(
@@ -1600,11 +1604,12 @@ class ZionDB:
                     claimed_at=NULL
                 WHERE status='sending'
                   AND (
-                    claimed_at IS NULL
+                    ? IS NULL
+                    OR claimed_at IS NULL
                     OR claimed_at <= ?
                   )
                 """,
-                (cutoff,),
+                (cutoff, cutoff),
             ).rowcount
 
             recurring = self._conn.execute(
@@ -1615,11 +1620,12 @@ class ZionDB:
                     claimed_at=NULL
                 WHERE status='sending'
                   AND (
-                    claimed_at IS NULL
+                    ? IS NULL
+                    OR claimed_at IS NULL
                     OR claimed_at <= ?
                   )
                 """,
-                (cutoff,),
+                (cutoff, cutoff),
             ).rowcount
             self._conn.commit()
 
