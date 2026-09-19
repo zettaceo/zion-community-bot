@@ -6,6 +6,7 @@ from pathlib import Path
 
 from tests.helpers import make_settings
 from zion.db import ZionDB
+from zion.models import OperatingState
 from zion.guardian import (
     Guardian,
     detect_sensitive_content,
@@ -71,6 +72,33 @@ class GuardianTests(unittest.TestCase):
         self.assertTrue(
             detect_sensitive_content(text).detected
         )
+
+    def test_elevated_state_tightens_flood_threshold(self) -> None:
+        self.db.set_operating_state(OperatingState.ELEVATED)
+        now = 2000.0
+
+        first = self.guardian.record_message(
+            chat_id=10,
+            user_id=30,
+            message_id=10,
+            now=now,
+        )
+        second = self.guardian.record_message(
+            chat_id=10,
+            user_id=30,
+            message_id=11,
+            now=now + 1,
+        )
+        third = self.guardian.record_message(
+            chat_id=10,
+            user_id=30,
+            message_id=12,
+            now=now + 2,
+        )
+
+        self.assertFalse(first.triggered)
+        self.assertFalse(second.triggered)
+        self.assertTrue(third.triggered)
 
     def test_flood_triggers_at_threshold(self) -> None:
         now = 1000.0
