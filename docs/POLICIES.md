@@ -71,3 +71,19 @@ Administrators can:
 - reload the knowledge base.
 
 All relevant actions are written to the action ledger.
+
+## Raid / mass-join
+
+ZION counts join events in a deterministic time window. If the configured threshold is crossed while state is NORMAL, it enters temporary ELEVATED mode.
+
+ELEVATED mode tightens the flood threshold. It does not grant punitive authority to AI.
+
+The state returns to NORMAL after the configured expiry unless an administrator explicitly changes the state.
+
+## AI resource abuse
+
+AI-backed member commands are rate-limited per user.
+
+Observe-only classification uses a separate per-user limiter and the same global Mistral daily token budget.
+
+When the budget is exhausted, deterministic Guardian features remain active.
