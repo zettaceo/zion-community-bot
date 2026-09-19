@@ -133,6 +133,12 @@ CREATE TABLE IF NOT EXISTS settings (
     updated_at REAL NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS schema_migrations (
+    version INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    applied_at REAL NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS ai_events (
     id TEXT PRIMARY KEY,
     chat_id INTEGER,
@@ -177,11 +183,17 @@ CREATE TABLE IF NOT EXISTS scheduled_messages (
     status TEXT NOT NULL DEFAULT 'pending',
     created_by INTEGER,
     created_at REAL NOT NULL,
-    sent_at REAL
+    sent_at REAL,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    next_attempt_at REAL,
+    last_error_type TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_scheduled_pending
 ON scheduled_messages(status, send_at);
+
+CREATE INDEX IF NOT EXISTS idx_scheduled_retry
+ON scheduled_messages(status, next_attempt_at);
 
 CREATE TABLE IF NOT EXISTS recurring_messages (
     id TEXT PRIMARY KEY,
@@ -192,7 +204,9 @@ CREATE TABLE IF NOT EXISTS recurring_messages (
     status TEXT NOT NULL DEFAULT 'active',
     created_by INTEGER,
     created_at REAL NOT NULL,
-    last_sent_at REAL
+    last_sent_at REAL,
+    consecutive_failures INTEGER NOT NULL DEFAULT 0,
+    last_error_type TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_recurring_due
@@ -262,10 +276,104 @@ class ZionDB:
     def initialize(self) -> None:
         with self._lock:
             self._conn.executescript(SCHEMA)
+            self._apply_schema_migrations_locked()
             self._conn.commit()
         if self.get_setting("operating_state") is None:
             self.set_setting("operating_state", OperatingState.NORMAL.value)
         self._secure_runtime_permissions()
+
+    def _table_columns_locked(self, table: str) -> set[str]:
+        rows = self._conn.execute(
+            f"PRAGMA table_info({table})"
+        ).fetchall()
+        return {str(row["name"]) for row in rows}
+
+    def _ensure_column_locked(
+        self,
+        table: str,
+        column: str,
+        definition: str,
+    ) -> None:
+        if column in self._table_columns_locked(table):
+            return
+        self._conn.execute(
+            f"ALTER TABLE {table} ADD COLUMN {column} {definition}"
+        )
+
+    def _apply_schema_migrations_locked(self) -> None:
+        migrations: tuple[
+            tuple[int, str, tuple[tuple[str, str, str], ...]],
+            ...
+        ] = (
+            (
+                1,
+                "scheduler_delivery_reliability",
+                (
+                    (
+                        "scheduled_messages",
+                        "attempts",
+                        "INTEGER NOT NULL DEFAULT 0",
+                    ),
+                    (
+                        "scheduled_messages",
+                        "next_attempt_at",
+                        "REAL",
+                    ),
+                    (
+                        "scheduled_messages",
+                        "last_error_type",
+                        "TEXT",
+                    ),
+                    (
+                        "recurring_messages",
+                        "consecutive_failures",
+                        "INTEGER NOT NULL DEFAULT 0",
+                    ),
+                    (
+                        "recurring_messages",
+                        "last_error_type",
+                        "TEXT",
+                    ),
+                ),
+            ),
+        )
+
+        applied_rows = self._conn.execute(
+            "SELECT version FROM schema_migrations"
+        ).fetchall()
+        applied = {int(row["version"]) for row in applied_rows}
+
+        for version, name, columns in migrations:
+            if version in applied:
+                continue
+            for table, column, definition in columns:
+                self._ensure_column_locked(
+                    table,
+                    column,
+                    definition,
+                )
+            self._conn.execute(
+                """
+                INSERT INTO schema_migrations(version, name, applied_at)
+                VALUES (?, ?, ?)
+                """,
+                (version, name, time.time()),
+            )
+
+        self._conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_scheduled_retry
+            ON scheduled_messages(status, next_attempt_at)
+            """
+        )
+
+    def schema_version(self) -> int:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT COALESCE(MAX(version), 0) AS version "
+                "FROM schema_migrations"
+            ).fetchone()
+        return int(row["version"]) if row else 0
 
     def close(self) -> None:
         with self._lock:
