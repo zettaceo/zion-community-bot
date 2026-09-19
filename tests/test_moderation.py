@@ -10,7 +10,12 @@ from telegram.constants import ChatMemberStatus
 from telegram.ext import ApplicationHandlerStop
 
 from tests.helpers import make_settings
-from zion.telegram_app import Runtime, command_guard_handler, moderation_handler
+from zion.telegram_app import (
+    Runtime,
+    command_guard_handler,
+    is_operator,
+    moderation_handler,
+)
 
 
 class FakeBot:
@@ -106,6 +111,19 @@ class ModerationPipelineTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.runtime.db.close()
         self.temp.cleanup()
+
+    def test_explicit_operator_allowlist(self) -> None:
+        operator = fake_update(
+            user_id=1,
+            text="/status",
+        )
+        member = fake_update(
+            user_id=2,
+            text="/status",
+        )
+
+        self.assertTrue(is_operator(operator, self.context))
+        self.assertFalse(is_operator(member, self.context))
 
     def test_member_unauthorized_link_is_deleted(self) -> None:
         update = fake_update(
