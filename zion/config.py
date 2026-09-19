@@ -82,6 +82,7 @@ class Settings:
     ai_min_observe_chars: int
     ai_user_requests_per_minute: int
     ai_max_concurrency: int
+    ai_daily_token_budget: int
 
     mistral_api_key: str
     mistral_api_url: str
@@ -169,6 +170,11 @@ class Settings:
                 1,
             ),
             ai_max_concurrency=_int("ZION_AI_MAX_CONCURRENCY", 2, 1),
+            ai_daily_token_budget=_int(
+                "ZION_AI_DAILY_TOKEN_BUDGET",
+                50000,
+                0,
+            ),
             mistral_api_key=os.getenv("MISTRAL_API_KEY", "").strip(),
             mistral_api_url=os.getenv(
                 "MISTRAL_API_URL",
