@@ -76,6 +76,7 @@ class Runtime:
             tuple[int, int],
             tuple[bool, float],
         ] = {}
+        self.update_lags: deque[float] = deque(maxlen=100)
 
 
 def runtime(context: ContextTypes.DEFAULT_TYPE) -> Runtime:
@@ -281,6 +282,40 @@ def record_user(
         language_code=user.language_code,
         increment_messages=increment_messages,
     )
+
+
+def record_update_lag(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+) -> None:
+    message = update.effective_message
+    if not message:
+        return
+    date = getattr(message, "date", None)
+    if date is None:
+        return
+    try:
+        if date.tzinfo is None:
+            date = date.replace(tzinfo=timezone.utc)
+        lag = max(
+            0.0,
+            (datetime.now(timezone.utc) - date).total_seconds(),
+        )
+    except Exception:
+        return
+    runtime(context).update_lags.append(lag)
+
+
+def update_lag_stats(rt: Runtime) -> tuple[float, float]:
+    values = sorted(rt.update_lags)
+    if not values:
+        return 0.0, 0.0
+    latest = float(rt.update_lags[-1])
+    index = min(
+        len(values) - 1,
+        max(0, int(len(values) * 0.95) - 1),
+    )
+    return latest, float(values[index])
 
 
 async def delete_message_safe(
