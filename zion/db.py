@@ -894,6 +894,21 @@ class ZionDB:
             )
             self._conn.commit()
 
+    def ai_tokens_since(self, since: float) -> int:
+        with self._lock:
+            row = self._conn.execute(
+                """
+                SELECT COALESCE(
+                    SUM(input_tokens + output_tokens),
+                    0
+                ) AS tokens
+                FROM ai_events
+                WHERE created_at >= ? AND success=1
+                """,
+                (since,),
+            ).fetchone()
+        return int(row["tokens"]) if row else 0
+
     def record_ai_event(
         self,
         *,
