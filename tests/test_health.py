@@ -68,6 +68,10 @@ class HealthTests(unittest.TestCase):
             diagnostics["sqlite_pragmas"]["journal_size_limit"],
             16777216,
         )
+        self.assertEqual(
+            diagnostics["sqlite_pragmas"]["trusted_schema"],
+            0,
+        )
         self.assertGreaterEqual(
             diagnostics["sqlite_pragmas"]["busy_timeout_ms"],
             5000,
