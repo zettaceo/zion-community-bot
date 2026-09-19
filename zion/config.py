@@ -58,6 +58,8 @@ class Settings:
     legacy_state_path: Path
     knowledge_dir: Path
     log_path: Path
+    log_max_bytes: int
+    log_backup_count: int
     wifi_interface: str
 
     allow_links: bool
@@ -148,6 +150,16 @@ class Settings:
             log_path=Path(
                 os.getenv("ZION_LOG_PATH", str(root / "zion.log"))
             ).expanduser(),
+            log_max_bytes=_int(
+                "ZION_LOG_MAX_BYTES",
+                5 * 1024 * 1024,
+                1024 * 1024,
+            ),
+            log_backup_count=_int(
+                "ZION_LOG_BACKUP_COUNT",
+                5,
+                1,
+            ),
             wifi_interface=os.getenv(
                 "ZION_WIFI_INTERFACE",
                 "wlx78bdbc575d1c",
