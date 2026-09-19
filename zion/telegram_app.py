@@ -198,6 +198,33 @@ async def require_admin(
     return False
 
 
+def is_operator(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+) -> bool:
+    if not update.effective_user:
+        return False
+
+    return (
+        update.effective_user.id
+        in runtime(context).settings.admin_user_ids
+    )
+
+
+async def require_operator(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+) -> bool:
+    if is_operator(update, context):
+        return True
+
+    if update.effective_message:
+        await update.effective_message.reply_text(
+            "⛔ Comando restrito aos operadores explícitos do ZION."
+        )
+    return False
+
+
 def record_user(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
@@ -492,7 +519,7 @@ async def health_command(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
 ) -> None:
-    if not await require_admin(update, context):
+    if not await require_operator(update, context):
         return
     if not update.effective_message:
         return
@@ -517,7 +544,7 @@ async def ai_status_command(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
 ) -> None:
-    if not await require_admin(update, context):
+    if not await require_operator(update, context):
         return
     if not update.effective_message:
         return
@@ -749,7 +776,7 @@ async def guardian_command(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
 ) -> None:
-    if not await require_admin(update, context):
+    if not await require_operator(update, context):
         return
     if not update.effective_message:
         return
@@ -773,7 +800,7 @@ async def stats_command(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
 ) -> None:
-    if not await require_admin(update, context):
+    if not await require_operator(update, context):
         return
     if not update.effective_message:
         return
@@ -794,7 +821,7 @@ async def gaps_command(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
 ) -> None:
-    if not await require_admin(update, context):
+    if not await require_operator(update, context):
         return
     if not update.effective_message:
         return
@@ -819,7 +846,7 @@ async def resolve_gap_command(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
 ) -> None:
-    if not await require_admin(update, context):
+    if not await require_operator(update, context):
         return
     if not update.effective_message:
         return
@@ -845,7 +872,7 @@ async def incidents_command(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
 ) -> None:
-    if not await require_admin(update, context):
+    if not await require_operator(update, context):
         return
     if not update.effective_message:
         return
@@ -880,7 +907,7 @@ async def incident_command(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
 ) -> None:
-    if not await require_admin(update, context):
+    if not await require_operator(update, context):
         return
     if not update.effective_message:
         return
@@ -928,7 +955,7 @@ async def resolve_incident_command(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
 ) -> None:
-    if not await require_admin(update, context):
+    if not await require_operator(update, context):
         return
     if not update.effective_message or not update.effective_user:
         return
@@ -1082,7 +1109,7 @@ async def state_command(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
 ) -> None:
-    if not await require_admin(update, context):
+    if not await require_operator(update, context):
         return
     if not update.effective_message or not update.effective_user:
         return
@@ -1127,7 +1154,7 @@ async def lockdown_command(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
 ) -> None:
-    if not await require_admin(update, context):
+    if not await require_operator(update, context):
         return
     if not update.effective_message or not update.effective_user:
         return
@@ -1154,7 +1181,7 @@ async def unlock_command(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
 ) -> None:
-    if not await require_admin(update, context):
+    if not await require_operator(update, context):
         return
     if not update.effective_message or not update.effective_user:
         return
@@ -1181,7 +1208,7 @@ async def allow_domain_command(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
 ) -> None:
-    if not await require_admin(update, context):
+    if not await require_operator(update, context):
         return
     if not update.effective_message:
         return
@@ -1203,7 +1230,7 @@ async def block_domain_command(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
 ) -> None:
-    if not await require_admin(update, context):
+    if not await require_operator(update, context):
         return
     if not update.effective_message:
         return
@@ -1488,7 +1515,7 @@ async def brief_command(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
 ) -> None:
-    if not await require_admin(update, context):
+    if not await require_operator(update, context):
         return
     if not update.effective_message:
         return
@@ -1658,7 +1685,7 @@ async def reload_knowledge_command(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
 ) -> None:
-    if not await require_admin(update, context):
+    if not await require_operator(update, context):
         return
     if not update.effective_message:
         return
