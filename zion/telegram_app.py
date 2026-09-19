@@ -69,6 +69,9 @@ class Runtime:
         self.ask_limiter = AskRateLimiter(
             settings.ai_user_requests_per_minute
         )
+        self.observe_limiter = AskRateLimiter(
+            settings.ai_user_requests_per_minute
+        )
         self.admin_cache: dict[
             tuple[int, int],
             tuple[bool, float],
@@ -385,6 +388,8 @@ async def health_command(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
 ) -> None:
+    if not await require_admin(update, context):
+        return
     if not update.effective_message:
         return
 
@@ -408,6 +413,8 @@ async def ai_status_command(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
 ) -> None:
+    if not await require_admin(update, context):
+        return
     if not update.effective_message:
         return
 
@@ -551,14 +558,12 @@ async def help_command(
 
     await update.effective_message.reply_text(
         "ZION COMMANDS\n"
-        "/status — estado do sistema\n"
-        "/health — saúde operacional\n"
+        "/status — estado público do sistema\n"
         "/rules — regras da comunidade\n"
         "/ask <pergunta> — suporte Z-SWAP com Mistral + base oficial\n"
         "/summary <texto> — resumo explícito via Mistral\n"
         "/translate <idioma> <texto> — tradução explícita via Mistral\n"
-        "/report — responda a uma mensagem para denunciar\n"
-        "/aistatus — estado da camada de IA"
+        "/report — responda a uma mensagem para denunciar"
     )
 
 
@@ -678,6 +683,8 @@ async def guardian_command(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
 ) -> None:
+    if not await require_admin(update, context):
+        return
     if not update.effective_message:
         return
 
@@ -1927,6 +1934,7 @@ async def moderation_handler(
         rt.settings.ai_observe
         and rt.ai.enabled
         and len(text.strip()) >= rt.settings.ai_min_observe_chars
+        and rt.observe_limiter.allow(user.id)
     ):
         context.application.create_task(
             _observe_with_ai(
