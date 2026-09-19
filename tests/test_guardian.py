@@ -11,6 +11,7 @@ from zion.guardian import (
     Guardian,
     detect_sensitive_content,
     extract_domains,
+    normalize_policy_domain,
 )
 
 
@@ -26,6 +27,19 @@ class GuardianTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.db.close()
         self.temp.cleanup()
+
+    def test_policy_domain_normalization(self) -> None:
+        self.assertEqual(
+            normalize_policy_domain("https://www.Example.com/path"),
+            "example.com",
+        )
+        self.assertEqual(
+            normalize_policy_domain("sub.example.com"),
+            "sub.example.com",
+        )
+        self.assertIsNone(
+            normalize_policy_domain("not a domain"),
+        )
 
     def test_extract_domains(self) -> None:
         domains = extract_domains(
