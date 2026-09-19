@@ -157,3 +157,54 @@ Follow `docs/REMOTE-ACCESS.md` for Tailscale + SSH setup and `docs/DEPLOYMENT-MO
 Unchanged active operational conditions are not sent on every hourly health cycle. ZION records the alert signature and last-send time, then repeats an unchanged active alert only after `ZION_HEALTH_ALERT_REPEAT_SECONDS` (default: 21600 seconds / 6 hours).
 
 A changed issue set is alerted immediately. When all tracked issues clear, explicit operators receive one recovery notification.
+
+
+## Runtime and concurrency hardening
+
+ZION v1.1 uses a cross-worktree kernel file lock at a private per-user path. Only one writable ZION runtime may hold that lock at a time. The lock file is required to be a regular, non-symlinked, non-hard-linked file with private permissions, and its descriptor is non-inheritable.
+
+The scheduler also refuses to create a second live scheduler task inside one application process.
+
+### Delivery claim state machine
+
+One-shot delivery:
+
+```text
+pending -> sending -> sent
+                   -> pending   (bounded retry after confirmed failure)
+                   -> failed    (retry budget exhausted)
+sending -> uncertain            (process crash / stale unknown outcome)
+```
+
+Recurring delivery:
+
+```text
+active -> sending -> active
+                  -> active     (bounded retry after confirmed failure)
+                  -> paused     (failure threshold reached)
+sending -> paused               (process crash / stale unknown outcome)
+```
+
+A job is atomically claimed in SQLite before the Telegram API call. Another worker cannot claim the same due job.
+
+An unknown outcome is **never replayed automatically**. If ZION dies after claiming a delivery, the next runtime quarantines that one-shot as `uncertain` and pauses the recurring job. This intentionally prefers a missed delivery over an accidental duplicate.
+
+For a recurring job paused because of an unknown crash outcome, `/resumerecurring` skips the uncertain occurrence and preserves the next future interval.
+
+For a one-shot `uncertain` job, an operator must inspect `/jobs` and explicitly choose whether to cancel it or run `/retryscheduled`. An explicit retry can duplicate a delivery that Telegram accepted before the crash but that ZION could not confirm.
+
+Default stale-claim timeout while the process remains alive:
+
+```text
+ZION_DELIVERY_CLAIM_TIMEOUT_SECONDS=300
+```
+
+### Command idempotency
+
+Telegram command update IDs are persisted before command side effects. A redelivered command update is suppressed across process restarts. This is an at-most-once boundary for command execution.
+
+Idempotency keys expire and are pruned by housekeeping. Default retention:
+
+```text
+ZION_IDEMPOTENCY_RETENTION_DAYS=30
+```
