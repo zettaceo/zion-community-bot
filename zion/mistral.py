@@ -347,5 +347,9 @@ class MistralClient:
             requires_human=requires_human,
             rationale=str(data.get("rationale") or "")[:800],
             language=str(data.get("language") or "unknown")[:32],
+            model=raw.model,
+            input_tokens=raw.input_tokens,
+            output_tokens=raw.output_tokens,
+            latency_ms=raw.latency_ms,
             raw=data,
         )
