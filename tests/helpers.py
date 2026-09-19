@@ -33,6 +33,7 @@ def make_settings(root: Path) -> Settings:
         report_requests_per_minute=3,
         ama_requests_per_minute=5,
         user_event_retention_days=30,
+        idempotency_retention_days=30,
         knowledge_gap_retention_days=30,
         raid_max_joins=8,
         raid_window_seconds=60,
