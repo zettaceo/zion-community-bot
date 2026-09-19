@@ -3319,16 +3319,30 @@ async def scheduler_loop(application: Application) -> None:
                         * 86400
                     )
                 )
+                user_events_deleted = rt.db.prune_user_events(
+                    now
+                    - (
+                        rt.settings.user_event_retention_days
+                        * 86400
+                    )
+                )
                 ama_questions_deleted = rt.db.prune_ama_questions(
                     now - (rt.settings.ama_retention_days * 86400)
                 )
-                if gaps_removed or reports_redacted or ama_questions_deleted:
+                if (
+                    gaps_removed
+                    or reports_redacted
+                    or user_events_deleted
+                    or ama_questions_deleted
+                ):
                     logger.info(
                         "Housekeeping | knowledge_gaps_deleted=%s | "
                         "resolved_reports_redacted=%s | "
+                        "user_events_deleted=%s | "
                         "ama_questions_deleted=%s",
                         gaps_removed,
                         reports_redacted,
+                        user_events_deleted,
                         ama_questions_deleted,
                     )
                 try:
