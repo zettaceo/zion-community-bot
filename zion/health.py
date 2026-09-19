@@ -93,6 +93,7 @@ class HealthService:
     def diagnostics(self) -> dict[str, object]:
         snapshot = self.snapshot()
         latency = self.db.ai_latency_stats(time.time() - 86400)
+        pragmas = self.db.runtime_pragmas()
         return {
             "state": snapshot.state.value,
             "db_ok": snapshot.db_ok,
@@ -111,6 +112,7 @@ class HealthService:
             "wifi_interface_present": snapshot.wifi_interface_present,
             "ai_latency_24h": latency,
             "schema_version": self.db.schema_version(),
+            "sqlite_pragmas": pragmas,
         }
 
     @staticmethod
