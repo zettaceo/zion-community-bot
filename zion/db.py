@@ -1365,6 +1365,41 @@ class ZionDB:
             ).fetchall()
         return [dict(row) for row in rows]
 
+    def claim_scheduled_message(
+        self,
+        schedule_id: str,
+        now: float | None = None,
+    ) -> int | None:
+        ts = time.time() if now is None else now
+        with self._lock:
+            cursor = self._conn.execute(
+                """
+                UPDATE scheduled_messages
+                SET status='sending',
+                    attempts=attempts + 1,
+                    last_error_type=NULL
+                WHERE id=?
+                  AND status='pending'
+                  AND COALESCE(next_attempt_at, send_at) <= ?
+                """,
+                (schedule_id, ts),
+            )
+            if cursor.rowcount != 1:
+                self._conn.commit()
+                return None
+
+            row = self._conn.execute(
+                """
+                SELECT attempts
+                FROM scheduled_messages
+                WHERE id=?
+                """,
+                (schedule_id,),
+            ).fetchone()
+            self._conn.commit()
+
+        return int(row["attempts"]) if row else None
+
     def mark_scheduled_message(
         self,
         schedule_id: str,
@@ -1392,10 +1427,10 @@ class ZionDB:
                 return "missing"
 
             current_status = str(row["status"])
-            if current_status not in {"pending", "failed"}:
+            if current_status != "sending":
                 return current_status
 
-            attempts = int(row["attempts"] or 0) + 1
+            attempts = int(row["attempts"] or 0)
             if success:
                 status = "sent"
                 next_attempt_at = None
@@ -1405,24 +1440,27 @@ class ZionDB:
                 status = "failed"
                 next_attempt_at = None
                 sent_at = None
-                last_error_type = (error_type or "delivery_error")[:120]
+                last_error_type = (
+                    error_type or "delivery_error"
+                )[:120]
             else:
                 status = "pending"
                 next_attempt_at = ts + safe_retry_seconds
                 sent_at = None
-                last_error_type = (error_type or "delivery_error")[:120]
+                last_error_type = (
+                    error_type or "delivery_error"
+                )[:120]
 
             self._conn.execute(
                 """
                 UPDATE scheduled_messages
-                SET status=?, sent_at=?, attempts=?,
+                SET status=?, sent_at=?,
                     next_attempt_at=?, last_error_type=?
-                WHERE id=?
+                WHERE id=? AND status='sending'
                 """,
                 (
                     status,
                     sent_at,
-                    attempts,
                     next_attempt_at,
                     last_error_type,
                     schedule_id,
@@ -1499,7 +1537,7 @@ class ZionDB:
                 SELECT id
                 FROM scheduled_messages
                 WHERE (id=? OR id LIKE ?)
-                  AND status='failed'
+                  AND status IN ('failed', 'sending')
                 ORDER BY created_at DESC
                 LIMIT 2
                 """,
@@ -1514,7 +1552,7 @@ class ZionDB:
                 UPDATE scheduled_messages
                 SET status='pending', attempts=0,
                     next_attempt_at=?, last_error_type=NULL
-                WHERE id=? AND status='failed'
+                WHERE id=? AND status IN ('failed', 'sending')
                 """,
                 (ts, unique_ids[0]),
             )
@@ -1593,6 +1631,27 @@ class ZionDB:
             ).fetchall()
         return [dict(row) for row in rows]
 
+    def claim_recurring_message(
+        self,
+        schedule_id: str,
+        now: float | None = None,
+    ) -> bool:
+        ts = time.time() if now is None else now
+        with self._lock:
+            cursor = self._conn.execute(
+                """
+                UPDATE recurring_messages
+                SET status='sending',
+                    last_error_type=NULL
+                WHERE id=?
+                  AND status='active'
+                  AND next_send_at <= ?
+                """,
+                (schedule_id, ts),
+            )
+            self._conn.commit()
+        return cursor.rowcount == 1
+
     def advance_recurring_message(
         self,
         schedule_id: str,
@@ -1621,7 +1680,7 @@ class ZionDB:
                 return "missing"
 
             current_status = str(row["status"])
-            if current_status != "active":
+            if current_status != "sending":
                 return current_status
 
             interval = max(300, int(row["interval_seconds"]))
@@ -1649,7 +1708,7 @@ class ZionDB:
                 UPDATE recurring_messages
                 SET status=?, next_send_at=?, last_sent_at=?,
                     consecutive_failures=?, last_error_type=?
-                WHERE id=?
+                WHERE id=? AND status='sending'
                 """,
                 (
                     status,
@@ -1679,7 +1738,7 @@ class ZionDB:
                 SELECT id
                 FROM recurring_messages
                 WHERE (id=? OR id LIKE ?)
-                  AND status='paused'
+                  AND status IN ('paused', 'sending')
                 ORDER BY created_at DESC
                 LIMIT 2
                 """,
@@ -1694,7 +1753,7 @@ class ZionDB:
                 UPDATE recurring_messages
                 SET status='active', consecutive_failures=0,
                     next_send_at=?, last_error_type=NULL
-                WHERE id=? AND status='paused'
+                WHERE id=? AND status IN ('paused', 'sending')
                 """,
                 (ts, unique_ids[0]),
             )
@@ -2070,6 +2129,14 @@ class ZionDB:
             "failed_scheduled": (
                 "SELECT COUNT(*) AS count FROM scheduled_messages "
                 "WHERE status='failed'"
+            ),
+            "uncertain_scheduled": (
+                "SELECT COUNT(*) AS count FROM scheduled_messages "
+                "WHERE status='sending'"
+            ),
+            "uncertain_recurring": (
+                "SELECT COUNT(*) AS count FROM recurring_messages "
+                "WHERE status='sending'"
             ),
             "open_amas": (
                 "SELECT COUNT(*) AS count FROM ama_sessions "
