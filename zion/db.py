@@ -1,22 +1,29 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import sqlite3
 import threading
 import time
 import uuid
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 from .models import OperatingState, Severity
 
 
+SUPPORTED_SCHEMA_VERSION = 2
+DEFAULT_BUSY_TIMEOUT_MS = 5000
+
 SCHEMA = """
 PRAGMA journal_mode=WAL;
-PRAGMA synchronous=NORMAL;
+PRAGMA synchronous=FULL;
 PRAGMA foreign_keys=ON;
 PRAGMA busy_timeout=5000;
+PRAGMA wal_autocheckpoint=1000;
+PRAGMA journal_size_limit=16777216;
 
 CREATE TABLE IF NOT EXISTS users (
     chat_id INTEGER NOT NULL,
@@ -260,31 +267,40 @@ class ZionDB:
         path: Path,
         *,
         readonly: bool = False,
+        busy_timeout_ms: int = DEFAULT_BUSY_TIMEOUT_MS,
     ):
         self.path = path
         self.readonly = readonly
+        self.busy_timeout_ms = max(0, int(busy_timeout_ms))
+
         if self.path.is_symlink():
             raise RuntimeError("ZION database path must not be a symlink.")
         if not readonly:
             self.path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
 
+        timeout_seconds = self.busy_timeout_ms / 1000
         if readonly:
             database = self.path.resolve().as_uri() + "?mode=ro"
             self._conn = sqlite3.connect(
                 database,
                 uri=True,
-                timeout=5,
+                timeout=timeout_seconds,
                 check_same_thread=False,
+                isolation_level=None,
             )
         else:
             self._conn = sqlite3.connect(
                 str(path),
-                timeout=5,
+                timeout=timeout_seconds,
                 check_same_thread=False,
+                isolation_level=None,
             )
 
         self._conn.row_factory = sqlite3.Row
+        self._conn.execute(
+            f"PRAGMA busy_timeout={self.busy_timeout_ms}"
+        )
         if not readonly:
             self._secure_runtime_permissions()
 
@@ -309,12 +325,73 @@ class ZionDB:
                 "Cannot initialize schema through a read-only ZionDB."
             )
         with self._lock:
+            existing_version = self._existing_schema_version_locked()
+            if existing_version > SUPPORTED_SCHEMA_VERSION:
+                raise RuntimeError(
+                    "Database schema is newer than this ZION build: "
+                    f"db=v{existing_version} "
+                    f"supported=v{SUPPORTED_SCHEMA_VERSION}"
+                )
+
             self._conn.executescript(SCHEMA)
             self._apply_schema_migrations_locked()
-            self._conn.commit()
+
         if self.get_setting("operating_state") is None:
             self.set_setting("operating_state", OperatingState.NORMAL.value)
         self._secure_runtime_permissions()
+
+    def _existing_schema_version_locked(self) -> int:
+        row = self._conn.execute(
+            """
+            SELECT 1
+            FROM sqlite_master
+            WHERE type='table' AND name='schema_migrations'
+            """
+        ).fetchone()
+        if not row:
+            return 0
+
+        version = self._conn.execute(
+            "SELECT COALESCE(MAX(version), 0) AS version "
+            "FROM schema_migrations"
+        ).fetchone()
+        return int(version["version"]) if version else 0
+
+    @contextmanager
+    def _transaction_locked(
+        self,
+        *,
+        immediate: bool = False,
+    ) -> Iterator[None]:
+        if self.readonly:
+            raise RuntimeError(
+                "Cannot start a write transaction on a read-only ZionDB."
+            )
+        if self._conn.in_transaction:
+            savepoint = "sp_" + uuid.uuid4().hex
+            self._conn.execute(f"SAVEPOINT {savepoint}")
+            try:
+                yield
+            except Exception:
+                self._conn.execute(
+                    f"ROLLBACK TO SAVEPOINT {savepoint}"
+                )
+                self._conn.execute(f"RELEASE SAVEPOINT {savepoint}")
+                raise
+            else:
+                self._conn.execute(f"RELEASE SAVEPOINT {savepoint}")
+            return
+
+        self._conn.execute(
+            "BEGIN IMMEDIATE" if immediate else "BEGIN"
+        )
+        try:
+            yield
+        except Exception:
+            self._conn.rollback()
+            raise
+        else:
+            self._conn.commit()
 
     def _table_columns_locked(self, table: str) -> set[str]:
         rows = self._conn.execute(
