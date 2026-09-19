@@ -43,7 +43,7 @@ class ApplicationBuildTests(unittest.TestCase):
                 }.issubset(commands)
             )
 
-            runtime.db.close()
+            runtime.close()
 
 
 if __name__ == "__main__":
