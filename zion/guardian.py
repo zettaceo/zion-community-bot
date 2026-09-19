@@ -9,6 +9,7 @@ from .db import ZionDB
 from .models import (
     FloodDecision,
     LinkDecision,
+    OperatingState,
     SensitiveContentDecision,
     Severity,
 )
@@ -145,7 +146,14 @@ class Guardian:
             ts - self.settings.flood_window_seconds,
         )
 
-        if count < self.settings.flood_max_messages:
+        state = self.db.get_operating_state()
+        threshold = self.settings.flood_max_messages
+        if state == OperatingState.ELEVATED:
+            threshold = max(3, threshold - 2)
+        elif state == OperatingState.ATTACK:
+            threshold = max(2, threshold // 2)
+
+        if count < threshold:
             return FloodDecision()
 
         message_ids = self.db.recent_message_ids(
@@ -164,7 +172,8 @@ class Guardian:
             ttl_seconds=self.settings.flood_strike_reset_seconds,
             metadata={
                 "messages_in_window": count,
-                "threshold": self.settings.flood_max_messages,
+                "threshold": threshold,
+                "operating_state": state.value,
             },
             now=ts,
         )
