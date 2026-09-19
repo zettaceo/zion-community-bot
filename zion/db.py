@@ -139,6 +139,15 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
     applied_at REAL NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS idempotency_keys (
+    key TEXT PRIMARY KEY,
+    created_at REAL NOT NULL,
+    expires_at REAL NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_idempotency_expires
+ON idempotency_keys(expires_at);
+
 CREATE TABLE IF NOT EXISTS ai_events (
     id TEXT PRIMARY KEY,
     chat_id INTEGER,
@@ -1207,6 +1216,52 @@ class ZionDB:
             ).fetchone()
         return str(row["value"]) if row else None
 
+    def claim_idempotency_key(
+        self,
+        key: str,
+        *,
+        ttl_seconds: int,
+        now: float | None = None,
+    ) -> bool:
+        value = key.strip()
+        if not value:
+            raise ValueError("idempotency key must not be empty")
+
+        ts = time.time() if now is None else now
+        expires_at = ts + max(60, int(ttl_seconds))
+
+        with self._lock:
+            cursor = self._conn.execute(
+                """
+                INSERT INTO idempotency_keys(key, created_at, expires_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT(key) DO UPDATE SET
+                    created_at=excluded.created_at,
+                    expires_at=excluded.expires_at
+                WHERE idempotency_keys.expires_at <= ?
+                """,
+                (value[:200], ts, expires_at, ts),
+            )
+            self._conn.commit()
+
+        return cursor.rowcount == 1
+
+    def prune_idempotency_keys(
+        self,
+        before: float | None = None,
+    ) -> int:
+        cutoff = time.time() if before is None else before
+        with self._lock:
+            cursor = self._conn.execute(
+                """
+                DELETE FROM idempotency_keys
+                WHERE expires_at <= ?
+                """,
+                (cutoff,),
+            )
+            self._conn.commit()
+        return int(cursor.rowcount)
+
     def get_operating_state(self) -> OperatingState:
         raw = self.get_setting("operating_state") or OperatingState.NORMAL.value
         try:
@@ -2245,6 +2300,7 @@ class ZionDB:
             "actions",
             "ai_events",
             "knowledge_gaps",
+            "idempotency_keys",
             "recurring_messages",
             "ama_sessions",
             "ama_questions",
