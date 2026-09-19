@@ -35,6 +35,7 @@ def make_settings(root: Path) -> Settings:
         chat_burst_elevated_seconds=600,
         disk_warn_mb=128,
         update_lag_warn_seconds=120,
+        health_alert_repeat_seconds=21600,
         ama_retention_days=30,
         ai_enabled=False,
         ai_observe=False,
