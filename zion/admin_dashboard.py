@@ -130,7 +130,19 @@ def main() -> None:
             "ZION dashboard v1 only permits localhost binding."
         )
 
-    configure_logging(root_dir / "zion-dashboard.log")
+    log_path = Path(
+        os.getenv(
+            "ZION_DASHBOARD_LOG_PATH",
+            str(
+                Path.home()
+                / ".local"
+                / "state"
+                / "zion-community-bot"
+                / "zion-dashboard.log"
+            ),
+        )
+    ).expanduser()
+    configure_logging(log_path)
 
     db = ZionDB(db_path, readonly=True)
     started_monotonic = time.monotonic()
