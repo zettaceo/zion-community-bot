@@ -34,10 +34,15 @@ def _status_payload(
         Path("/sys/class/net") / wifi_interface
     ).exists()
 
+    integrity_ok, integrity_result = db.integrity_check()
+    db_size_mb = int(db.file_size_bytes() / 1024 / 1024)
+
     return {
         "zion_dashboard": "online",
         "operating_state": db.get_operating_state().value,
-        "database": "ok" if db.ping() else "fail",
+        "database": "ok" if db.ping() and integrity_ok else "fail",
+        "sqlite_integrity": integrity_result,
+        "database_size_mb": db_size_mb,
         "wifi_interface_present": wifi_present,
         "disk_free_mb": disk_free_mb,
         "dashboard_uptime_seconds": int(
@@ -83,6 +88,8 @@ th, td {{ text-align: left; padding: .55rem; border-bottom: 1px solid #252b36; }
 <p class="ok">Dashboard: {html.escape(str(payload["zion_dashboard"]))}</p>
 <p>State: {html.escape(str(payload["operating_state"]))}</p>
 <p>Database: {html.escape(str(payload["database"]))}</p>
+<p>SQLite integrity: {html.escape(str(payload["sqlite_integrity"]))}</p>
+<p>Database size: {html.escape(str(payload["database_size_mb"]))} MB</p>
 <p>Wi-Fi interface: {html.escape(str(payload["wifi_interface_present"]))}</p>
 <p>Free disk: {html.escape(str(payload["disk_free_mb"]))} MB</p>
 </div>
