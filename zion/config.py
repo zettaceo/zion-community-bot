@@ -119,6 +119,8 @@ class Settings:
     chat_burst_elevated_seconds: int
 
     disk_warn_mb: int
+    db_warn_mb: int
+    wal_warn_mb: int
     update_lag_warn_seconds: int
     health_alert_repeat_seconds: int
     schedule_max_attempts: int
@@ -310,6 +312,8 @@ class Settings:
                 60,
             ),
             disk_warn_mb=_int("ZION_DISK_WARN_MB", 2048, 128),
+            db_warn_mb=_int("ZION_DB_WARN_MB", 512, 16),
+            wal_warn_mb=_int("ZION_WAL_WARN_MB", 128, 8),
             update_lag_warn_seconds=_int(
                 "ZION_UPDATE_LAG_WARN_SECONDS",
                 120,
