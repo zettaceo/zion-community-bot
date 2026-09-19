@@ -16,6 +16,19 @@ from .models import AIAnswer, AIClassification
 logger = logging.getLogger("zion.mistral")
 
 
+ALLOWED_CLASSIFICATION_CATEGORIES = {
+    "support_question",
+    "criticism",
+    "normal",
+    "spam_suspected",
+    "harassment_suspected",
+    "scam_suspected",
+    "phishing_suspected",
+    "impersonation_suspected",
+    "other",
+}
+
+
 @dataclass(slots=True)
 class MistralRawResponse:
     text: str
@@ -307,17 +320,31 @@ class MistralClient:
         )
 
         data = _parse_json_object(raw.text)
-        category = str(data.get("category") or "other")
+
+        category = str(data.get("category") or "other").strip()
+        if category not in ALLOWED_CLASSIFICATION_CATEGORIES:
+            category = "other"
+
         try:
             risk = float(data.get("risk", 0.0))
         except (TypeError, ValueError):
             risk = 0.0
         risk = max(0.0, min(1.0, risk))
 
+        raw_requires_human = data.get("requires_human", False)
+        if isinstance(raw_requires_human, bool):
+            requires_human = raw_requires_human
+        elif isinstance(raw_requires_human, str):
+            requires_human = (
+                raw_requires_human.strip().lower() == "true"
+            )
+        else:
+            requires_human = False
+
         return AIClassification(
             category=category,
             risk=risk,
-            requires_human=bool(data.get("requires_human", False)),
+            requires_human=requires_human,
             rationale=str(data.get("rationale") or "")[:800],
             language=str(data.get("language") or "unknown")[:32],
             raw=data,
