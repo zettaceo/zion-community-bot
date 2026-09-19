@@ -3663,6 +3663,13 @@ async def scheduler_loop(application: Application) -> None:
 
 
 async def post_init(application: Application) -> None:
+    existing = application.bot_data.get("zion_scheduler_task")
+    if isinstance(existing, asyncio.Task) and not existing.done():
+        logger.error(
+            "Tentativa de iniciar um segundo scheduler bloqueada."
+        )
+        return
+
     task = asyncio.create_task(
         scheduler_loop(application),
         name="zion-scheduler",
