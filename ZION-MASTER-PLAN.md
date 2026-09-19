@@ -127,9 +127,16 @@ Environment:
 Use cases:
 - grounded support Q&A;
 - observe-only moderation classification;
-- future conversation summaries;
-- future FAQ gap discovery;
-- future operator briefs.
+- explicit summarization and translation;
+- knowledge-gap discovery;
+- operator intelligence.
+
+Cost/abuse controls:
+- per-user explicit AI request limiter;
+- separate per-user observe-mode limiter;
+- global concurrency semaphore;
+- configurable daily token budget;
+- AI disabled by default.
 
 The API key never belongs in Git.
 
@@ -158,24 +165,32 @@ Public/basic:
 - `/start`
 - `/rules`
 - `/status`
-- `/health`
 - `/id`
 - `/ask`
-- `/aistatus`
 - `/summary`
 - `/translate`
 - `/report`
 
 Admin:
+- `/health`
+- `/guardian`
+- `/aistatus`
 - `/stats`
+- `/brief`
 - `/gaps`
 - `/resolvegap`
 - `/incidents`
+- `/incident`
+- `/resolveincident`
+- `/strikes`
 - `/user`
 - `/state`
 - `/warn`
 - `/mute`
 - `/ban`
+- `/unban`
+- `/announce`
+- `/poll`
 - `/lockdown`
 - `/unlock`
 - `/allowdomain`
