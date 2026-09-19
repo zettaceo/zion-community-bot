@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 
 from tests.helpers import make_settings
@@ -80,6 +81,51 @@ class HealthTests(unittest.TestCase):
             diagnostics["ai_latency_24h"],
             {"count": 0, "avg_ms": 0, "p95_ms": 0},
         )
+
+    def test_foreign_key_violation_fails_database_health(self) -> None:
+        self.db._conn.execute("PRAGMA foreign_keys=OFF")
+        self.db._conn.execute(
+            """
+            INSERT INTO ama_questions(
+                id, ama_id, chat_id, user_id,
+                question, status, created_at
+            )
+            VALUES (
+                'orphan-health', 'missing-session',
+                1, 2, 'orphan', 'pending', 1
+            )
+            """
+        )
+        self.db._conn.execute("PRAGMA foreign_keys=ON")
+
+        snapshot = self.health.snapshot()
+
+        self.assertFalse(snapshot.db_ok)
+        self.assertFalse(
+            snapshot.details["sqlite_foreign_keys_ok"]
+        )
+        self.assertGreater(
+            len(
+                snapshot.details[
+                    "sqlite_foreign_key_violations"
+                ]
+            ),
+            0,
+        )
+
+    def test_database_and_wal_size_thresholds_are_reported(self) -> None:
+        settings = replace(
+            self.settings,
+            db_warn_mb=0,
+            wal_warn_mb=0,
+        )
+        health = HealthService(settings, self.db)
+        snapshot = health.snapshot()
+
+        self.assertTrue(snapshot.details["db_large"])
+        self.assertTrue(snapshot.details["wal_large"])
+        self.assertIn("db_file_mb", snapshot.details)
+        self.assertIn("wal_size_mb", snapshot.details)
 
     def test_world_readable_env_is_reported(self) -> None:
         env_path = self.root / ".env"
