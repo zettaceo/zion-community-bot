@@ -406,6 +406,7 @@ async def protect_sensitive_command_input(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
     text: str,
+    source_message_id: int | None = None,
 ) -> bool:
     if (
         not update.effective_message
@@ -419,10 +420,15 @@ async def protect_sensitive_command_input(
     if not sensitive.detected:
         return False
 
+    message_id_to_delete = (
+        source_message_id
+        if source_message_id is not None
+        else update.effective_message.message_id
+    )
     deleted = await delete_message_safe(
         context,
         update.effective_chat.id,
-        update.effective_message.message_id,
+        message_id_to_delete,
     )
     incident_id = rt.db.create_incident(
         chat_id=update.effective_chat.id,
@@ -431,7 +437,7 @@ async def protect_sensitive_command_input(
         severity=Severity.CRITICAL,
         source="guardian_command_input",
         evidence={
-            "message_id": update.effective_message.message_id,
+            "message_id": message_id_to_delete,
             "content_not_stored": True,
         },
         note=sensitive.reason,
@@ -543,7 +549,12 @@ async def summary_command(
         )
         return
 
-    if await protect_sensitive_command_input(update, context, source):
+    if await protect_sensitive_command_input(
+        update,
+        context,
+        source,
+        source_message_id=(replied.message_id if replied else None),
+    ):
         return
 
     rt = runtime(context)
