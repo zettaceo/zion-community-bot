@@ -336,6 +336,92 @@ class AITests(unittest.TestCase):
         self.assertEqual(client.calls, 0)
         self.assertEqual(ai._reserved_tokens, 0)
 
+    def test_accounting_failure_blocks_future_provider_calls(self) -> None:
+        (self.root / "knowledge" / "official.md").write_text(
+            "# Guardian\nGuardian protection remains active.\n",
+            encoding="utf-8",
+        )
+        knowledge = KnowledgeBase(self.settings.knowledge_dir)
+        settings = replace(
+            self.settings,
+            ai_enabled=True,
+            mistral_api_key="fake-key-for-test-only",
+        )
+        ai = AIService(settings, self.db, knowledge)
+
+        class CountingClient:
+            configured = True
+
+            def __init__(self) -> None:
+                self.calls = 0
+
+            async def answer(self, *, question: str, context: str):
+                self.calls += 1
+                return AIAnswer(
+                    text="grounded",
+                    model="fake",
+                    input_tokens=5,
+                    output_tokens=5,
+                    latency_ms=1,
+                )
+
+        client = CountingClient()
+        ai.client = client
+
+        original_record = self.db.record_ai_event
+
+        def fail_record(*args, **kwargs):
+            raise RuntimeError("forced accounting failure")
+
+        self.db.record_ai_event = fail_record
+        try:
+            first = asyncio.run(
+                ai.answer(
+                    chat_id=1,
+                    user_id=2,
+                    question="Guardian protection",
+                )
+            )
+            self.assertIn("grounded", first.text)
+            self.assertFalse(ai.accounting_healthy)
+            self.assertEqual(client.calls, 1)
+
+            second = asyncio.run(
+                ai.answer(
+                    chat_id=1,
+                    user_id=2,
+                    question="Guardian protection",
+                )
+            )
+            self.assertIn(
+                "orçamento diário",
+                second.text.lower(),
+            )
+            self.assertEqual(client.calls, 1)
+        finally:
+            self.db.record_ai_event = original_record
+
+    def test_circuit_persistence_failure_does_not_break_in_memory_guard(self) -> None:
+        settings = replace(
+            self.settings,
+            ai_enabled=True,
+            mistral_api_key="fake-key-for-test-only",
+            ai_circuit_failures=1,
+        )
+        ai = AIService(settings, self.db, self.knowledge)
+
+        original_set = self.db.set_setting
+
+        def fail_set(*args, **kwargs):
+            raise RuntimeError("forced setting failure")
+
+        self.db.set_setting = fail_set
+        try:
+            ai._record_provider_failure()
+            self.assertTrue(ai.circuit_open())
+        finally:
+            self.db.set_setting = original_set
+
     def test_budget_reservation_released_after_provider_failure(self) -> None:
         settings = replace(
             self.settings,
