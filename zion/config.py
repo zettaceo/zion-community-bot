@@ -104,6 +104,7 @@ class Settings:
     report_requests_per_minute: int
     ama_requests_per_minute: int
     user_event_retention_days: int
+    idempotency_retention_days: int
     knowledge_gap_retention_days: int
 
     raid_max_joins: int
@@ -260,6 +261,11 @@ class Settings:
             ),
             user_event_retention_days=_int(
                 "ZION_USER_EVENT_RETENTION_DAYS",
+                30,
+                1,
+            ),
+            idempotency_retention_days=_int(
+                "ZION_IDEMPOTENCY_RETENTION_DAYS",
                 30,
                 1,
             ),
