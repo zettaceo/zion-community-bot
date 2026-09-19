@@ -87,6 +87,31 @@ class DatabaseTests(unittest.TestCase):
         resolved = self.db.get_incident(incident)
         self.assertEqual(resolved["status"], "resolved")
 
+    def test_user_event_retention_cleanup(self) -> None:
+        self.db.record_user_event(
+            1,
+            2,
+            "joined",
+            now=100.0,
+        )
+        self.db.record_user_event(
+            1,
+            3,
+            "joined",
+            now=300.0,
+        )
+
+        removed = self.db.prune_user_events(200.0)
+        self.assertEqual(removed, 1)
+        self.assertEqual(
+            self.db.count_user_events(
+                chat_id=1,
+                event_type="joined",
+                since=0.0,
+            ),
+            1,
+        )
+
     def test_knowledge_gap_retention_cleanup(self) -> None:
         self.db.record_knowledge_gap(
             question_hash="old-gap",
