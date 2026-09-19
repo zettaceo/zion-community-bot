@@ -765,18 +765,23 @@ class ZionDB:
             "checkpointed_frames": int(row[2]),
         }
 
-    def file_size_bytes(self) -> int:
-        total = 0
-        for candidate in (
-            self.path,
-            Path(str(self.path) + "-wal"),
-            Path(str(self.path) + "-shm"),
-        ):
+    def file_sizes_bytes(self) -> dict[str, int]:
+        paths = {
+            "database": self.path,
+            "wal": Path(str(self.path) + "-wal"),
+            "shm": Path(str(self.path) + "-shm"),
+        }
+        sizes: dict[str, int] = {}
+        for key, candidate in paths.items():
             try:
-                total += candidate.stat().st_size
+                sizes[key] = int(candidate.stat().st_size)
             except OSError:
-                pass
-        return total
+                sizes[key] = 0
+        sizes["total"] = sum(sizes.values())
+        return sizes
+
+    def file_size_bytes(self) -> int:
+        return self.file_sizes_bytes()["total"]
 
     def import_legacy_guardian_state(
         self,
@@ -2664,12 +2669,19 @@ class ZionDB:
     def stats(self) -> dict[str, int]:
         tables = (
             "users",
+            "user_events",
             "strikes",
+            "containments",
+            "recent_messages",
             "incidents",
             "actions",
+            "domains",
+            "settings",
+            "schema_migrations",
+            "idempotency_keys",
             "ai_events",
             "knowledge_gaps",
-            "idempotency_keys",
+            "scheduled_messages",
             "recurring_messages",
             "ama_sessions",
             "ama_questions",
