@@ -82,6 +82,53 @@ class DatabaseTests(unittest.TestCase):
         resolved = self.db.get_incident(incident)
         self.assertEqual(resolved["status"], "resolved")
 
+    def test_knowledge_gap_retention_cleanup(self) -> None:
+        self.db.record_knowledge_gap(
+            question_hash="old-gap",
+            sample_text="old question",
+        )
+        with self.db._lock:
+            self.db._conn.execute(
+                """
+                UPDATE knowledge_gaps
+                SET last_seen=?
+                WHERE question_hash=?
+                """,
+                (100.0, "old-gap"),
+            )
+            self.db._conn.commit()
+
+        removed = self.db.prune_knowledge_gaps(200.0)
+        self.assertEqual(removed, 1)
+        self.assertEqual(self.db.list_knowledge_gaps(), [])
+
+    def test_resolved_user_report_retention_cleanup(self) -> None:
+        report = self.db.create_incident(
+            chat_id=1,
+            user_id=2,
+            category="user_report",
+            severity=Severity.LOW,
+            source="community",
+            now=100.0,
+        )
+        self.assertTrue(
+            self.db.set_incident_status(report, "resolved")
+        )
+        with self.db._lock:
+            self.db._conn.execute(
+                """
+                UPDATE incidents
+                SET updated_at=?
+                WHERE id=?
+                """,
+                (100.0, report),
+            )
+            self.db._conn.commit()
+
+        removed = self.db.prune_resolved_user_reports(200.0)
+        self.assertEqual(removed, 1)
+        self.assertIsNone(self.db.get_incident(report))
+
     def test_knowledge_gap_rollup(self) -> None:
         self.db.record_knowledge_gap(
             question_hash="abc123",
