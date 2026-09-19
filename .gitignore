@@ -21,6 +21,11 @@ logs/
 # Estado local persistente do ZION
 zion_state.json
 zion_state.json.tmp
+zion.db
+zion.db-wal
+zion.db-shm
+*.sqlite
+*.sqlite3
 
 # Cache e testes
 .pytest_cache/
