@@ -739,6 +739,7 @@ async def diagnostics_command(
         f"State: {diag['state']}\n"
         f"SQLite quick_check: "
         f"{'OK' if diag['sqlite_integrity_ok'] else 'FAIL'}\n"
+        f"SQLite schema: v{diag['schema_version']}\n"
         f"SQLite size: {diag['db_size_mb']} MB\n"
         f"Disk: {disk_state} ({diag['disk_free_mb']} MB free)\n"
         f"Sensitive files: "
@@ -2030,7 +2031,10 @@ async def cancel_recurring_command(
 
     schedule_ref = context.args[0].strip()
     rt = runtime(context)
-    success = rt.db.cancel_recurring_message(schedule_ref)
+    success = rt.db.cancel_recurring_message(
+        schedule_ref,
+        chat_id=update.effective_chat.id,
+    )
     rt.db.record_action(
         incident_id=None,
         chat_id=update.effective_chat.id,
@@ -2046,6 +2050,117 @@ async def cancel_recurring_command(
         "Recorrência cancelada."
         if success
         else "Recorrência ativa não encontrada ou prefixo ambíguo."
+    )
+
+
+async def jobs_command(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+) -> None:
+    if not await require_operator(update, context):
+        return
+    if not update.effective_message:
+        return
+
+    rt = runtime(context)
+    scheduled = rt.db.list_scheduled_messages(limit=8)
+    recurring = rt.db.list_recurring_messages(limit=8)
+
+    lines = ["ZION DELIVERY JOBS", "", "ONE-SHOT"]
+    if not scheduled:
+        lines.append("none")
+    for item in scheduled:
+        lines.append(
+            f"{str(item['id'])[:8]} | {item['status']} | "
+            f"chat={item['chat_id']} | attempts={item['attempts']}"
+        )
+
+    lines.extend(["", "RECURRING"])
+    if not recurring:
+        lines.append("none")
+    for item in recurring:
+        lines.append(
+            f"{str(item['id'])[:8]} | {item['status']} | "
+            f"chat={item['chat_id']} | "
+            f"failures={item['consecutive_failures']}"
+        )
+
+    await update.effective_message.reply_text(
+        "\n".join(lines)[:3900]
+    )
+
+
+async def retry_scheduled_command(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+) -> None:
+    if not await require_operator(update, context):
+        return
+    if not update.effective_message or not context.args:
+        await update.effective_message.reply_text(
+            "Use: /retryscheduled <id-ou-prefixo>"
+        )
+        return
+
+    reference = context.args[0].strip()
+    rt = runtime(context)
+    success = rt.db.retry_scheduled_message(reference)
+    rt.db.record_action(
+        incident_id=None,
+        chat_id=update.effective_chat.id if update.effective_chat else None,
+        user_id=None,
+        action_type="scheduled_retry",
+        actor_type="operator",
+        actor_id=(
+            str(update.effective_user.id)
+            if update.effective_user
+            else None
+        ),
+        reason="manual_operator_command",
+        success=success,
+        metadata={"schedule_ref": reference[:32]},
+    )
+    await update.effective_message.reply_text(
+        "Agendamento reenfileirado."
+        if success
+        else "Agendamento falho não encontrado ou prefixo ambíguo."
+    )
+
+
+async def resume_recurring_command(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+) -> None:
+    if not await require_operator(update, context):
+        return
+    if not update.effective_message or not context.args:
+        await update.effective_message.reply_text(
+            "Use: /resumerecurring <id-ou-prefixo>"
+        )
+        return
+
+    reference = context.args[0].strip()
+    rt = runtime(context)
+    success = rt.db.resume_recurring_message(reference)
+    rt.db.record_action(
+        incident_id=None,
+        chat_id=update.effective_chat.id if update.effective_chat else None,
+        user_id=None,
+        action_type="recurring_resume",
+        actor_type="operator",
+        actor_id=(
+            str(update.effective_user.id)
+            if update.effective_user
+            else None
+        ),
+        reason="manual_operator_command",
+        success=success,
+        metadata={"schedule_ref": reference[:32]},
+    )
+    await update.effective_message.reply_text(
+        "Recorrência retomada."
+        if success
+        else "Recorrência pausada não encontrada ou prefixo ambíguo."
     )
 
 
@@ -3042,6 +3157,7 @@ async def scheduler_loop(application: Application) -> None:
             )
             for item in due:
                 success = False
+                error_type: str | None = None
                 try:
                     await application.bot.send_message(
                         chat_id=int(item["chat_id"]),
@@ -3049,14 +3165,19 @@ async def scheduler_loop(application: Application) -> None:
                     )
                     success = True
                 except Exception as exc:
+                    error_type = type(exc).__name__
                     logger.warning(
                         "Falha ao enviar agendamento %s: %s",
                         item["id"],
-                        exc,
+                        error_type,
                     )
-                rt.db.mark_scheduled_message(
+
+                delivery_state = rt.db.mark_scheduled_message(
                     str(item["id"]),
                     success=success,
+                    max_attempts=rt.settings.schedule_max_attempts,
+                    retry_seconds=rt.settings.schedule_retry_seconds,
+                    error_type=error_type,
                 )
                 rt.db.record_action(
                     incident_id=None,
@@ -3067,8 +3188,33 @@ async def scheduler_loop(application: Application) -> None:
                     actor_id=None,
                     reason="scheduled_message_due",
                     success=success,
-                    metadata={"schedule_id": str(item["id"])},
+                    metadata={
+                        "schedule_id": str(item["id"]),
+                        "delivery_state": delivery_state,
+                        "attempt": int(item.get("attempts", 0)) + 1,
+                        "error_type": error_type,
+                    },
                 )
+
+                if delivery_state == "failed":
+                    rt.db.create_incident(
+                        chat_id=int(item["chat_id"]),
+                        user_id=None,
+                        category="scheduled_delivery_failed",
+                        severity=Severity.MEDIUM,
+                        source="scheduler",
+                        evidence={
+                            "schedule_id": str(item["id"]),
+                            "attempts": (
+                                int(item.get("attempts", 0)) + 1
+                            ),
+                            "error_type": error_type,
+                        },
+                        note=(
+                            "One-shot delivery exhausted bounded retries; "
+                            "operator can use /retryscheduled."
+                        ),
+                    )
 
             recurring_due = (
                 rt.db.due_recurring_messages(limit=20)
@@ -3080,6 +3226,7 @@ async def scheduler_loop(application: Application) -> None:
             )
             for item in recurring_due:
                 success = False
+                error_type: str | None = None
                 try:
                     await application.bot.send_message(
                         chat_id=int(item["chat_id"]),
@@ -3087,14 +3234,19 @@ async def scheduler_loop(application: Application) -> None:
                     )
                     success = True
                 except Exception as exc:
+                    error_type = type(exc).__name__
                     logger.warning(
                         "Falha ao enviar recorrência %s: %s",
                         item["id"],
-                        exc,
+                        error_type,
                     )
-                rt.db.advance_recurring_message(
+
+                delivery_state = rt.db.advance_recurring_message(
                     str(item["id"]),
                     success=success,
+                    max_failures=rt.settings.recurring_max_failures,
+                    retry_seconds=rt.settings.schedule_retry_seconds,
+                    error_type=error_type,
                 )
                 rt.db.record_action(
                     incident_id=None,
@@ -3105,8 +3257,38 @@ async def scheduler_loop(application: Application) -> None:
                     actor_id=None,
                     reason="recurring_message_due",
                     success=success,
-                    metadata={"schedule_id": str(item["id"])},
+                    metadata={
+                        "schedule_id": str(item["id"]),
+                        "delivery_state": delivery_state,
+                        "failure_count": (
+                            0
+                            if success
+                            else int(item.get("consecutive_failures", 0)) + 1
+                        ),
+                        "error_type": error_type,
+                    },
                 )
+
+                if delivery_state == "paused":
+                    rt.db.create_incident(
+                        chat_id=int(item["chat_id"]),
+                        user_id=None,
+                        category="recurring_delivery_paused",
+                        severity=Severity.MEDIUM,
+                        source="scheduler",
+                        evidence={
+                            "schedule_id": str(item["id"]),
+                            "consecutive_failures": (
+                                int(item.get("consecutive_failures", 0)) + 1
+                            ),
+                            "error_type": error_type,
+                        },
+                        note=(
+                            "Recurring delivery paused after bounded "
+                            "consecutive failures; operator can use "
+                            "/resumerecurring."
+                        ),
+                    )
 
             await asyncio.sleep(20)
         except asyncio.CancelledError:
@@ -3212,6 +3394,9 @@ def build_application(settings: Settings | None = None) -> Application:
         "schedule": schedule_command,
         "recurring": recurring_command,
         "cancelrecurring": cancel_recurring_command,
+        "jobs": jobs_command,
+        "retryscheduled": retry_scheduled_command,
+        "resumerecurring": resume_recurring_command,
         "amaopen": ama_open_command,
         "ama": ama_question_command,
         "amalist": ama_list_command,
