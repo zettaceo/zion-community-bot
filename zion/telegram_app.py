@@ -535,6 +535,8 @@ async def health_command(
         f"Telegram Config: {'OK' if snapshot.telegram_configured else 'FAIL'}\n"
         f"Mistral: {'READY' if rt.ai.enabled else 'OFF'}\n"
         f"Wi-Fi Interface: {'PRESENT' if snapshot.wifi_interface_present else 'MISSING'}\n"
+        f"Sensitive Files: "
+        f"{'PRIVATE' if snapshot.details.get('sensitive_files_private') else 'WARNING'}\n"
         f"Disk Free: {snapshot.disk_free_mb} MB\n"
         f"Process Uptime: {uptime}"
     )
