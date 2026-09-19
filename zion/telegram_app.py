@@ -945,7 +945,9 @@ async def stats_command(
     if not update.effective_message:
         return
 
-    stats = runtime(context).db.stats()
+    rt = runtime(context)
+    stats = rt.db.stats()
+    community = rt.db.community_stats()
     await update.effective_message.reply_text(
         "ZION STATS\n"
         f"Users: {stats.get('users', 0)}\n"
@@ -953,7 +955,11 @@ async def stats_command(
         f"Incidents: {stats.get('incidents', 0)}\n"
         f"Actions: {stats.get('actions', 0)}\n"
         f"AI Events: {stats.get('ai_events', 0)}\n"
-        f"Knowledge Gaps: {stats.get('knowledge_gaps', 0)}"
+        f"Knowledge Gaps: {stats.get('knowledge_gaps', 0)}\n"
+        f"Pending scheduled: {community['pending_scheduled']}\n"
+        f"Active recurring: {community['active_recurring']}\n"
+        f"Open AMAs: {community['open_amas']}\n"
+        f"Pending AMA questions: {community['pending_ama_questions']}"
     )
 
 
@@ -1675,7 +1681,9 @@ async def brief_command(
     rt = runtime(context)
     since = time.time() - 86400
     metrics = rt.db.operational_stats_since(since)
+    community = rt.db.community_stats()
     tokens = rt.ai.tokens_used_today()
+    diag = rt.health.diagnostics()
 
     await update.effective_message.reply_text(
         "ZION 24H BRIEF\n"
@@ -1686,7 +1694,13 @@ async def brief_command(
         f"Open incidents: {metrics['open_incidents']}\n"
         f"Actions: {metrics['actions']}\n"
         f"AI events: {metrics['ai_events']}\n"
-        f"Mistral tokens today UTC: {tokens}"
+        f"Mistral tokens today UTC: {tokens}\n"
+        f"Active recurring: {community['active_recurring']}\n"
+        f"Open AMAs / pending questions: "
+        f"{community['open_amas']}/{community['pending_ama_questions']}\n"
+        f"SQLite integrity: "
+        f"{'OK' if diag['sqlite_integrity_ok'] else 'FAIL'}\n"
+        f"Disk free: {diag['disk_free_mb']} MB"
     )
 
 
