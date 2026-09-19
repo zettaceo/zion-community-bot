@@ -117,7 +117,7 @@ class Guardian:
         user_id: int,
         now: float | None = None,
     ) -> int:
-        ts = now or time.time()
+        ts = time.time() if now is None else now
         until = self.db.containment_until(chat_id, user_id, ts)
         return max(0, int(until - ts))
 
@@ -129,7 +129,7 @@ class Guardian:
         message_id: int,
         now: float | None = None,
     ) -> FloodDecision:
-        ts = now or time.time()
+        ts = time.time() if now is None else now
         self.db.prune_recent_messages(
             ts - self.settings.flood_purge_window_seconds
         )
