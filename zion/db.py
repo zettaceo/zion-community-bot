@@ -186,7 +186,8 @@ CREATE TABLE IF NOT EXISTS scheduled_messages (
     sent_at REAL,
     attempts INTEGER NOT NULL DEFAULT 0,
     next_attempt_at REAL,
-    last_error_type TEXT
+    last_error_type TEXT,
+    claimed_at REAL
 );
 
 CREATE INDEX IF NOT EXISTS idx_scheduled_pending
@@ -204,7 +205,8 @@ CREATE TABLE IF NOT EXISTS recurring_messages (
     created_at REAL NOT NULL,
     last_sent_at REAL,
     consecutive_failures INTEGER NOT NULL DEFAULT 0,
-    last_error_type TEXT
+    last_error_type TEXT,
+    claimed_at REAL
 );
 
 CREATE INDEX IF NOT EXISTS idx_recurring_due
@@ -356,6 +358,22 @@ class ZionDB:
                         "recurring_messages",
                         "last_error_type",
                         "TEXT",
+                    ),
+                ),
+            ),
+            (
+                2,
+                "scheduler_claim_tracking",
+                (
+                    (
+                        "scheduled_messages",
+                        "claimed_at",
+                        "REAL",
+                    ),
+                    (
+                        "recurring_messages",
+                        "claimed_at",
+                        "REAL",
                     ),
                 ),
             ),
@@ -1377,12 +1395,13 @@ class ZionDB:
                 UPDATE scheduled_messages
                 SET status='sending',
                     attempts=attempts + 1,
+                    claimed_at=?,
                     last_error_type=NULL
                 WHERE id=?
                   AND status='pending'
                   AND COALESCE(next_attempt_at, send_at) <= ?
                 """,
-                (schedule_id, ts),
+                (ts, schedule_id, ts),
             )
             if cursor.rowcount != 1:
                 self._conn.commit()
@@ -1455,7 +1474,8 @@ class ZionDB:
                 """
                 UPDATE scheduled_messages
                 SET status=?, sent_at=?,
-                    next_attempt_at=?, last_error_type=?
+                    next_attempt_at=?, last_error_type=?,
+                    claimed_at=NULL
                 WHERE id=? AND status='sending'
                 """,
                 (
@@ -1490,7 +1510,7 @@ class ZionDB:
                 SELECT id
                 FROM scheduled_messages
                 WHERE (id=? OR id LIKE ?)
-                  AND status IN ('pending', 'failed')
+                  AND status IN ('pending', 'failed', 'uncertain')
                 """
                 + chat_clause
                 + """
@@ -1512,8 +1532,9 @@ class ZionDB:
             cursor = self._conn.execute(
                 """
                 UPDATE scheduled_messages
-                SET status='cancelled', next_attempt_at=NULL
-                WHERE id=? AND status IN ('pending', 'failed')
+                SET status='cancelled', next_attempt_at=NULL,
+                    claimed_at=NULL
+                WHERE id=? AND status IN ('pending', 'failed', 'uncertain')
                 """
                 + update_clause,
                 tuple(update_params),
@@ -1537,7 +1558,7 @@ class ZionDB:
                 SELECT id
                 FROM scheduled_messages
                 WHERE (id=? OR id LIKE ?)
-                  AND status IN ('failed', 'sending')
+                  AND status IN ('failed', 'uncertain')
                 ORDER BY created_at DESC
                 LIMIT 2
                 """,
@@ -1551,13 +1572,61 @@ class ZionDB:
                 """
                 UPDATE scheduled_messages
                 SET status='pending', attempts=0,
-                    next_attempt_at=?, last_error_type=NULL
-                WHERE id=? AND status IN ('failed', 'sending')
+                    next_attempt_at=?, last_error_type=NULL,
+                    claimed_at=NULL
+                WHERE id=? AND status IN ('failed', 'uncertain')
                 """,
                 (ts, unique_ids[0]),
             )
             self._conn.commit()
         return cursor.rowcount > 0
+
+    def quarantine_stale_delivery_claims(
+        self,
+        *,
+        now: float | None = None,
+        stale_after_seconds: int = 300,
+    ) -> dict[str, int]:
+        ts = time.time() if now is None else now
+        cutoff = ts - max(0, int(stale_after_seconds))
+
+        with self._lock:
+            scheduled = self._conn.execute(
+                """
+                UPDATE scheduled_messages
+                SET status='uncertain',
+                    next_attempt_at=NULL,
+                    last_error_type='stale_claim_after_crash',
+                    claimed_at=NULL
+                WHERE status='sending'
+                  AND (
+                    claimed_at IS NULL
+                    OR claimed_at <= ?
+                  )
+                """,
+                (cutoff,),
+            ).rowcount
+
+            recurring = self._conn.execute(
+                """
+                UPDATE recurring_messages
+                SET status='paused',
+                    last_error_type='stale_claim_after_crash',
+                    claimed_at=NULL
+                WHERE status='sending'
+                  AND (
+                    claimed_at IS NULL
+                    OR claimed_at <= ?
+                  )
+                """,
+                (cutoff,),
+            ).rowcount
+            self._conn.commit()
+
+        return {
+            "scheduled_uncertain": int(scheduled),
+            "recurring_paused": int(recurring),
+        }
 
     def list_scheduled_messages(
         self,
@@ -1568,7 +1637,8 @@ class ZionDB:
             rows = self._conn.execute(
                 """
                 SELECT id, chat_id, send_at, status, attempts,
-                       next_attempt_at, last_error_type, created_at, sent_at
+                       next_attempt_at, last_error_type, claimed_at,
+                       created_at, sent_at
                 FROM scheduled_messages
                 ORDER BY created_at DESC
                 LIMIT ?
@@ -1642,12 +1712,13 @@ class ZionDB:
                 """
                 UPDATE recurring_messages
                 SET status='sending',
+                    claimed_at=?,
                     last_error_type=NULL
                 WHERE id=?
                   AND status='active'
                   AND next_send_at <= ?
                 """,
-                (schedule_id, ts),
+                (ts, schedule_id, ts),
             )
             self._conn.commit()
         return cursor.rowcount == 1
@@ -1707,7 +1778,8 @@ class ZionDB:
                 """
                 UPDATE recurring_messages
                 SET status=?, next_send_at=?, last_sent_at=?,
-                    consecutive_failures=?, last_error_type=?
+                    consecutive_failures=?, last_error_type=?,
+                    claimed_at=NULL
                 WHERE id=? AND status='sending'
                 """,
                 (
@@ -1738,7 +1810,7 @@ class ZionDB:
                 SELECT id
                 FROM recurring_messages
                 WHERE (id=? OR id LIKE ?)
-                  AND status IN ('paused', 'sending')
+                  AND status='paused'
                 ORDER BY created_at DESC
                 LIMIT 2
                 """,
@@ -1752,8 +1824,9 @@ class ZionDB:
                 """
                 UPDATE recurring_messages
                 SET status='active', consecutive_failures=0,
-                    next_send_at=?, last_error_type=NULL
-                WHERE id=? AND status IN ('paused', 'sending')
+                    next_send_at=?, last_error_type=NULL,
+                    claimed_at=NULL
+                WHERE id=? AND status='paused'
                 """,
                 (ts, unique_ids[0]),
             )
@@ -1770,7 +1843,7 @@ class ZionDB:
                 """
                 SELECT id, chat_id, interval_seconds, next_send_at,
                        status, consecutive_failures, last_error_type,
-                       created_at, last_sent_at
+                       claimed_at, created_at, last_sent_at
                 FROM recurring_messages
                 ORDER BY created_at DESC
                 LIMIT ?
@@ -1837,7 +1910,7 @@ class ZionDB:
             cursor = self._conn.execute(
                 """
                 UPDATE recurring_messages
-                SET status='cancelled'
+                SET status='cancelled', claimed_at=NULL
                 WHERE id=? AND status IN ('active', 'paused')
                 """
                 + update_clause,
@@ -2129,6 +2202,10 @@ class ZionDB:
             "failed_scheduled": (
                 "SELECT COUNT(*) AS count FROM scheduled_messages "
                 "WHERE status='failed'"
+            ),
+            "uncertain_scheduled": (
+                "SELECT COUNT(*) AS count FROM scheduled_messages "
+                "WHERE status='uncertain'"
             ),
             "uncertain_scheduled": (
                 "SELECT COUNT(*) AS count FROM scheduled_messages "
