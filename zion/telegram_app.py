@@ -800,8 +800,15 @@ async def diagnostics_command(
         f"Runtime lock: "
         f"{'HELD' if rt.process_lock.acquired else 'MISSING'}\n"
         f"SQLite schema: v{diag['schema_version']}\n"
-        f"SQLite journal/FK: "
+        f"SQLite journal/FK enforcement: "
         f"{pragmas['journal_mode']}/{pragmas['foreign_keys']}\n"
+        f"SQLite FK integrity: "
+        f"{'OK' if diag['sqlite_foreign_keys_ok'] else 'FAIL'}\n"
+        f"SQLite synchronous: {pragmas['synchronous']} (FULL=2)\n"
+        f"SQLite WAL autocheckpoint: "
+        f"{pragmas['wal_autocheckpoint']} pages\n"
+        f"SQLite journal size limit: "
+        f"{pragmas['journal_size_limit']} bytes\n"
         f"SQLite busy timeout: {pragmas['busy_timeout_ms']} ms\n"
         f"SQLite size: {diag['db_size_mb']} MB\n"
         f"Disk: {disk_state} ({diag['disk_free_mb']} MB free)\n"
@@ -3202,6 +3209,8 @@ async def operational_alert_cycle(
 
     if not snapshot.db_ok:
         issues.append("database_or_integrity")
+    if not diagnostics.get("sqlite_foreign_keys_ok", False):
+        issues.append("sqlite_foreign_key_violation")
     if not rt.ai.accounting_healthy:
         issues.append("ai_accounting_fail_closed")
     if not rt.knowledge.chunks:
@@ -3217,6 +3226,8 @@ async def operational_alert_cycle(
         and int(pragmas["foreign_keys"]) != 1
     ):
         issues.append("sqlite_foreign_keys_off")
+    if int(pragmas.get("synchronous", -1)) not in {2, -1}:
+        issues.append("sqlite_synchronous_not_full")
     if community.get("failed_scheduled", 0) > 0:
         issues.append("scheduled_delivery_failed")
     if community.get("uncertain_scheduled", 0) > 0:
