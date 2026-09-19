@@ -16,9 +16,13 @@ class ProcessLock:
         except OSError:
             pass
 
+        flags = os.O_CREAT | os.O_RDWR
+        if hasattr(os, "O_NOFOLLOW"):
+            flags |= os.O_NOFOLLOW
+
         self._fd = os.open(
             self.path,
-            os.O_CREAT | os.O_RDWR,
+            flags,
             0o600,
         )
         try:
@@ -39,9 +43,17 @@ class ProcessLock:
             ) from exc
 
         payload = f"pid={os.getpid()}\n"
-        os.ftruncate(self._fd, 0)
-        os.write(self._fd, payload.encode("ascii"))
-        os.fsync(self._fd)
+        try:
+            os.ftruncate(self._fd, 0)
+            os.write(self._fd, payload.encode("ascii"))
+            os.fsync(self._fd)
+        except Exception:
+            try:
+                fcntl.flock(self._fd, fcntl.LOCK_UN)
+            finally:
+                os.close(self._fd)
+                self._fd = -1
+            raise
 
     @property
     def acquired(self) -> bool:
