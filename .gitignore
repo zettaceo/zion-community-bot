@@ -46,3 +46,7 @@ Thumbs.db
 
 # Backups locais de deploy
 backups/
+
+# Runtime process lock
+zion-runtime.lock
+runtime.lock
