@@ -116,6 +116,12 @@ class V11OperationalAlertTests(unittest.TestCase):
                     text="test",
                     created_by=1,
                 )
+                attempt = rt.db.claim_scheduled_message(
+                    schedule_id,
+                    now=1000.0,
+                )
+                self.assertEqual(attempt, 1)
+
                 state = rt.db.mark_scheduled_message(
                     schedule_id,
                     success=False,
