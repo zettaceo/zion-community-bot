@@ -439,31 +439,32 @@ async def protect_credential_exposure(
         update.effective_chat.id,
         message_id_to_delete,
     )
-    incident_id = rt.db.create_incident(
-        chat_id=update.effective_chat.id,
-        user_id=user_id,
-        category="possible_credential_exposure",
-        severity=Severity.CRITICAL,
-        source=source,
-        evidence={
-            "message_id": message_id_to_delete,
-            "content_not_stored": True,
-        },
-        note=(
-            "Possível credencial de alta confiança detectada; "
-            "o conteúdo sensível não foi persistido."
-        ),
-    )
-    rt.db.record_action(
-        incident_id=incident_id,
-        chat_id=update.effective_chat.id,
-        user_id=user_id,
-        action_type="delete",
-        actor_type="guardian",
-        actor_id=None,
-        reason="possible_credential_exposure",
-        success=deleted,
-    )
+    with rt.db.transaction():
+        incident_id = rt.db.create_incident(
+            chat_id=update.effective_chat.id,
+            user_id=user_id,
+            category="possible_credential_exposure",
+            severity=Severity.CRITICAL,
+            source=source,
+            evidence={
+                "message_id": message_id_to_delete,
+                "content_not_stored": True,
+            },
+            note=(
+                "Possível credencial de alta confiança detectada; "
+                "o conteúdo sensível não foi persistido."
+            ),
+        )
+        rt.db.record_action(
+            incident_id=incident_id,
+            chat_id=update.effective_chat.id,
+            user_id=user_id,
+            action_type="delete",
+            actor_type="guardian",
+            actor_id=None,
+            reason="possible_credential_exposure",
+            success=deleted,
+        )
 
     try:
         await context.bot.send_message(
@@ -516,28 +517,29 @@ async def protect_wallet_secret(
         update.effective_chat.id,
         message_id_to_delete,
     )
-    incident_id = rt.db.create_incident(
-        chat_id=update.effective_chat.id,
-        user_id=user_id,
-        category=sensitive.kind,
-        severity=Severity.CRITICAL,
-        source=source,
-        evidence={
-            "message_id": message_id_to_delete,
-            "content_not_stored": True,
-        },
-        note=sensitive.reason,
-    )
-    rt.db.record_action(
-        incident_id=incident_id,
-        chat_id=update.effective_chat.id,
-        user_id=user_id,
-        action_type="delete",
-        actor_type="guardian",
-        actor_id=None,
-        reason=sensitive.kind,
-        success=deleted,
-    )
+    with rt.db.transaction():
+        incident_id = rt.db.create_incident(
+            chat_id=update.effective_chat.id,
+            user_id=user_id,
+            category=sensitive.kind,
+            severity=Severity.CRITICAL,
+            source=source,
+            evidence={
+                "message_id": message_id_to_delete,
+                "content_not_stored": True,
+            },
+            note=sensitive.reason,
+        )
+        rt.db.record_action(
+            incident_id=incident_id,
+            chat_id=update.effective_chat.id,
+            user_id=user_id,
+            action_type="delete",
+            actor_type="guardian",
+            actor_id=None,
+            reason=sensitive.kind,
+            success=deleted,
+        )
 
     try:
         await context.bot.send_message(
@@ -1133,8 +1135,9 @@ async def stats_command(
         return
 
     rt = runtime(context)
-    stats = rt.db.stats()
-    community = rt.db.community_stats()
+    with rt.db.transaction():
+        stats = rt.db.stats()
+        community = rt.db.community_stats()
     await update.effective_message.reply_text(
         "ZION STATS\n"
         f"Users: {stats.get('users', 0)}\n"
@@ -1310,20 +1313,21 @@ async def resolve_incident_command(
         )
         return
 
-    success = rt.db.set_incident_status(
-        str(incident["id"]),
-        "resolved",
-    )
-    rt.db.record_action(
-        incident_id=str(incident["id"]),
-        chat_id=incident.get("chat_id"),
-        user_id=incident.get("user_id"),
-        action_type="resolve_incident",
-        actor_type="admin",
-        actor_id=str(update.effective_user.id),
-        reason="manual_admin_review",
-        success=success,
-    )
+    with rt.db.transaction():
+        success = rt.db.set_incident_status(
+            str(incident["id"]),
+            "resolved",
+        )
+        rt.db.record_action(
+            incident_id=str(incident["id"]),
+            chat_id=incident.get("chat_id"),
+            user_id=incident.get("user_id"),
+            action_type="resolve_incident",
+            actor_type="admin",
+            actor_id=str(update.effective_user.id),
+            reason="manual_admin_review",
+            success=success,
+        )
     await update.effective_message.reply_text(
         "Incidente marcado como resolvido."
         if success
@@ -1468,19 +1472,20 @@ async def state_command(
         )
         return
 
-    previous = rt.db.get_operating_state()
-    rt.db.set_operating_state(state)
-    rt.db.set_setting("operating_state_expires_at", "0")
-    rt.db.record_action(
-        incident_id=None,
-        chat_id=update.effective_chat.id if update.effective_chat else None,
-        user_id=None,
-        action_type="state_change",
-        actor_type="admin",
-        actor_id=str(update.effective_user.id),
-        reason=f"{previous.value}->{state.value}",
-        success=True,
-    )
+    with rt.db.transaction():
+        previous = rt.db.get_operating_state()
+        rt.db.set_operating_state(state)
+        rt.db.set_setting("operating_state_expires_at", "0")
+        rt.db.record_action(
+            incident_id=None,
+            chat_id=update.effective_chat.id if update.effective_chat else None,
+            user_id=None,
+            action_type="state_change",
+            actor_type="admin",
+            actor_id=str(update.effective_user.id),
+            reason=f"{previous.value}->{state.value}",
+            success=True,
+        )
     await update.effective_message.reply_text(
         f"ZION state: {previous.value} → {state.value}"
     )
@@ -1496,18 +1501,19 @@ async def lockdown_command(
         return
 
     rt = runtime(context)
-    rt.db.set_operating_state(OperatingState.LOCKDOWN)
-    rt.db.set_setting("operating_state_expires_at", "0")
-    rt.db.record_action(
-        incident_id=None,
-        chat_id=update.effective_chat.id if update.effective_chat else None,
-        user_id=None,
-        action_type="lockdown",
-        actor_type="admin",
-        actor_id=str(update.effective_user.id),
-        reason="manual_admin_command",
-        success=True,
-    )
+    with rt.db.transaction():
+        rt.db.set_operating_state(OperatingState.LOCKDOWN)
+        rt.db.set_setting("operating_state_expires_at", "0")
+        rt.db.record_action(
+            incident_id=None,
+            chat_id=update.effective_chat.id if update.effective_chat else None,
+            user_id=None,
+            action_type="lockdown",
+            actor_type="admin",
+            actor_id=str(update.effective_user.id),
+            reason="manual_admin_command",
+            success=True,
+        )
     await update.effective_message.reply_text(
         "🔒 ZION LOCKDOWN ativado. Mensagens de não administradores serão bloqueadas."
     )
@@ -1523,18 +1529,19 @@ async def unlock_command(
         return
 
     rt = runtime(context)
-    rt.db.set_operating_state(OperatingState.NORMAL)
-    rt.db.set_setting("operating_state_expires_at", "0")
-    rt.db.record_action(
-        incident_id=None,
-        chat_id=update.effective_chat.id if update.effective_chat else None,
-        user_id=None,
-        action_type="unlock",
-        actor_type="admin",
-        actor_id=str(update.effective_user.id),
-        reason="manual_admin_command",
-        success=True,
-    )
+    with rt.db.transaction():
+        rt.db.set_operating_state(OperatingState.NORMAL)
+        rt.db.set_setting("operating_state_expires_at", "0")
+        rt.db.record_action(
+            incident_id=None,
+            chat_id=update.effective_chat.id if update.effective_chat else None,
+            user_id=None,
+            action_type="unlock",
+            actor_type="admin",
+            actor_id=str(update.effective_user.id),
+            reason="manual_admin_command",
+            success=True,
+        )
     await update.effective_message.reply_text(
         "🔓 ZION voltou ao estado NORMAL."
     )
@@ -1619,33 +1626,34 @@ async def warn_command(
 
     reason = " ".join(context.args).strip() or "advertência administrativa"
     rt = runtime(context)
-    rt.db.add_strike(
-        chat_id=update.effective_chat.id,
-        user_id=target.id,
-        reason=reason[:200],
-        severity=Severity.MEDIUM,
-        source="admin",
-        ttl_seconds=rt.settings.flood_strike_reset_seconds,
-    )
-    incident_id = rt.db.create_incident(
-        chat_id=update.effective_chat.id,
-        user_id=target.id,
-        category="manual_warning",
-        severity=Severity.MEDIUM,
-        source="admin",
-        evidence={"message_id": replied.message_id if replied else None},
-        note=reason[:500],
-    )
-    rt.db.record_action(
-        incident_id=incident_id,
-        chat_id=update.effective_chat.id,
-        user_id=target.id,
-        action_type="warn",
-        actor_type="admin",
-        actor_id=str(update.effective_user.id),
-        reason=reason[:200],
-        success=True,
-    )
+    with rt.db.transaction():
+        rt.db.add_strike(
+            chat_id=update.effective_chat.id,
+            user_id=target.id,
+            reason=reason[:200],
+            severity=Severity.MEDIUM,
+            source="admin",
+            ttl_seconds=rt.settings.flood_strike_reset_seconds,
+        )
+        incident_id = rt.db.create_incident(
+            chat_id=update.effective_chat.id,
+            user_id=target.id,
+            category="manual_warning",
+            severity=Severity.MEDIUM,
+            source="admin",
+            evidence={"message_id": replied.message_id if replied else None},
+            note=reason[:500],
+        )
+        rt.db.record_action(
+            incident_id=incident_id,
+            chat_id=update.effective_chat.id,
+            user_id=target.id,
+            action_type="warn",
+            actor_type="admin",
+            actor_id=str(update.effective_user.id),
+            reason=reason[:200],
+            success=True,
+        )
     await update.effective_message.reply_text(
         f"⚠️ {user_display_name(target)} recebeu uma advertência."
     )
@@ -1681,25 +1689,26 @@ async def mute_command(
         seconds,
     )
     rt = runtime(context)
-    incident_id = rt.db.create_incident(
-        chat_id=update.effective_chat.id,
-        user_id=target.id,
-        category="manual_mute",
-        severity=Severity.MEDIUM,
-        source="admin",
-        evidence={"duration_seconds": seconds},
-    )
-    rt.db.record_action(
-        incident_id=incident_id,
-        chat_id=update.effective_chat.id,
-        user_id=target.id,
-        action_type="mute",
-        actor_type="admin",
-        actor_id=str(update.effective_user.id),
-        reason="manual_admin_command",
-        success=success,
-        metadata={"duration_seconds": seconds},
-    )
+    with rt.db.transaction():
+        incident_id = rt.db.create_incident(
+            chat_id=update.effective_chat.id,
+            user_id=target.id,
+            category="manual_mute",
+            severity=Severity.MEDIUM,
+            source="admin",
+            evidence={"duration_seconds": seconds},
+        )
+        rt.db.record_action(
+            incident_id=incident_id,
+            chat_id=update.effective_chat.id,
+            user_id=target.id,
+            action_type="mute",
+            actor_type="admin",
+            actor_id=str(update.effective_user.id),
+            reason="manual_admin_command",
+            success=success,
+            metadata={"duration_seconds": seconds},
+        )
     await update.effective_message.reply_text(
         (
             f"🔇 {user_display_name(target)} silenciado por "
@@ -1737,23 +1746,24 @@ async def ban_command(
         target.id,
     )
     rt = runtime(context)
-    incident_id = rt.db.create_incident(
-        chat_id=update.effective_chat.id,
-        user_id=target.id,
-        category="manual_ban",
-        severity=Severity.HIGH,
-        source="admin",
-    )
-    rt.db.record_action(
-        incident_id=incident_id,
-        chat_id=update.effective_chat.id,
-        user_id=target.id,
-        action_type="ban",
-        actor_type="admin",
-        actor_id=str(update.effective_user.id),
-        reason="manual_admin_command",
-        success=success,
-    )
+    with rt.db.transaction():
+        incident_id = rt.db.create_incident(
+            chat_id=update.effective_chat.id,
+            user_id=target.id,
+            category="manual_ban",
+            severity=Severity.HIGH,
+            source="admin",
+        )
+        rt.db.record_action(
+            incident_id=incident_id,
+            chat_id=update.effective_chat.id,
+            user_id=target.id,
+            action_type="ban",
+            actor_type="admin",
+            actor_id=str(update.effective_user.id),
+            reason="manual_admin_command",
+            success=success,
+        )
     await update.effective_message.reply_text(
         (
             f"⛔ {user_display_name(target)} foi banido."
@@ -1796,23 +1806,24 @@ async def unban_command(
         target_id,
     )
     rt = runtime(context)
-    incident_id = rt.db.create_incident(
-        chat_id=update.effective_chat.id,
-        user_id=target_id,
-        category="manual_unban",
-        severity=Severity.INFO,
-        source="admin",
-    )
-    rt.db.record_action(
-        incident_id=incident_id,
-        chat_id=update.effective_chat.id,
-        user_id=target_id,
-        action_type="unban",
-        actor_type="admin",
-        actor_id=str(update.effective_user.id),
-        reason="manual_admin_command",
-        success=success,
-    )
+    with rt.db.transaction():
+        incident_id = rt.db.create_incident(
+            chat_id=update.effective_chat.id,
+            user_id=target_id,
+            category="manual_unban",
+            severity=Severity.INFO,
+            source="admin",
+        )
+        rt.db.record_action(
+            incident_id=incident_id,
+            chat_id=update.effective_chat.id,
+            user_id=target_id,
+            action_type="unban",
+            actor_type="admin",
+            actor_id=str(update.effective_user.id),
+            reason="manual_admin_command",
+            success=success,
+        )
     await update.effective_message.reply_text(
         (
             f"✅ Usuário {target_id} desbanido."
@@ -2037,26 +2048,27 @@ async def schedule_command(
         return
 
     rt = runtime(context)
-    schedule_id = rt.db.schedule_message(
-        chat_id=update.effective_chat.id,
-        send_at=send_at,
-        text=text[:3500],
-        created_by=update.effective_user.id,
-    )
-    rt.db.record_action(
-        incident_id=None,
-        chat_id=update.effective_chat.id,
-        user_id=None,
-        action_type="scheduled_create",
-        actor_type="admin",
-        actor_id=str(update.effective_user.id),
-        reason="manual_admin_command",
-        success=True,
-        metadata={
-            "schedule_id": schedule_id,
-            "send_at": send_at,
-        },
-    )
+    with rt.db.transaction():
+        schedule_id = rt.db.schedule_message(
+            chat_id=update.effective_chat.id,
+            send_at=send_at,
+            text=text[:3500],
+            created_by=update.effective_user.id,
+        )
+        rt.db.record_action(
+            incident_id=None,
+            chat_id=update.effective_chat.id,
+            user_id=None,
+            action_type="scheduled_create",
+            actor_type="admin",
+            actor_id=str(update.effective_user.id),
+            reason="manual_admin_command",
+            success=True,
+            metadata={
+                "schedule_id": schedule_id,
+                "send_at": send_at,
+            },
+        )
     await update.effective_message.reply_text(
         f"📅 Mensagem agendada: {schedule_id[:8]} para {when.isoformat()}."
     )
@@ -2082,21 +2094,22 @@ async def cancel_scheduled_command(
 
     reference = context.args[0].strip()
     rt = runtime(context)
-    success = rt.db.cancel_scheduled_message(
-        reference,
-        chat_id=update.effective_chat.id,
-    )
-    rt.db.record_action(
-        incident_id=None,
-        chat_id=update.effective_chat.id,
-        user_id=None,
-        action_type="scheduled_cancel",
-        actor_type="admin",
-        actor_id=str(update.effective_user.id),
-        reason="manual_admin_command",
-        success=success,
-        metadata={"schedule_ref": reference[:32]},
-    )
+    with rt.db.transaction():
+        success = rt.db.cancel_scheduled_message(
+            reference,
+            chat_id=update.effective_chat.id,
+        )
+        rt.db.record_action(
+            incident_id=None,
+            chat_id=update.effective_chat.id,
+            user_id=None,
+            action_type="scheduled_cancel",
+            actor_type="admin",
+            actor_id=str(update.effective_user.id),
+            reason="manual_admin_command",
+            success=success,
+            metadata={"schedule_ref": reference[:32]},
+        )
     await update.effective_message.reply_text(
         "Agendamento cancelado."
         if success
@@ -2148,27 +2161,29 @@ async def recurring_command(
     if not text:
         return
 
-    schedule_id = runtime(context).db.schedule_recurring_message(
-        chat_id=update.effective_chat.id,
-        first_send_at=first.timestamp(),
-        interval_seconds=interval,
-        text=text,
-        created_by=update.effective_user.id,
-    )
-    runtime(context).db.record_action(
-        incident_id=None,
-        chat_id=update.effective_chat.id,
-        user_id=None,
-        action_type="recurring_schedule",
-        actor_type="admin",
-        actor_id=str(update.effective_user.id),
-        reason="manual_admin_command",
-        success=True,
-        metadata={
-            "schedule_id": schedule_id,
-            "interval_seconds": interval,
-        },
-    )
+    rt = runtime(context)
+    with rt.db.transaction():
+        schedule_id = rt.db.schedule_recurring_message(
+            chat_id=update.effective_chat.id,
+            first_send_at=first.timestamp(),
+            interval_seconds=interval,
+            text=text,
+            created_by=update.effective_user.id,
+        )
+        rt.db.record_action(
+            incident_id=None,
+            chat_id=update.effective_chat.id,
+            user_id=None,
+            action_type="recurring_schedule",
+            actor_type="admin",
+            actor_id=str(update.effective_user.id),
+            reason="manual_admin_command",
+            success=True,
+            metadata={
+                "schedule_id": schedule_id,
+                "interval_seconds": interval,
+            },
+        )
     await update.effective_message.reply_text(
         f"🔁 Recorrência criada: {schedule_id[:8]} | "
         f"primeiro envio {first.isoformat()} | "
@@ -2196,21 +2211,22 @@ async def cancel_recurring_command(
 
     schedule_ref = context.args[0].strip()
     rt = runtime(context)
-    success = rt.db.cancel_recurring_message(
-        schedule_ref,
-        chat_id=update.effective_chat.id,
-    )
-    rt.db.record_action(
-        incident_id=None,
-        chat_id=update.effective_chat.id,
-        user_id=None,
-        action_type="recurring_cancel",
-        actor_type="admin",
-        actor_id=str(update.effective_user.id),
-        reason="manual_admin_command",
-        success=success,
-        metadata={"schedule_ref": schedule_ref[:32]},
-    )
+    with rt.db.transaction():
+        success = rt.db.cancel_recurring_message(
+            schedule_ref,
+            chat_id=update.effective_chat.id,
+        )
+        rt.db.record_action(
+            incident_id=None,
+            chat_id=update.effective_chat.id,
+            user_id=None,
+            action_type="recurring_cancel",
+            actor_type="admin",
+            actor_id=str(update.effective_user.id),
+            reason="manual_admin_command",
+            success=success,
+            metadata={"schedule_ref": schedule_ref[:32]},
+        )
     await update.effective_message.reply_text(
         "Recorrência cancelada."
         if success
@@ -2286,22 +2302,23 @@ async def retry_scheduled_command(
 
     reference = context.args[0].strip()
     rt = runtime(context)
-    success = rt.db.retry_scheduled_message(reference)
-    rt.db.record_action(
-        incident_id=None,
-        chat_id=update.effective_chat.id if update.effective_chat else None,
-        user_id=None,
-        action_type="scheduled_retry",
-        actor_type="operator",
-        actor_id=(
-            str(update.effective_user.id)
-            if update.effective_user
-            else None
-        ),
-        reason="manual_operator_command",
-        success=success,
-        metadata={"schedule_ref": reference[:32]},
-    )
+    with rt.db.transaction():
+        success = rt.db.retry_scheduled_message(reference)
+        rt.db.record_action(
+            incident_id=None,
+            chat_id=update.effective_chat.id if update.effective_chat else None,
+            user_id=None,
+            action_type="scheduled_retry",
+            actor_type="operator",
+            actor_id=(
+                str(update.effective_user.id)
+                if update.effective_user
+                else None
+            ),
+            reason="manual_operator_command",
+            success=success,
+            metadata={"schedule_ref": reference[:32]},
+        )
     await update.effective_message.reply_text(
         (
             "Agendamento reenfileirado. Se o estado anterior era UNCERTAIN, "
@@ -2330,22 +2347,23 @@ async def resume_recurring_command(
 
     reference = context.args[0].strip()
     rt = runtime(context)
-    success = rt.db.resume_recurring_message(reference)
-    rt.db.record_action(
-        incident_id=None,
-        chat_id=update.effective_chat.id if update.effective_chat else None,
-        user_id=None,
-        action_type="recurring_resume",
-        actor_type="operator",
-        actor_id=(
-            str(update.effective_user.id)
-            if update.effective_user
-            else None
-        ),
-        reason="manual_operator_command",
-        success=success,
-        metadata={"schedule_ref": reference[:32]},
-    )
+    with rt.db.transaction():
+        success = rt.db.resume_recurring_message(reference)
+        rt.db.record_action(
+            incident_id=None,
+            chat_id=update.effective_chat.id if update.effective_chat else None,
+            user_id=None,
+            action_type="recurring_resume",
+            actor_type="operator",
+            actor_id=(
+                str(update.effective_user.id)
+                if update.effective_user
+                else None
+            ),
+            reason="manual_operator_command",
+            success=success,
+            metadata={"schedule_ref": reference[:32]},
+        )
     await update.effective_message.reply_text(
         (
             "Recorrência retomada. Se a pausa veio de um resultado "
@@ -2386,22 +2404,23 @@ async def ama_open_command(
         )
         return
 
-    ama_id = rt.db.create_ama(
-        chat_id=update.effective_chat.id,
-        title=title,
-        created_by=update.effective_user.id,
-    )
-    rt.db.record_action(
-        incident_id=None,
-        chat_id=update.effective_chat.id,
-        user_id=None,
-        action_type="ama_open",
-        actor_type="admin",
-        actor_id=str(update.effective_user.id),
-        reason="manual_admin_command",
-        success=True,
-        metadata={"ama_id": ama_id},
-    )
+    with rt.db.transaction():
+        ama_id = rt.db.create_ama(
+            chat_id=update.effective_chat.id,
+            title=title,
+            created_by=update.effective_user.id,
+        )
+        rt.db.record_action(
+            incident_id=None,
+            chat_id=update.effective_chat.id,
+            user_id=None,
+            action_type="ama_open",
+            actor_type="admin",
+            actor_id=str(update.effective_user.id),
+            reason="manual_admin_command",
+            success=True,
+            metadata={"ama_id": ama_id},
+        )
     await update.effective_message.reply_text(
         f"🎙️ AMA aberto: {title[:200]}\n"
         "Envie perguntas com /ama <pergunta>. "
@@ -2506,24 +2525,27 @@ async def ama_close_command(
     ):
         return
 
-    closed = runtime(context).db.close_ama(update.effective_chat.id)
+    rt = runtime(context)
+    with rt.db.transaction():
+        closed = rt.db.close_ama(update.effective_chat.id)
+        if closed:
+            rt.db.record_action(
+                incident_id=None,
+                chat_id=update.effective_chat.id,
+                user_id=None,
+                action_type="ama_close",
+                actor_type="admin",
+                actor_id=str(update.effective_user.id),
+                reason="manual_admin_command",
+                success=True,
+                metadata={"ama_id": str(closed["id"])},
+            )
     if not closed:
         await update.effective_message.reply_text(
             "Não há AMA aberto neste chat."
         )
         return
 
-    runtime(context).db.record_action(
-        incident_id=None,
-        chat_id=update.effective_chat.id,
-        user_id=None,
-        action_type="ama_close",
-        actor_type="admin",
-        actor_id=str(update.effective_user.id),
-        reason="manual_admin_command",
-        success=True,
-        metadata={"ama_id": str(closed["id"])},
-    )
     await update.effective_message.reply_text(
         f"🎙️ AMA encerrado: {closed['title']}"
     )
@@ -2561,18 +2583,19 @@ async def welcome_handler(
         if member.is_bot:
             continue
 
-        rt.db.upsert_user(
-            chat_id=chat_id,
-            user_id=member.id,
-            username=member.username,
-            first_name=member.first_name,
-            language_code=member.language_code,
-        )
-        rt.db.record_user_event(
-            chat_id,
-            member.id,
-            "joined",
-        )
+        with rt.db.transaction():
+            rt.db.upsert_user(
+                chat_id=chat_id,
+                user_id=member.id,
+                username=member.username,
+                first_name=member.first_name,
+                language_code=member.language_code,
+            )
+            rt.db.record_user_event(
+                chat_id,
+                member.id,
+                "joined",
+            )
 
         await update.effective_message.reply_text(
             f"⚡ Bem-vindo(a) / Welcome, "
@@ -2597,39 +2620,40 @@ async def welcome_handler(
         and rt.db.get_operating_state() == OperatingState.NORMAL
     ):
         expires_at = now + rt.settings.raid_elevated_seconds
-        rt.db.set_operating_state(OperatingState.ELEVATED)
-        rt.db.set_setting(
-            "operating_state_expires_at",
-            str(expires_at),
-        )
+        with rt.db.transaction():
+            rt.db.set_operating_state(OperatingState.ELEVATED)
+            rt.db.set_setting(
+                "operating_state_expires_at",
+                str(expires_at),
+            )
 
-        incident_id = rt.db.create_incident(
-            chat_id=chat_id,
-            user_id=None,
-            category="mass_join_detected",
-            severity=Severity.HIGH,
-            source="guardian",
-            evidence={
-                "joins": joins,
-                "window_seconds": rt.settings.raid_window_seconds,
-                "temporary_state": OperatingState.ELEVATED.value,
-                "expires_at": expires_at,
-            },
-        )
-        rt.db.record_action(
-            incident_id=incident_id,
-            chat_id=chat_id,
-            user_id=None,
-            action_type="state_change",
-            actor_type="guardian",
-            actor_id=None,
-            reason="mass_join_detected",
-            success=True,
-            metadata={
-                "state": OperatingState.ELEVATED.value,
-                "expires_at": expires_at,
-            },
-        )
+            incident_id = rt.db.create_incident(
+                chat_id=chat_id,
+                user_id=None,
+                category="mass_join_detected",
+                severity=Severity.HIGH,
+                source="guardian",
+                evidence={
+                    "joins": joins,
+                    "window_seconds": rt.settings.raid_window_seconds,
+                    "temporary_state": OperatingState.ELEVATED.value,
+                    "expires_at": expires_at,
+                },
+            )
+            rt.db.record_action(
+                incident_id=incident_id,
+                chat_id=chat_id,
+                user_id=None,
+                action_type="state_change",
+                actor_type="guardian",
+                actor_id=None,
+                reason="mass_join_detected",
+                success=True,
+                metadata={
+                    "state": OperatingState.ELEVATED.value,
+                    "expires_at": expires_at,
+                },
+            )
 
         await context.bot.send_message(
             chat_id=chat_id,
@@ -2974,28 +2998,29 @@ async def command_guard_handler(
             chat.id,
             message.message_id,
         )
-        incident_id = rt.db.create_incident(
-            chat_id=chat.id,
-            user_id=user.id,
-            category="unauthorized_link",
-            severity=Severity.LOW,
-            source="guardian_command_preflight",
-            evidence={
-                "domains": links.unauthorized_domains,
-                "message_id": message.message_id,
-            },
-        )
-        rt.db.record_action(
-            incident_id=incident_id,
-            chat_id=chat.id,
-            user_id=user.id,
-            action_type="delete",
-            actor_type="guardian",
-            actor_id=None,
-            reason="unauthorized_link",
-            success=deleted,
-            metadata={"domains": links.unauthorized_domains},
-        )
+        with rt.db.transaction():
+            incident_id = rt.db.create_incident(
+                chat_id=chat.id,
+                user_id=user.id,
+                category="unauthorized_link",
+                severity=Severity.LOW,
+                source="guardian_command_preflight",
+                evidence={
+                    "domains": links.unauthorized_domains,
+                    "message_id": message.message_id,
+                },
+            )
+            rt.db.record_action(
+                incident_id=incident_id,
+                chat_id=chat.id,
+                user_id=user.id,
+                action_type="delete",
+                actor_type="guardian",
+                actor_id=None,
+                reason="unauthorized_link",
+                success=deleted,
+                metadata={"domains": links.unauthorized_domains},
+            )
         raise ApplicationHandlerStop
 
 
@@ -3117,28 +3142,29 @@ async def moderation_handler(
             chat.id,
             message.message_id,
         )
-        incident_id = rt.db.create_incident(
-            chat_id=chat.id,
-            user_id=user.id,
-            category="unauthorized_link",
-            severity=Severity.LOW,
-            source="guardian",
-            evidence={
-                "domains": links.unauthorized_domains,
-                "message_id": message.message_id,
-            },
-        )
-        rt.db.record_action(
-            incident_id=incident_id,
-            chat_id=chat.id,
-            user_id=user.id,
-            action_type="delete",
-            actor_type="guardian",
-            actor_id=None,
-            reason="unauthorized_link",
-            success=deleted,
-            metadata={"domains": links.unauthorized_domains},
-        )
+        with rt.db.transaction():
+            incident_id = rt.db.create_incident(
+                chat_id=chat.id,
+                user_id=user.id,
+                category="unauthorized_link",
+                severity=Severity.LOW,
+                source="guardian",
+                evidence={
+                    "domains": links.unauthorized_domains,
+                    "message_id": message.message_id,
+                },
+            )
+            rt.db.record_action(
+                incident_id=incident_id,
+                chat_id=chat.id,
+                user_id=user.id,
+                action_type="delete",
+                actor_type="guardian",
+                actor_id=None,
+                reason="unauthorized_link",
+                success=deleted,
+                metadata={"domains": links.unauthorized_domains},
+            )
         try:
             await context.bot.send_message(
                 chat_id=chat.id,
@@ -3172,33 +3198,34 @@ async def moderation_handler(
 
 
 def expire_temporary_state(rt: Runtime) -> None:
-    raw = rt.db.get_setting("operating_state_expires_at")
-    if not raw:
-        return
+    with rt.db.transaction():
+        raw = rt.db.get_setting("operating_state_expires_at")
+        if not raw:
+            return
 
-    try:
-        expires_at = float(raw)
-    except ValueError:
+        try:
+            expires_at = float(raw)
+        except ValueError:
+            rt.db.set_setting("operating_state_expires_at", "0")
+            return
+
+        if expires_at <= 0 or time.time() < expires_at:
+            return
+
+        if rt.db.get_operating_state() == OperatingState.ELEVATED:
+            rt.db.set_operating_state(OperatingState.NORMAL)
+            rt.db.record_action(
+                incident_id=None,
+                chat_id=None,
+                user_id=None,
+                action_type="state_change",
+                actor_type="guardian",
+                actor_id=None,
+                reason="temporary_elevated_expired",
+                success=True,
+            )
+
         rt.db.set_setting("operating_state_expires_at", "0")
-        return
-
-    if expires_at <= 0 or time.time() < expires_at:
-        return
-
-    if rt.db.get_operating_state() == OperatingState.ELEVATED:
-        rt.db.set_operating_state(OperatingState.NORMAL)
-        rt.db.record_action(
-            incident_id=None,
-            chat_id=None,
-            user_id=None,
-            action_type="state_change",
-            actor_type="guardian",
-            actor_id=None,
-            reason="temporary_elevated_expired",
-            success=True,
-        )
-
-    rt.db.set_setting("operating_state_expires_at", "0")
 
 
 async def operational_alert_cycle(
@@ -3609,29 +3636,30 @@ async def scheduler_loop(application: Application) -> None:
                         error_type,
                     )
 
-                delivery_state = rt.db.mark_scheduled_message(
-                    str(item["id"]),
-                    success=success,
-                    max_attempts=rt.settings.schedule_max_attempts,
-                    retry_seconds=rt.settings.schedule_retry_seconds,
-                    error_type=error_type,
-                )
-                rt.db.record_action(
-                    incident_id=None,
-                    chat_id=int(item["chat_id"]),
-                    user_id=None,
-                    action_type="scheduled_send",
-                    actor_type="scheduler",
-                    actor_id=None,
-                    reason="scheduled_message_due",
-                    success=success,
-                    metadata={
-                        "schedule_id": str(item["id"]),
-                        "delivery_state": delivery_state,
-                        "attempt": attempt,
-                        "error_type": error_type,
-                    },
-                )
+                with rt.db.transaction():
+                    delivery_state = rt.db.mark_scheduled_message(
+                        str(item["id"]),
+                        success=success,
+                        max_attempts=rt.settings.schedule_max_attempts,
+                        retry_seconds=rt.settings.schedule_retry_seconds,
+                        error_type=error_type,
+                    )
+                    rt.db.record_action(
+                        incident_id=None,
+                        chat_id=int(item["chat_id"]),
+                        user_id=None,
+                        action_type="scheduled_send",
+                        actor_type="scheduler",
+                        actor_id=None,
+                        reason="scheduled_message_due",
+                        success=success,
+                        metadata={
+                            "schedule_id": str(item["id"]),
+                            "delivery_state": delivery_state,
+                            "attempt": attempt,
+                            "error_type": error_type,
+                        },
+                    )
 
                 if delivery_state == "failed":
                     rt.db.create_incident(
@@ -3682,33 +3710,34 @@ async def scheduler_loop(application: Application) -> None:
                         error_type,
                     )
 
-                delivery_state = rt.db.advance_recurring_message(
-                    str(item["id"]),
-                    success=success,
-                    max_failures=rt.settings.recurring_max_failures,
-                    retry_seconds=rt.settings.schedule_retry_seconds,
-                    error_type=error_type,
-                )
-                rt.db.record_action(
-                    incident_id=None,
-                    chat_id=int(item["chat_id"]),
-                    user_id=None,
-                    action_type="recurring_send",
-                    actor_type="scheduler",
-                    actor_id=None,
-                    reason="recurring_message_due",
-                    success=success,
-                    metadata={
-                        "schedule_id": str(item["id"]),
-                        "delivery_state": delivery_state,
-                        "failure_count": (
-                            0
-                            if success
-                            else int(item.get("consecutive_failures", 0)) + 1
-                        ),
-                        "error_type": error_type,
-                    },
-                )
+                with rt.db.transaction():
+                    delivery_state = rt.db.advance_recurring_message(
+                        str(item["id"]),
+                        success=success,
+                        max_failures=rt.settings.recurring_max_failures,
+                        retry_seconds=rt.settings.schedule_retry_seconds,
+                        error_type=error_type,
+                    )
+                    rt.db.record_action(
+                        incident_id=None,
+                        chat_id=int(item["chat_id"]),
+                        user_id=None,
+                        action_type="recurring_send",
+                        actor_type="scheduler",
+                        actor_id=None,
+                        reason="recurring_message_due",
+                        success=success,
+                        metadata={
+                            "schedule_id": str(item["id"]),
+                            "delivery_state": delivery_state,
+                            "failure_count": (
+                                0
+                                if success
+                                else int(item.get("consecutive_failures", 0)) + 1
+                            ),
+                            "error_type": error_type,
+                        },
+                    )
 
                 if delivery_state == "paused":
                     rt.db.create_incident(
