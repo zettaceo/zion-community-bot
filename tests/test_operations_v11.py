@@ -8,6 +8,7 @@ from dataclasses import replace
 from pathlib import Path
 
 from tests.helpers import make_settings
+from zion.db import ZionDB
 from zion.telegram_app import Runtime, operational_alert_cycle
 
 
@@ -34,6 +35,68 @@ class V11OperationalAlertTests(unittest.TestCase):
             encoding="utf-8",
         )
         return make_settings(root)
+
+    def test_runtime_startup_quarantines_orphaned_claims(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            settings = self._healthy_settings(root)
+
+            db = ZionDB(settings.db_path)
+            db.initialize()
+            try:
+                scheduled_id = db.schedule_message(
+                    chat_id=10,
+                    send_at=1000.0,
+                    text="unknown one-shot outcome",
+                    created_by=1,
+                )
+                recurring_id = db.schedule_recurring_message(
+                    chat_id=10,
+                    first_send_at=1000.0,
+                    interval_seconds=3600,
+                    text="unknown recurring outcome",
+                    created_by=1,
+                )
+                self.assertEqual(
+                    db.claim_scheduled_message(
+                        scheduled_id,
+                        now=1000.0,
+                    ),
+                    1,
+                )
+                self.assertTrue(
+                    db.claim_recurring_message(
+                        recurring_id,
+                        now=1000.0,
+                    )
+                )
+            finally:
+                db.close()
+
+            rt = Runtime(settings)
+            try:
+                self.assertEqual(
+                    rt.startup_delivery_recovery,
+                    {
+                        "scheduled_uncertain": 1,
+                        "recurring_paused": 1,
+                    },
+                )
+                scheduled = rt.db.list_scheduled_messages(limit=1)[0]
+                recurring = rt.db.list_recurring_messages(limit=1)[0]
+                self.assertEqual(scheduled["status"], "uncertain")
+                self.assertEqual(recurring["status"], "paused")
+
+                incidents = rt.db.list_incidents(limit=10)
+                self.assertTrue(
+                    any(
+                        item["category"]
+                        == "orphaned_delivery_claims_quarantined"
+                        for item in incidents
+                    )
+                )
+            finally:
+                rt.close()
 
     def test_unchanged_alert_is_bounded_then_repeated(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
