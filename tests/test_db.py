@@ -102,6 +102,21 @@ class DatabaseTests(unittest.TestCase):
         )
         self.assertEqual(self.db.list_knowledge_gaps(), [])
 
+    def test_ai_token_usage(self) -> None:
+        self.db.record_ai_event(
+            chat_id=1,
+            user_id=2,
+            purpose="test",
+            model="test-model",
+            success=True,
+            input_tokens=120,
+            output_tokens=30,
+        )
+        self.assertEqual(
+            self.db.ai_tokens_since(0),
+            150,
+        )
+
     def test_incident_and_action(self) -> None:
         incident = self.db.create_incident(
             chat_id=1,
