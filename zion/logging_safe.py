@@ -18,7 +18,7 @@ SECRET_ENV_MARKERS = (
 )
 
 TELEGRAM_TOKEN_REGEX = re.compile(
-    r"(?<![A-Za-z0-9_])\d{6,}:[A-Za-z0-9_-]{20,}"
+    r"\d{6,}:[A-Za-z0-9_-]{20,}"
 )
 
 BEARER_REGEX = re.compile(
