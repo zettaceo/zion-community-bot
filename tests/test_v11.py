@@ -315,6 +315,14 @@ class V11DatabaseTests(unittest.TestCase):
                 now=1400.0,
             )
         )
+        self.assertEqual(
+            self.db.due_recurring_messages(now=1400.0),
+            [],
+        )
+        self.assertEqual(
+            len(self.db.due_recurring_messages(now=4600.0)),
+            1,
+        )
 
     def test_scheduled_delivery_retries_then_manual_recovery(self) -> None:
         schedule_id = self.db.schedule_message(
