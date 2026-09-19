@@ -9,6 +9,7 @@ ZION may automatically act on:
 - manually activated lockdown;
 - unauthorized links/domains;
 - high-confidence possible wallet-secret exposure;
+- high-confidence credential exposure;
 - repeat flood escalation up to ban, according to configured strike count.
 
 These rules are objective, inspectable and auditable.
