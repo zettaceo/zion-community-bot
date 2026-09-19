@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import stat
 import tempfile
 import unittest
 from pathlib import Path
@@ -18,6 +19,10 @@ class DatabaseTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.db.close()
         self.temp.cleanup()
+
+    def test_database_permissions_are_private(self) -> None:
+        mode = stat.S_IMODE(self.path.stat().st_mode)
+        self.assertEqual(mode, 0o600)
 
     def test_default_state(self) -> None:
         self.assertEqual(
