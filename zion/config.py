@@ -38,6 +38,21 @@ def _csv(name: str) -> tuple[str, ...]:
     )
 
 
+def _domain_set(name: str) -> frozenset[str]:
+    result: set[str] = set()
+    for item in _csv(name):
+        raw = item.strip().lower().strip(".")
+        if not raw or any(char in raw for char in "/:@"):
+            continue
+        try:
+            normalized = raw.encode("idna").decode("ascii").lower()
+        except UnicodeError:
+            continue
+        if normalized:
+            result.add(normalized)
+    return frozenset(result)
+
+
 def _int_set(name: str) -> frozenset[int]:
     result: set[int] = set()
     for item in _csv(name):
@@ -109,6 +124,27 @@ class Settings:
     mistral_timeout_seconds: float
     mistral_max_tokens: int
 
+    def configuration_issues(self) -> tuple[str, ...]:
+        issues: list[str] = []
+
+        if not self.admin_user_ids:
+            issues.append("operator_allowlist_empty")
+        if self.ai_enabled and not self.mistral_api_key:
+            issues.append("ai_enabled_without_key")
+        if self.ai_observe and not self.ai_enabled:
+            issues.append("ai_observe_without_ai")
+        if not self.wifi_interface:
+            issues.append("wifi_interface_empty")
+
+        try:
+            self.runtime_lock_path.relative_to(self.root_dir)
+        except ValueError:
+            pass
+        else:
+            issues.append("runtime_lock_inside_worktree")
+
+        return tuple(issues)
+
     @classmethod
     def from_env(cls) -> "Settings":
         root = Path(__file__).resolve().parent.parent
@@ -123,11 +159,7 @@ class Settings:
             if value > 0:
                 mute_levels.append(value)
 
-        allowed_domains = frozenset(
-            domain.lower().strip(".")
-            for domain in _csv("ALLOWED_DOMAINS")
-            if domain
-        )
+        allowed_domains = _domain_set("ALLOWED_DOMAINS")
 
         return cls(
             root_dir=root,
