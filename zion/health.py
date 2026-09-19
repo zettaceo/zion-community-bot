@@ -165,6 +165,7 @@ class HealthService:
                 "wal_autocheckpoint": -1,
                 "journal_size_limit": -1,
                 "trusted_schema": -1,
+                "application_id": 0,
             }
 
         try:
