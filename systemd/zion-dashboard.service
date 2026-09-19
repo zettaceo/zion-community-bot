@@ -1,0 +1,20 @@
+[Unit]
+Description=ZION Read-Only Local Dashboard
+After=zion.service
+Wants=zion.service
+
+[Service]
+Type=simple
+User=zetta
+WorkingDirectory=/home/zetta/zion-community-bot
+EnvironmentFile=/home/zetta/zion-community-bot/.env
+ExecStart=/home/zetta/zion-community-bot/.venv/bin/python -m zion.admin_dashboard
+Restart=on-failure
+RestartSec=10
+
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
