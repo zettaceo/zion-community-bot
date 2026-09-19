@@ -52,7 +52,7 @@ class V11OperationalAlertTests(unittest.TestCase):
                 asyncio.run(operational_alert_cycle(app, rt))
                 self.assertEqual(len(app.bot.sent), 2)
             finally:
-                rt.db.close()
+                rt.close()
 
     def test_failed_delivery_alerts_and_recovery(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -101,7 +101,7 @@ class V11OperationalAlertTests(unittest.TestCase):
                     app.bot.sent[1][1],
                 )
             finally:
-                rt.db.close()
+                rt.close()
 
 
 if __name__ == "__main__":
