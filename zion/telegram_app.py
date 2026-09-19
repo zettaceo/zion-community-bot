@@ -2745,6 +2745,36 @@ async def operational_alert_cycle(
 
     rt.db.set_setting("health_alert_signature", signature)
     if not issues:
+        if previous and previous != "OK":
+            for operator_id in sorted(rt.settings.admin_user_ids):
+                success = False
+                try:
+                    await application.bot.send_message(
+                        chat_id=operator_id,
+                        text=(
+                            "✅ ZION OPERATIONAL RECOVERY\n"
+                            "Os alertas operacionais anteriormente ativos "
+                            "não estão mais presentes. Use /diagnostics para confirmar."
+                        ),
+                    )
+                    success = True
+                except Exception as exc:
+                    logger.warning(
+                        "Falha ao enviar recuperação para operator=%s: %s",
+                        operator_id,
+                        exc,
+                    )
+                rt.db.record_action(
+                    incident_id=None,
+                    chat_id=operator_id,
+                    user_id=None,
+                    action_type="operator_recovery",
+                    actor_type="health",
+                    actor_id=None,
+                    reason="operational_health_recovered",
+                    success=success,
+                    metadata={"previous_signature": previous},
+                )
         return
 
     incident_id = rt.db.create_incident(
