@@ -6,6 +6,7 @@ import re
 import time
 from dataclasses import dataclass
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 
@@ -14,6 +15,24 @@ from .models import AIAnswer, AIClassification
 
 
 logger = logging.getLogger("zion.mistral")
+
+
+MISTRAL_API_HOST = "api.mistral.ai"
+
+
+def _valid_mistral_api_url(value: str) -> bool:
+    try:
+        parsed = urlparse(value)
+    except ValueError:
+        return False
+
+    return bool(
+        parsed.scheme == "https"
+        and (parsed.hostname or "").lower() == MISTRAL_API_HOST
+        and parsed.username is None
+        and parsed.password is None
+        and parsed.fragment == ""
+    )
 
 
 ALLOWED_CLASSIFICATION_CATEGORIES = {
@@ -94,7 +113,9 @@ class MistralClient:
         return bool(
             self.settings.ai_enabled
             and self.settings.mistral_api_key
-            and self.settings.mistral_api_url
+            and _valid_mistral_api_url(
+                self.settings.mistral_api_url
+            )
         )
 
     async def _chat(
@@ -105,7 +126,9 @@ class MistralClient:
         max_tokens: int | None = None,
     ) -> MistralRawResponse:
         if not self.configured:
-            raise RuntimeError("Mistral AI não está configurado.")
+            raise RuntimeError(
+                "Mistral AI não está configurado com endpoint HTTPS oficial."
+            )
 
         payload = {
             "model": self.settings.mistral_model,
