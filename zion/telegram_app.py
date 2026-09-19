@@ -75,20 +75,27 @@ class Runtime:
                 )
             )
             if any(self.startup_delivery_recovery.values()):
-                self.db.create_incident(
-                    chat_id=None,
-                    user_id=None,
-                    category="orphaned_delivery_claims_quarantined",
-                    severity=Severity.HIGH,
-                    source="runtime_startup",
-                    evidence=self.startup_delivery_recovery,
-                    note=(
-                        "Jobs left in sending by a previous process were "
-                        "quarantined. One-shot deliveries are UNCERTAIN and "
-                        "recurring deliveries are PAUSED; nothing is replayed "
-                        "automatically."
-                    ),
-                )
+                try:
+                    self.db.create_incident(
+                        chat_id=None,
+                        user_id=None,
+                        category="orphaned_delivery_claims_quarantined",
+                        severity=Severity.HIGH,
+                        source="runtime_startup",
+                        evidence=self.startup_delivery_recovery,
+                        note=(
+                            "Jobs left in sending by a previous process were "
+                            "quarantined. One-shot deliveries are UNCERTAIN and "
+                            "recurring deliveries are PAUSED; nothing is replayed "
+                            "automatically."
+                        ),
+                    )
+                except Exception as exc:
+                    logger.error(
+                        "Claims órfãos foram isolados, mas o incidente "
+                        "não pôde ser persistido: %s",
+                        type(exc).__name__,
+                    )
             self.knowledge = KnowledgeBase(settings.knowledge_dir)
             self.guardian = Guardian(settings, self.db)
             self.ai = AIService(settings, self.db, self.knowledge)
