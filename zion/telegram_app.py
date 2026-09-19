@@ -788,6 +788,8 @@ async def diagnostics_command(
         f"{latency['avg_ms']}ms/{latency['p95_ms']}ms "
         f"(n={latency['count']})\n"
         f"Operators: {diag['operator_count']}\n"
+        f"Knowledge: {len(rt.knowledge.chunks)} chunks / "
+        f"{len(rt.knowledge.load_errors)} errors\n"
         f"Config issues: "
         f"{', '.join(diag['configuration_issues']) if diag['configuration_issues'] else 'NONE'}"
     )
@@ -826,7 +828,8 @@ async def ai_status_command(
         f"{rt.settings.ai_circuit_failures}\n"
         f"Accounting: {'OK' if rt.ai.accounting_healthy else 'FAIL-CLOSED'}\n"
         f"Tokens today UTC: {used}/{budget_text}\n"
-        f"Knowledge chunks: {len(rt.knowledge.chunks)}"
+        f"Knowledge chunks: {len(rt.knowledge.chunks)}\n"
+        f"Knowledge load errors: {len(rt.knowledge.load_errors)}"
     )
 
 
@@ -2453,9 +2456,11 @@ async def reload_knowledge_command(
     if not update.effective_message:
         return
 
-    count = runtime(context).knowledge.reload()
+    knowledge = runtime(context).knowledge
+    count = knowledge.reload()
     await update.effective_message.reply_text(
-        f"Knowledge base recarregada: {count} blocos."
+        f"Knowledge base recarregada: {count} blocos | "
+        f"errors={len(knowledge.load_errors)}."
     )
 
 
@@ -3109,6 +3114,10 @@ async def operational_alert_cycle(
         issues.append("database_or_integrity")
     if not rt.ai.accounting_healthy:
         issues.append("ai_accounting_fail_closed")
+    if not rt.knowledge.chunks:
+        issues.append("knowledge_empty")
+    if rt.knowledge.load_errors:
+        issues.append("knowledge_load_error")
     for config_issue in diagnostics.get("configuration_issues", []):
         issues.append(f"config:{config_issue}")
     if pragmas["journal_mode"] not in {"wal", "unknown"}:
