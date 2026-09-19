@@ -959,6 +959,39 @@ class ZionDB:
             self._conn.commit()
         return event_id
 
+    def operational_stats_since(
+        self,
+        since: float,
+    ) -> dict[str, int]:
+        queries = {
+            "new_users": (
+                "SELECT COUNT(*) AS count FROM users WHERE first_seen >= ?"
+            ),
+            "strikes": (
+                "SELECT COUNT(*) AS count FROM strikes WHERE occurred_at >= ?"
+            ),
+            "incidents": (
+                "SELECT COUNT(*) AS count FROM incidents WHERE created_at >= ?"
+            ),
+            "open_incidents": (
+                "SELECT COUNT(*) AS count FROM incidents "
+                "WHERE created_at >= ? AND status='open'"
+            ),
+            "actions": (
+                "SELECT COUNT(*) AS count FROM actions WHERE created_at >= ?"
+            ),
+            "ai_events": (
+                "SELECT COUNT(*) AS count FROM ai_events WHERE created_at >= ?"
+            ),
+        }
+
+        result: dict[str, int] = {}
+        with self._lock:
+            for key, query in queries.items():
+                row = self._conn.execute(query, (since,)).fetchone()
+                result[key] = int(row["count"]) if row else 0
+        return result
+
     def stats(self) -> dict[str, int]:
         tables = (
             "users",
