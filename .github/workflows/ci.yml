@@ -13,7 +13,9 @@ permissions:
   contents: read
 
 concurrency:
-  group: zion-ci-${{ github.event.pull_request.head.ref || github.ref_name }}
+  # Push and pull_request are separate event streams. Keeping them in
+  # distinct groups prevents a stale push run from blocking PR validation.
+  group: zion-ci-${{ github.event_name }}-${{ github.event.pull_request.head.ref || github.ref_name }}
   cancel-in-progress: true
 
 jobs:
