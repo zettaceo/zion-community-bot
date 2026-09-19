@@ -152,3 +152,16 @@ The writable bot runtime uses a kernel-backed file lock shared across worktrees.
 Telegram command update IDs are persisted before command side effects. Duplicate delivery of the same command update is stopped before the command handler.
 
 Scheduled Telegram sends use an atomic SQLite claim before network I/O. Because a process can die after Telegram accepts a send but before local success is committed, ZION does not claim mathematical exactly-once delivery. Instead, unknown outcomes are quarantined and require an explicit operator decision. This prevents automatic duplicate replay.
+
+
+## SQLite trust and integrity boundary
+
+ZION assigns its SQLite database the application ID `0x5A494F4E` ("ZION"). This prevents a configuration mistake from silently treating an unrelated non-empty SQLite file as the bot database.
+
+The database runs with foreign-key enforcement enabled and SQLite `trusted_schema` disabled. Startup fails closed when quick structural integrity or relational foreign-key integrity fails.
+
+Production deployment requires a verified snapshot before the running service is stopped. The snapshot is generated through SQLite's backup API, checked independently, stored with private permissions and hashed with SHA-256.
+
+Schema downgrades are guarded: a ZION build refuses to initialize a database whose recorded schema version is newer than the build supports.
+
+Ephemeral operational data has bounded retention. Unknown delivery outcomes and the incident/action audit ledger are intentionally excluded from automatic destructive cleanup.
