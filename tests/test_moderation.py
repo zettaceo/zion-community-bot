@@ -185,6 +185,38 @@ class ModerationPipelineTests(unittest.TestCase):
         incidents = self.runtime.db.list_incidents()
         self.assertEqual(incidents[0]["category"], "possible_wallet_secret")
 
+    def test_admin_credential_exposure_is_still_protected(self) -> None:
+        update = fake_update(
+            user_id=1,
+            text="API key: example-secret-value-123456",
+            message_id=19,
+        )
+        asyncio.run(moderation_handler(update, self.context))
+
+        self.assertIn(
+            (update.effective_chat.id, update.effective_message.message_id),
+            self.context.bot.deleted,
+        )
+        incidents = self.runtime.db.list_incidents()
+        self.assertEqual(
+            incidents[0]["category"],
+            "possible_credential_exposure",
+        )
+
+    def test_admin_command_credential_is_protected(self) -> None:
+        update = fake_update(
+            user_id=1,
+            text="/announce API key: example-secret-value-123456",
+            message_id=20,
+        )
+        with self.assertRaises(ApplicationHandlerStop):
+            asyncio.run(command_guard_handler(update, self.context))
+
+        self.assertIn(
+            (update.effective_chat.id, update.effective_message.message_id),
+            self.context.bot.deleted,
+        )
+
     def test_command_link_cannot_bypass_link_policy(self) -> None:
         update = fake_update(
             user_id=2,
