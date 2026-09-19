@@ -443,11 +443,11 @@ class ZionDB:
         )
         try:
             yield
-        except Exception:
-            self._conn.rollback()
-            raise
-        else:
             self._conn.commit()
+        except Exception:
+            if self._conn.in_transaction:
+                self._conn.rollback()
+            raise
 
     def _table_columns_locked(self, table: str) -> set[str]:
         rows = self._conn.execute(
