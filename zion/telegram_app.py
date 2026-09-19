@@ -407,6 +407,7 @@ async def protect_sensitive_command_input(
     context: ContextTypes.DEFAULT_TYPE,
     text: str,
     source_message_id: int | None = None,
+    source_user_id: int | None = None,
 ) -> bool:
     if (
         not update.effective_message
@@ -432,7 +433,11 @@ async def protect_sensitive_command_input(
     )
     incident_id = rt.db.create_incident(
         chat_id=update.effective_chat.id,
-        user_id=update.effective_user.id,
+        user_id=(
+            source_user_id
+            if source_user_id is not None
+            else update.effective_user.id
+        ),
         category=sensitive.kind,
         severity=Severity.CRITICAL,
         source="guardian_command_input",
@@ -445,7 +450,11 @@ async def protect_sensitive_command_input(
     rt.db.record_action(
         incident_id=incident_id,
         chat_id=update.effective_chat.id,
-        user_id=update.effective_user.id,
+        user_id=(
+            source_user_id
+            if source_user_id is not None
+            else update.effective_user.id
+        ),
         action_type="delete",
         actor_type="guardian",
         actor_id=None,
@@ -554,6 +563,11 @@ async def summary_command(
         context,
         source,
         source_message_id=(replied.message_id if replied else None),
+        source_user_id=(
+            replied.from_user.id
+            if replied and replied.from_user
+            else None
+        ),
     ):
         return
 
@@ -604,7 +618,17 @@ async def translate_command(
         )
         return
 
-    if await protect_sensitive_command_input(update, context, source):
+    if await protect_sensitive_command_input(
+        update,
+        context,
+        source,
+        source_message_id=(replied.message_id if replied else None),
+        source_user_id=(
+            replied.from_user.id
+            if replied and replied.from_user
+            else None
+        ),
+    ):
         return
 
     rt = runtime(context)
