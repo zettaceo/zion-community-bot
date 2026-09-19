@@ -2176,6 +2176,8 @@ def expire_temporary_state(rt: Runtime) -> None:
 
 
 async def scheduler_loop(application: Application) -> None:
+    last_housekeeping = 0.0
+
     while True:
         try:
             rt = application.bot_data.get("zion_runtime")
@@ -2184,6 +2186,30 @@ async def scheduler_loop(application: Application) -> None:
                 continue
 
             expire_temporary_state(rt)
+
+            now = time.time()
+            if now - last_housekeeping >= 3600:
+                gaps_removed = rt.db.prune_knowledge_gaps(
+                    now
+                    - (
+                        rt.settings.knowledge_gap_retention_days
+                        * 86400
+                    )
+                )
+                reports_removed = rt.db.prune_resolved_user_reports(
+                    now
+                    - (
+                        rt.settings.report_retention_days
+                        * 86400
+                    )
+                )
+                if gaps_removed or reports_removed:
+                    logger.info(
+                        "Housekeeping | knowledge_gaps=%s | resolved_reports=%s",
+                        gaps_removed,
+                        reports_removed,
+                    )
+                last_housekeeping = now
 
             state = rt.db.get_operating_state()
             due = (
