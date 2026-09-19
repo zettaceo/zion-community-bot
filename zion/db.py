@@ -24,6 +24,7 @@ PRAGMA foreign_keys=ON;
 PRAGMA busy_timeout=5000;
 PRAGMA wal_autocheckpoint=1000;
 PRAGMA journal_size_limit=16777216;
+PRAGMA trusted_schema=OFF;
 
 CREATE TABLE IF NOT EXISTS users (
     chat_id INTEGER NOT NULL,
@@ -301,6 +302,8 @@ class ZionDB:
         self._conn.execute(
             f"PRAGMA busy_timeout={self.busy_timeout_ms}"
         )
+        self._conn.execute("PRAGMA foreign_keys=ON")
+        self._conn.execute("PRAGMA trusted_schema=OFF")
         if not readonly:
             self._secure_runtime_permissions()
 
@@ -714,6 +717,9 @@ class ZionDB:
             journal_limit_row = self._conn.execute(
                 "PRAGMA journal_size_limit"
             ).fetchone()
+            trusted_schema_row = self._conn.execute(
+                "PRAGMA trusted_schema"
+            ).fetchone()
 
         return {
             "journal_mode": (
@@ -744,6 +750,11 @@ class ZionDB:
             "journal_size_limit": (
                 int(journal_limit_row[0])
                 if journal_limit_row
+                else -1
+            ),
+            "trusted_schema": (
+                int(trusted_schema_row[0])
+                if trusted_schema_row
                 else -1
             ),
         }
