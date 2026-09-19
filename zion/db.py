@@ -218,7 +218,7 @@ class ZionDB:
         increment_messages: bool = False,
         now: float | None = None,
     ) -> None:
-        ts = now or time.time()
+        ts = time.time() if now is None else now
         increment = 1 if increment_messages else 0
         with self._lock:
             self._conn.execute(
@@ -307,7 +307,7 @@ class ZionDB:
         metadata: dict[str, Any] | None = None,
         now: float | None = None,
     ) -> str:
-        ts = now or time.time()
+        ts = time.time() if now is None else now
         strike_id = uuid.uuid4().hex
         severity_value = severity.value if isinstance(severity, Severity) else str(severity)
         expires_at = ts + ttl_seconds if ttl_seconds else None
@@ -341,7 +341,7 @@ class ZionDB:
         user_id: int,
         now: float | None = None,
     ) -> int:
-        ts = now or time.time()
+        ts = time.time() if now is None else now
         with self._lock:
             row = self._conn.execute(
                 """
@@ -363,7 +363,7 @@ class ZionDB:
         limit: int = 20,
         now: float | None = None,
     ) -> list[dict[str, Any]]:
-        ts = now or time.time()
+        ts = time.time() if now is None else now
         safe_limit = max(1, min(int(limit), 50))
         with self._lock:
             rows = self._conn.execute(
@@ -389,7 +389,7 @@ class ZionDB:
         reason: str,
         now: float | None = None,
     ) -> None:
-        ts = now or time.time()
+        ts = time.time() if now is None else now
         with self._lock:
             self._conn.execute(
                 """
@@ -411,7 +411,7 @@ class ZionDB:
         user_id: int,
         now: float | None = None,
     ) -> float:
-        ts = now or time.time()
+        ts = time.time() if now is None else now
         with self._lock:
             row = self._conn.execute(
                 """
@@ -524,7 +524,7 @@ class ZionDB:
         status: str = "open",
         now: float | None = None,
     ) -> str:
-        ts = now or time.time()
+        ts = time.time() if now is None else now
         incident_id = uuid.uuid4().hex
         severity_value = severity.value if isinstance(severity, Severity) else str(severity)
         with self._lock:
@@ -884,7 +884,7 @@ class ZionDB:
         now: float | None = None,
         limit: int = 20,
     ) -> list[dict[str, Any]]:
-        ts = now or time.time()
+        ts = time.time() if now is None else now
         safe_limit = max(1, min(int(limit), 100))
         with self._lock:
             rows = self._conn.execute(
