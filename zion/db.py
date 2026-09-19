@@ -1331,7 +1331,7 @@ class ZionDB:
             row = self._conn.execute(
                 """
                 SELECT interval_seconds, next_send_at,
-                       consecutive_failures, status
+                       consecutive_failures, status, last_sent_at
                 FROM recurring_messages
                 WHERE id=?
                 """,
@@ -1357,7 +1357,7 @@ class ZionDB:
             else:
                 failures = int(row["consecutive_failures"] or 0) + 1
                 last_error_type = (error_type or "delivery_error")[:120]
-                last_sent_at = None
+                last_sent_at = row["last_sent_at"]
                 if failures >= safe_max_failures:
                     status = "paused"
                 else:
@@ -1460,7 +1460,7 @@ class ZionDB:
                 """
                 SELECT id
                 FROM recurring_messages
-                WHERE id=? AND status='active'
+                WHERE id=? AND status IN ('active', 'paused')
                 """
                 + chat_clause,
                 tuple(exact_params),
@@ -1476,7 +1476,7 @@ class ZionDB:
                     """
                     SELECT id
                     FROM recurring_messages
-                    WHERE id LIKE ? AND status='active'
+                    WHERE id LIKE ? AND status IN ('active', 'paused')
                     """
                     + chat_clause
                     + """
@@ -1499,7 +1499,7 @@ class ZionDB:
                 """
                 UPDATE recurring_messages
                 SET status='cancelled'
-                WHERE id=? AND status='active'
+                WHERE id=? AND status IN ('active', 'paused')
                 """
                 + update_clause,
                 tuple(update_params),
@@ -1782,6 +1782,14 @@ class ZionDB:
             "active_recurring": (
                 "SELECT COUNT(*) AS count FROM recurring_messages "
                 "WHERE status='active'"
+            ),
+            "paused_recurring": (
+                "SELECT COUNT(*) AS count FROM recurring_messages "
+                "WHERE status='paused'"
+            ),
+            "failed_scheduled": (
+                "SELECT COUNT(*) AS count FROM scheduled_messages "
+                "WHERE status='failed'"
             ),
             "open_amas": (
                 "SELECT COUNT(*) AS count FROM ama_sessions "
