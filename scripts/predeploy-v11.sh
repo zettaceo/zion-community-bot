@@ -4,9 +4,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PYTHON="$ROOT/.venv/bin/python"
 PROD_ROOT="/home/zetta/zion-community-bot"
-PROD_DB="$PROD_ROOT/zion.db"
 PROD_ENV="$PROD_ROOT/.env"
-PROD_LEGACY="$PROD_ROOT/zion_state.json"
 SERVICE="zion.service"
 
 TMP_ROOT="$(mktemp -d /tmp/zion-v11-predeploy.XXXXXX)"
@@ -105,21 +103,15 @@ echo "[6/8] Current production service (no change)..."
 
 echo
 echo "[7/8] Production SQLite backup to disposable /tmp copy..."
-if [[ ! -f "$PROD_DB" ]]; then
-  echo "ERRO: banco de produção não encontrado em $PROD_DB" >&2
-  exit 1
-fi
-
 COPY_DB="$TMP_ROOT/zion-copy.db"
 COPY_LEGACY="$TMP_ROOT/zion_state.json"
 
-if [[ -f "$PROD_LEGACY" ]]; then
-  cp -a "$PROD_LEGACY" "$COPY_LEGACY"
-  chmod 600 "$COPY_LEGACY"
-fi
-
-PROD_ENV="$PROD_ENV" COPY_DB="$COPY_DB" "$PYTHON" - <<'PY'
+PROD_ENV="$PROD_ENV" \
+COPY_DB="$COPY_DB" \
+COPY_LEGACY="$COPY_LEGACY" \
+"$PYTHON" - <<'PY'
 import os
+import shutil
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -133,11 +125,16 @@ from zion.db import ZionDB
 settings = Settings.from_env()
 source = settings.db_path
 target = Path(os.environ["COPY_DB"])
+legacy_target = Path(os.environ["COPY_LEGACY"])
 
 if not source.is_file():
     raise RuntimeError(
         f"production database not found at {source}"
     )
+
+if settings.legacy_state_path.is_file():
+    shutil.copy2(settings.legacy_state_path, legacy_target)
+    os.chmod(legacy_target, 0o600)
 
 db = ZionDB(source, readonly=True)
 try:
