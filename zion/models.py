@@ -58,6 +58,7 @@ class LinkDecision:
     has_links: bool = False
     domains: list[str] = field(default_factory=list)
     unauthorized_domains: list[str] = field(default_factory=list)
+    unsupported_schemes: list[str] = field(default_factory=list)
     should_delete: bool = False
     reason: str = ""
 
