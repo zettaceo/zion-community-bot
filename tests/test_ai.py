@@ -11,6 +11,7 @@ from zion.ai_service import AIService, sanitize_for_ai
 from zion.db import ZionDB
 from zion.knowledge import KnowledgeBase
 from zion.mistral import MistralClient, MistralRawResponse, _parse_json_object
+from zion.models import AIAnswer
 
 
 class AITests(unittest.TestCase):
@@ -132,6 +133,43 @@ class AITests(unittest.TestCase):
         )
         gaps = self.db.list_knowledge_gaps()
         self.assertEqual(len(gaps), 1)
+
+    def test_grounded_answer_appends_section_level_sources(self) -> None:
+        (self.root / "knowledge" / "official.md").write_text(
+            "# Security\nNever share a seed phrase.\n",
+            encoding="utf-8",
+        )
+        knowledge = KnowledgeBase(self.settings.knowledge_dir)
+        settings = replace(
+            self.settings,
+            ai_enabled=True,
+            mistral_api_key="fake-key-for-test-only",
+        )
+        ai = AIService(settings, self.db, knowledge)
+
+        class FakeClient:
+            configured = True
+
+            async def answer(self, *, question: str, context: str):
+                return AIAnswer(
+                    text="Use the official security guidance.",
+                    model="fake-model",
+                    input_tokens=5,
+                    output_tokens=5,
+                    latency_ms=1,
+                )
+
+        ai.client = FakeClient()
+        answer = asyncio.run(
+            ai.answer(
+                chat_id=1,
+                user_id=2,
+                question="seed phrase security",
+            )
+        )
+
+        self.assertIn("Fontes ZION:", answer.text)
+        self.assertIn("official.md — Security", answer.text)
 
     def test_hard_budget_gate_blocks_call_before_provider(self) -> None:
         (self.root / "knowledge" / "official.md").write_text(
