@@ -114,3 +114,6 @@ Recurring announcements are administrative content and remain active until cance
 ## Operational alerts
 
 Health alerts can notify explicit ZION operators about database/integrity problems, low disk, sensitive-file permissions, missing Wi-Fi interface or abnormal Telegram update lag. Health alerts do not perform destructive recovery actions.
+
+
+Operational alerts are deduplicated. An unchanged active condition may be reminded only after the configured repeat interval; a changed condition alerts immediately and a cleared condition produces one recovery notification.
