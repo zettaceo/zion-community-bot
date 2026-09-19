@@ -23,6 +23,15 @@ class HealthService:
         self.settings = settings
         self.db = db
         self._started_monotonic = time.monotonic()
+        self._integrity_checked_at = 0.0
+        self._integrity_cache: tuple[bool, str] = (True, "not_checked")
+
+    def _integrity_status(self) -> tuple[bool, str]:
+        now = time.monotonic()
+        if now - self._integrity_checked_at >= 300:
+            self._integrity_cache = self.db.integrity_check()
+            self._integrity_checked_at = now
+        return self._integrity_cache
 
     def snapshot(self) -> HealthSnapshot:
         try:
@@ -46,7 +55,7 @@ class HealthService:
             for path in sensitive_paths
         )
 
-        integrity_ok, integrity_result = self.db.integrity_check()
+        integrity_ok, integrity_result = self._integrity_status()
         db_size_mb = int(self.db.file_size_bytes() / 1024 / 1024)
 
         return HealthSnapshot(
