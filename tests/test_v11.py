@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sqlite3
 import tempfile
 import time
 import unittest
@@ -30,6 +31,7 @@ class V11DatabaseTests(unittest.TestCase):
         self.assertTrue(ok)
         self.assertEqual(result.lower(), "ok")
         self.assertGreater(self.db.file_size_bytes(), 0)
+        self.assertEqual(self.db.schema_version(), 1)
 
     def test_recurring_message_lifecycle(self) -> None:
         schedule_id = self.db.schedule_recurring_message(
@@ -47,11 +49,14 @@ class V11DatabaseTests(unittest.TestCase):
         self.assertEqual(len(due), 1)
         self.assertEqual(due[0]["id"], schedule_id)
 
-        self.db.advance_recurring_message(
+        state = self.db.advance_recurring_message(
             schedule_id,
             success=True,
+            max_failures=3,
+            retry_seconds=60,
             now=1000.0,
         )
+        self.assertEqual(state, "active")
         self.assertEqual(
             self.db.due_recurring_messages(now=4599.0),
             [],
@@ -64,8 +69,17 @@ class V11DatabaseTests(unittest.TestCase):
             self.db.community_stats()["active_recurring"],
             1,
         )
+        self.assertFalse(
+            self.db.cancel_recurring_message(
+                schedule_id[:8],
+                chat_id=999,
+            )
+        )
         self.assertTrue(
-            self.db.cancel_recurring_message(schedule_id[:8])
+            self.db.cancel_recurring_message(
+                schedule_id[:8],
+                chat_id=10,
+            )
         )
         self.assertEqual(
             self.db.community_stats()["active_recurring"],
@@ -75,6 +89,184 @@ class V11DatabaseTests(unittest.TestCase):
             self.db.due_recurring_messages(now=999999.0),
             [],
         )
+
+    def test_scheduled_delivery_retries_then_manual_recovery(self) -> None:
+        schedule_id = self.db.schedule_message(
+            chat_id=10,
+            send_at=1000.0,
+            text="One shot",
+            created_by=1,
+        )
+
+        state = self.db.mark_scheduled_message(
+            schedule_id,
+            success=False,
+            max_attempts=2,
+            retry_seconds=60,
+            error_type="NetworkError",
+            now=1000.0,
+        )
+        self.assertEqual(state, "pending")
+        self.assertEqual(
+            self.db.due_scheduled_messages(now=1059.0),
+            [],
+        )
+        self.assertEqual(
+            len(self.db.due_scheduled_messages(now=1060.0)),
+            1,
+        )
+
+        state = self.db.mark_scheduled_message(
+            schedule_id,
+            success=False,
+            max_attempts=2,
+            retry_seconds=60,
+            error_type="NetworkError",
+            now=1060.0,
+        )
+        self.assertEqual(state, "failed")
+        self.assertEqual(
+            self.db.due_scheduled_messages(now=9999.0),
+            [],
+        )
+
+        jobs = self.db.list_scheduled_messages()
+        self.assertEqual(jobs[0]["attempts"], 2)
+        self.assertEqual(jobs[0]["last_error_type"], "NetworkError")
+
+        self.assertTrue(
+            self.db.retry_scheduled_message(
+                schedule_id[:8],
+                now=1100.0,
+            )
+        )
+        due = self.db.due_scheduled_messages(now=1100.0)
+        self.assertEqual(len(due), 1)
+        self.assertEqual(due[0]["attempts"], 0)
+
+        state = self.db.mark_scheduled_message(
+            schedule_id,
+            success=True,
+            max_attempts=2,
+            retry_seconds=60,
+            now=1100.0,
+        )
+        self.assertEqual(state, "sent")
+
+    def test_recurring_delivery_pauses_and_can_resume(self) -> None:
+        schedule_id = self.db.schedule_recurring_message(
+            chat_id=10,
+            first_send_at=1000.0,
+            interval_seconds=3600,
+            text="Recurring",
+            created_by=1,
+        )
+
+        state = self.db.advance_recurring_message(
+            schedule_id,
+            success=False,
+            max_failures=2,
+            retry_seconds=30,
+            error_type="TimedOut",
+            now=1000.0,
+        )
+        self.assertEqual(state, "active")
+        self.assertEqual(
+            len(self.db.due_recurring_messages(now=1029.0)),
+            0,
+        )
+        self.assertEqual(
+            len(self.db.due_recurring_messages(now=1030.0)),
+            1,
+        )
+
+        state = self.db.advance_recurring_message(
+            schedule_id,
+            success=False,
+            max_failures=2,
+            retry_seconds=30,
+            error_type="TimedOut",
+            now=1030.0,
+        )
+        self.assertEqual(state, "paused")
+        self.assertEqual(
+            len(self.db.due_recurring_messages(now=9999.0)),
+            0,
+        )
+
+        self.assertTrue(
+            self.db.resume_recurring_message(
+                schedule_id[:8],
+                now=1100.0,
+            )
+        )
+        due = self.db.due_recurring_messages(now=1100.0)
+        self.assertEqual(len(due), 1)
+        self.assertEqual(due[0]["consecutive_failures"], 0)
+
+    def test_legacy_scheduler_schema_is_migrated_in_place(self) -> None:
+        self.db.close()
+
+        legacy_path = self.root / "legacy-scheduler.db"
+        conn = sqlite3.connect(legacy_path)
+        try:
+            conn.executescript(
+                """
+                CREATE TABLE scheduled_messages (
+                    id TEXT PRIMARY KEY,
+                    chat_id INTEGER NOT NULL,
+                    send_at REAL NOT NULL,
+                    text TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'pending',
+                    created_by INTEGER,
+                    created_at REAL NOT NULL,
+                    sent_at REAL
+                );
+                CREATE TABLE recurring_messages (
+                    id TEXT PRIMARY KEY,
+                    chat_id INTEGER NOT NULL,
+                    interval_seconds INTEGER NOT NULL,
+                    next_send_at REAL NOT NULL,
+                    text TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'active',
+                    created_by INTEGER,
+                    created_at REAL NOT NULL,
+                    last_sent_at REAL
+                );
+                """
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        migrated = ZionDB(legacy_path)
+        try:
+            migrated.initialize()
+            self.assertEqual(migrated.schema_version(), 1)
+            scheduled_columns = migrated._table_columns_locked(
+                "scheduled_messages"
+            )
+            recurring_columns = migrated._table_columns_locked(
+                "recurring_messages"
+            )
+            self.assertTrue(
+                {
+                    "attempts",
+                    "next_attempt_at",
+                    "last_error_type",
+                }.issubset(scheduled_columns)
+            )
+            self.assertTrue(
+                {
+                    "consecutive_failures",
+                    "last_error_type",
+                }.issubset(recurring_columns)
+            )
+        finally:
+            migrated.close()
+
+        self.db = ZionDB(self.settings.db_path)
+        self.db.initialize()
 
     def test_ama_lifecycle_and_retention(self) -> None:
         ama_id = self.db.create_ama(
