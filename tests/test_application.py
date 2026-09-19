@@ -37,6 +37,9 @@ class ApplicationBuildTests(unittest.TestCase):
                     "amaclose",
                     "recurring",
                     "cancelrecurring",
+                    "jobs",
+                    "retryscheduled",
+                    "resumerecurring",
                 }.issubset(commands)
             )
 
