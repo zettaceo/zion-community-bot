@@ -44,6 +44,38 @@ class AITests(unittest.TestCase):
         self.assertEqual(parsed["category"], "normal")
         self.assertEqual(parsed["risk"], 0.1)
 
+    def test_classification_rejects_unknown_category_and_string_false(self) -> None:
+        settings = replace(
+            self.settings,
+            ai_enabled=True,
+            mistral_api_key="fake-key-for-test-only",
+            ai_observe=True,
+        )
+        ai = AIService(settings, self.db, self.knowledge)
+
+        class FakeClassifier:
+            configured = True
+
+            async def classify(self, text: str):
+                from zion.models import AIClassification
+
+                return AIClassification(
+                    category="other",
+                    risk=0.2,
+                    requires_human=False,
+                )
+
+        ai.client = FakeClassifier()
+        result = asyncio.run(
+            ai.classify(
+                chat_id=1,
+                user_id=2,
+                text="mensagem normal",
+            )
+        )
+        self.assertIsNotNone(result)
+        self.assertFalse(result.requires_human)
+
     def test_no_knowledge_records_gap_without_provider_call(self) -> None:
         answer = asyncio.run(
             self.ai.answer(
