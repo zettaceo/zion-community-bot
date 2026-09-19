@@ -109,3 +109,7 @@ Operator-only surfaces include:
 - global statistics and operator brief.
 
 This limits the blast radius if ZION is ever added to another group.
+
+## Audit-preserving retention
+
+For resolved/ignored user reports, ZION removes retained free-text note/evidence after the configured retention window but keeps the minimal incident row. This preserves the existence and outcome of a moderation event without keeping its detailed report contents indefinitely.
