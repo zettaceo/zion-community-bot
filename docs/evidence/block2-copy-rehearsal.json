@@ -1,0 +1,191 @@
+{
+  "directory": "/tmp/zion-block2-20260919T225946Z-1d18wi8f",
+  "source_checks": {
+    "quick_check": [
+      [
+        "ok"
+      ]
+    ],
+    "integrity_check": [
+      [
+        "ok"
+      ]
+    ]
+  },
+  "source_counts": {
+    "actions": 0,
+    "ai_events": 0,
+    "containments": 0,
+    "domains": 0,
+    "incidents": 0,
+    "knowledge_gaps": 0,
+    "recent_messages": 0,
+    "scheduled_messages": 0,
+    "settings": 2,
+    "strikes": 3,
+    "user_events": 0,
+    "users": 1
+  },
+  "copy_checks": {
+    "quick_check": [
+      [
+        "ok"
+      ]
+    ],
+    "integrity_check": [
+      [
+        "ok"
+      ]
+    ]
+  },
+  "copy_counts": {
+    "actions": 0,
+    "ai_events": 0,
+    "containments": 0,
+    "domains": 0,
+    "incidents": 0,
+    "knowledge_gaps": 0,
+    "recent_messages": 0,
+    "scheduled_messages": 0,
+    "settings": 2,
+    "strikes": 3,
+    "user_events": 0,
+    "users": 1
+  },
+  "copy_size": 159744,
+  "copy_sha256": "06d3a6a86dbec6a5447876a795fd943fc39b8dc02e31570c4fd1d99d82f8d7b1",
+  "directory_mode": "0o700",
+  "copy_mode": "0o600",
+  "schema_before": 0,
+  "original_values_preserved": true,
+  "schema_after": 2,
+  "migration_rows": [
+    {
+      "version": 1,
+      "name": "scheduler_delivery_reliability",
+      "applied_at": 1789858786.0474544
+    },
+    {
+      "version": 2,
+      "name": "scheduler_claim_tracking",
+      "applied_at": 1789858786.0481207
+    }
+  ],
+  "counts_after": {
+    "actions": 0,
+    "ai_events": 0,
+    "ama_questions": 0,
+    "ama_sessions": 0,
+    "containments": 0,
+    "domains": 0,
+    "idempotency_keys": 0,
+    "incidents": 0,
+    "knowledge_gaps": 0,
+    "recent_messages": 0,
+    "recurring_messages": 0,
+    "scheduled_messages": 0,
+    "schema_migrations": 2,
+    "settings": 2,
+    "strikes": 3,
+    "user_events": 0,
+    "users": 1
+  },
+  "pragmas": {
+    "journal_mode": "wal",
+    "foreign_keys": 1,
+    "busy_timeout_ms": 5000,
+    "synchronous": 2,
+    "wal_autocheckpoint": 1000,
+    "journal_size_limit": 16777216,
+    "trusted_schema": 0,
+    "application_id": 1514753870
+  },
+  "migration_checks": {
+    "quick_check": [
+      [
+        "ok"
+      ]
+    ],
+    "integrity_check": [
+      [
+        "ok"
+      ]
+    ]
+  },
+  "second_initialize_identical": true,
+  "restore_backup": {
+    "path": "/tmp/zion-block2-20260919T225946Z-1d18wi8f/migrated-backup.db",
+    "sha256": "2529979cdb3bffacdb1f55731ad4b131bd2e084bb0410ac9c624f4f1ac7b27bd",
+    "size_bytes": 221184,
+    "schema_version": 2
+  },
+  "restore_checks": {
+    "quick_check": [
+      [
+        "ok"
+      ]
+    ],
+    "integrity_check": [
+      [
+        "ok"
+      ]
+    ]
+  },
+  "restore_counts": {
+    "actions": 0,
+    "ai_events": 0,
+    "ama_questions": 0,
+    "ama_sessions": 0,
+    "containments": 0,
+    "domains": 0,
+    "idempotency_keys": 0,
+    "incidents": 0,
+    "knowledge_gaps": 0,
+    "recent_messages": 0,
+    "recurring_messages": 0,
+    "scheduled_messages": 0,
+    "schema_migrations": 2,
+    "settings": 2,
+    "strikes": 3,
+    "user_events": 0,
+    "users": 1
+  },
+  "restore_identical": true,
+  "restore_mode": "0o600",
+  "busy": {
+    "elapsed_seconds": 5.01187676599875,
+    "error": "SQLITE_BUSY",
+    "in_transaction": false
+  },
+  "wal": {
+    "writer_count": 20,
+    "reader_before": 0,
+    "reader_during": 0,
+    "reader_after": 20,
+    "wal_before": 0,
+    "wal_after": 329632,
+    "checkpoint_held": {
+      "busy": 0,
+      "log_frames": 80,
+      "checkpointed_frames": 0
+    },
+    "checkpoint_released": {
+      "busy": 0,
+      "log_frames": 80,
+      "checkpointed_frames": 80
+    }
+  },
+  "post_failure_checks": {
+    "quick_check": [
+      [
+        "ok"
+      ]
+    ],
+    "integrity_check": [
+      [
+        "ok"
+      ]
+    ]
+  },
+  "tested_head": "89b3c42ae6817f5839e3fc478b3e64ba2836cb25"
+}
