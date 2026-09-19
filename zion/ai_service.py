@@ -314,17 +314,12 @@ class AIService:
 
             self._record_provider_success()
 
-            source_names = sorted(
-                {
-                    chunk.source
-                    for chunk in self.knowledge.search(safe_question)
-                }
-            )
-            if source_names:
+            source_labels = self.knowledge.source_labels(safe_question)
+            if source_labels:
                 answer.text = (
                     answer.text.rstrip()
-                    + "\n\nFontes ZION: "
-                    + ", ".join(source_names)
+                    + "\n\nFontes ZION:\n- "
+                    + "\n- ".join(source_labels)
                 )
 
             self.db.record_ai_event(
@@ -339,6 +334,9 @@ class AIService:
                 input_hash=question_hash,
                 metadata={
                     "knowledge_hits": len(self.knowledge.search(safe_question)),
+                    "knowledge_sources": self.knowledge.source_labels(
+                        safe_question
+                    ),
                 },
             )
             return answer
