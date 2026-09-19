@@ -49,6 +49,8 @@ Never paste the API key into chat or logs.
 - [ ] Private DM from a non-allowlisted user cannot run admin commands.
 - [ ] Criticism is not automatically moderated.
 - [ ] Mistral outage does not disable flood/link protection.
+- [ ] Mistral daily token budget is visible in admin /aistatus.
+- [ ] Public users cannot access /health, /guardian, /aistatus or other admin telemetry.
 - [ ] AI observe events do not call delete/mute/ban.
 - [ ] `/lockdown` and `/unlock` are admin-only.
 - [ ] No real secret appears in journal or `zion.log`.
