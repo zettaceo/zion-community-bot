@@ -10,7 +10,12 @@ from tests.helpers import make_settings
 from zion.ai_service import AIService, sanitize_for_ai
 from zion.db import ZionDB
 from zion.knowledge import KnowledgeBase
-from zion.mistral import MistralClient, MistralRawResponse, _parse_json_object
+from zion.mistral import (
+    MistralClient,
+    MistralRawResponse,
+    _parse_json_object,
+    _valid_mistral_api_url,
+)
 from zion.models import AIAnswer, OperatingState
 
 
@@ -34,6 +39,38 @@ class AITests(unittest.TestCase):
     def tearDown(self) -> None:
         self.db.close()
         self.temp.cleanup()
+
+    def test_mistral_endpoint_must_be_official_https(self) -> None:
+        self.assertTrue(
+            _valid_mistral_api_url(
+                "https://api.mistral.ai/v1/chat/completions"
+            )
+        )
+        self.assertFalse(
+            _valid_mistral_api_url(
+                "http://api.mistral.ai/v1/chat/completions"
+            )
+        )
+        self.assertFalse(
+            _valid_mistral_api_url(
+                "https://localhost/v1/chat/completions"
+            )
+        )
+        self.assertFalse(
+            _valid_mistral_api_url(
+                "https://api.mistral.ai@evil.example/v1/chat/completions"
+            )
+        )
+
+    def test_non_official_endpoint_disables_client(self) -> None:
+        settings = replace(
+            self.settings,
+            ai_enabled=True,
+            mistral_api_key="fake-key-for-test-only",
+            mistral_api_url="https://example.com/v1/chat/completions",
+        )
+        client = MistralClient(settings)
+        self.assertFalse(client.configured)
 
     def test_json_parser_accepts_fenced_json(self) -> None:
         fence = chr(96) * 3
