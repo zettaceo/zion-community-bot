@@ -182,6 +182,48 @@ CREATE TABLE IF NOT EXISTS scheduled_messages (
 
 CREATE INDEX IF NOT EXISTS idx_scheduled_pending
 ON scheduled_messages(status, send_at);
+
+CREATE TABLE IF NOT EXISTS recurring_messages (
+    id TEXT PRIMARY KEY,
+    chat_id INTEGER NOT NULL,
+    interval_seconds INTEGER NOT NULL,
+    next_send_at REAL NOT NULL,
+    text TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'active',
+    created_by INTEGER,
+    created_at REAL NOT NULL,
+    last_sent_at REAL
+);
+
+CREATE INDEX IF NOT EXISTS idx_recurring_due
+ON recurring_messages(status, next_send_at);
+
+CREATE TABLE IF NOT EXISTS ama_sessions (
+    id TEXT PRIMARY KEY,
+    chat_id INTEGER NOT NULL,
+    title TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'open',
+    created_by INTEGER,
+    created_at REAL NOT NULL,
+    closed_at REAL
+);
+
+CREATE INDEX IF NOT EXISTS idx_ama_sessions_chat
+ON ama_sessions(chat_id, status, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS ama_questions (
+    id TEXT PRIMARY KEY,
+    ama_id TEXT NOT NULL,
+    chat_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    question TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    created_at REAL NOT NULL,
+    FOREIGN KEY (ama_id) REFERENCES ama_sessions(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_ama_questions_session
+ON ama_questions(ama_id, status, created_at ASC);
 """
 
 
@@ -236,6 +278,28 @@ class ZionDB:
             return bool(row and row["ok"] == 1)
         except sqlite3.Error:
             return False
+
+    def integrity_check(self) -> tuple[bool, str]:
+        try:
+            with self._lock:
+                row = self._conn.execute("PRAGMA quick_check").fetchone()
+            result = str(row[0]) if row else "no_result"
+            return result.lower() == "ok", result
+        except sqlite3.Error as exc:
+            return False, type(exc).__name__
+
+    def file_size_bytes(self) -> int:
+        total = 0
+        for candidate in (
+            self.path,
+            Path(str(self.path) + "-wal"),
+            Path(str(self.path) + "-shm"),
+        ):
+            try:
+                total += candidate.stat().st_size
+            except OSError:
+                pass
+        return total
 
     def upsert_user(
         self,
@@ -524,6 +588,25 @@ class ZionDB:
                 (chat_id, user_id, since),
             ).fetchone()
         return int(row["count"]) if row else 0
+
+    def chat_recent_activity(
+        self,
+        chat_id: int,
+        since: float,
+    ) -> tuple[int, int]:
+        with self._lock:
+            row = self._conn.execute(
+                """
+                SELECT COUNT(*) AS messages,
+                       COUNT(DISTINCT user_id) AS users
+                FROM recent_messages
+                WHERE chat_id=? AND created_at >= ?
+                """,
+                (chat_id, since),
+            ).fetchone()
+        if not row:
+            return 0, 0
+        return int(row["messages"]), int(row["users"])
 
     def recent_message_ids(
         self,
@@ -967,6 +1050,270 @@ class ZionDB:
             )
             self._conn.commit()
 
+    def schedule_recurring_message(
+        self,
+        *,
+        chat_id: int,
+        first_send_at: float,
+        interval_seconds: int,
+        text: str,
+        created_by: int | None,
+    ) -> str:
+        schedule_id = uuid.uuid4().hex
+        with self._lock:
+            self._conn.execute(
+                """
+                INSERT INTO recurring_messages (
+                    id, chat_id, interval_seconds, next_send_at,
+                    text, status, created_by, created_at
+                )
+                VALUES (?, ?, ?, ?, ?, 'active', ?, ?)
+                """,
+                (
+                    schedule_id,
+                    chat_id,
+                    max(300, int(interval_seconds)),
+                    first_send_at,
+                    text[:3500],
+                    created_by,
+                    time.time(),
+                ),
+            )
+            self._conn.commit()
+        return schedule_id
+
+    def due_recurring_messages(
+        self,
+        now: float | None = None,
+        limit: int = 20,
+    ) -> list[dict[str, Any]]:
+        ts = time.time() if now is None else now
+        safe_limit = max(1, min(int(limit), 100))
+        with self._lock:
+            rows = self._conn.execute(
+                """
+                SELECT id, chat_id, interval_seconds,
+                       next_send_at, text, created_by
+                FROM recurring_messages
+                WHERE status='active' AND next_send_at <= ?
+                ORDER BY next_send_at ASC
+                LIMIT ?
+                """,
+                (ts, safe_limit),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def advance_recurring_message(
+        self,
+        schedule_id: str,
+        *,
+        success: bool,
+        now: float | None = None,
+    ) -> None:
+        ts = time.time() if now is None else now
+        with self._lock:
+            row = self._conn.execute(
+                """
+                SELECT interval_seconds, next_send_at
+                FROM recurring_messages
+                WHERE id=? AND status='active'
+                """,
+                (schedule_id,),
+            ).fetchone()
+            if not row:
+                return
+
+            interval = max(300, int(row["interval_seconds"]))
+            next_at = float(row["next_send_at"])
+            if success:
+                while next_at <= ts:
+                    next_at += interval
+                self._conn.execute(
+                    """
+                    UPDATE recurring_messages
+                    SET next_send_at=?, last_sent_at=?
+                    WHERE id=?
+                    """,
+                    (next_at, ts, schedule_id),
+                )
+            else:
+                # Failed delivery is retried later without creating a tight loop.
+                self._conn.execute(
+                    """
+                    UPDATE recurring_messages
+                    SET next_send_at=?
+                    WHERE id=?
+                    """,
+                    (ts + min(interval, 300), schedule_id),
+                )
+            self._conn.commit()
+
+    def cancel_recurring_message(self, schedule_id: str) -> bool:
+        with self._lock:
+            cursor = self._conn.execute(
+                """
+                UPDATE recurring_messages
+                SET status='cancelled'
+                WHERE id=? AND status='active'
+                """,
+                (schedule_id,),
+            )
+            self._conn.commit()
+        return cursor.rowcount > 0
+
+    def create_ama(
+        self,
+        *,
+        chat_id: int,
+        title: str,
+        created_by: int | None,
+    ) -> str:
+        ama_id = uuid.uuid4().hex
+        now = time.time()
+        with self._lock:
+            self._conn.execute(
+                """
+                UPDATE ama_sessions
+                SET status='closed', closed_at=?
+                WHERE chat_id=? AND status='open'
+                """,
+                (now, chat_id),
+            )
+            self._conn.execute(
+                """
+                INSERT INTO ama_sessions (
+                    id, chat_id, title, status, created_by, created_at
+                )
+                VALUES (?, ?, ?, 'open', ?, ?)
+                """,
+                (ama_id, chat_id, title[:200], created_by, now),
+            )
+            self._conn.commit()
+        return ama_id
+
+    def active_ama(self, chat_id: int) -> dict[str, Any] | None:
+        with self._lock:
+            row = self._conn.execute(
+                """
+                SELECT id, chat_id, title, created_by, created_at
+                FROM ama_sessions
+                WHERE chat_id=? AND status='open'
+                ORDER BY created_at DESC
+                LIMIT 1
+                """,
+                (chat_id,),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def add_ama_question(
+        self,
+        *,
+        ama_id: str,
+        chat_id: int,
+        user_id: int,
+        question: str,
+    ) -> str:
+        question_id = uuid.uuid4().hex
+        with self._lock:
+            self._conn.execute(
+                """
+                INSERT INTO ama_questions (
+                    id, ama_id, chat_id, user_id,
+                    question, status, created_at
+                )
+                VALUES (?, ?, ?, ?, ?, 'pending', ?)
+                """,
+                (
+                    question_id,
+                    ama_id,
+                    chat_id,
+                    user_id,
+                    question[:1000],
+                    time.time(),
+                ),
+            )
+            self._conn.commit()
+        return question_id
+
+    def list_ama_questions(
+        self,
+        ama_id: str,
+        limit: int = 30,
+    ) -> list[dict[str, Any]]:
+        safe_limit = max(1, min(int(limit), 100))
+        with self._lock:
+            rows = self._conn.execute(
+                """
+                SELECT id, user_id, question, status, created_at
+                FROM ama_questions
+                WHERE ama_id=?
+                ORDER BY created_at ASC
+                LIMIT ?
+                """,
+                (ama_id, safe_limit),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def close_ama(self, chat_id: int) -> dict[str, Any] | None:
+        active = self.active_ama(chat_id)
+        if not active:
+            return None
+        with self._lock:
+            self._conn.execute(
+                """
+                UPDATE ama_sessions
+                SET status='closed', closed_at=?
+                WHERE id=?
+                """,
+                (time.time(), active["id"]),
+            )
+            self._conn.commit()
+        return active
+
+    def prune_ama_questions(self, before: float) -> int:
+        with self._lock:
+            cursor = self._conn.execute(
+                """
+                DELETE FROM ama_questions
+                WHERE ama_id IN (
+                    SELECT id FROM ama_sessions
+                    WHERE status='closed'
+                      AND closed_at IS NOT NULL
+                      AND closed_at < ?
+                )
+                """,
+                (before,),
+            )
+            self._conn.commit()
+        return int(cursor.rowcount)
+
+    def ai_latency_stats(
+        self,
+        since: float,
+    ) -> dict[str, int]:
+        with self._lock:
+            rows = self._conn.execute(
+                """
+                SELECT latency_ms
+                FROM ai_events
+                WHERE created_at >= ?
+                  AND success=1
+                  AND latency_ms > 0
+                ORDER BY latency_ms ASC
+                """,
+                (since,),
+            ).fetchall()
+        values = [int(row["latency_ms"]) for row in rows]
+        if not values:
+            return {"count": 0, "avg_ms": 0, "p95_ms": 0}
+        avg = int(sum(values) / len(values))
+        index = min(len(values) - 1, max(0, int(len(values) * 0.95) - 1))
+        return {
+            "count": len(values),
+            "avg_ms": avg,
+            "p95_ms": values[index],
+        }
+
     def ai_tokens_since(self, since: float) -> int:
         with self._lock:
             row = self._conn.execute(
@@ -1073,6 +1420,9 @@ class ZionDB:
             "actions",
             "ai_events",
             "knowledge_gaps",
+            "recurring_messages",
+            "ama_sessions",
+            "ama_questions",
         )
         result: dict[str, int] = {}
         with self._lock:
