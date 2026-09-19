@@ -3385,6 +3385,13 @@ async def scheduler_loop(application: Application) -> None:
                 else []
             )
             for item in due:
+                attempt = rt.db.claim_scheduled_message(
+                    str(item["id"]),
+                    now=now,
+                )
+                if attempt is None:
+                    continue
+
                 success = False
                 error_type: str | None = None
                 try:
@@ -3420,7 +3427,7 @@ async def scheduler_loop(application: Application) -> None:
                     metadata={
                         "schedule_id": str(item["id"]),
                         "delivery_state": delivery_state,
-                        "attempt": int(item.get("attempts", 0)) + 1,
+                        "attempt": attempt,
                         "error_type": error_type,
                     },
                 )
@@ -3434,9 +3441,7 @@ async def scheduler_loop(application: Application) -> None:
                         source="scheduler",
                         evidence={
                             "schedule_id": str(item["id"]),
-                            "attempts": (
-                                int(item.get("attempts", 0)) + 1
-                            ),
+                            "attempts": attempt,
                             "error_type": error_type,
                         },
                         note=(
@@ -3454,6 +3459,12 @@ async def scheduler_loop(application: Application) -> None:
                 else []
             )
             for item in recurring_due:
+                if not rt.db.claim_recurring_message(
+                    str(item["id"]),
+                    now=now,
+                ):
+                    continue
+
                 success = False
                 error_type: str | None = None
                 try:
