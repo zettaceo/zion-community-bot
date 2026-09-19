@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import time
+import unicodedata
 from urllib.parse import urlparse
 
 from .config import Settings
@@ -36,7 +37,7 @@ SENSITIVE_LABEL_REGEX = re.compile(
 )
 
 LONG_SECRET_AFTER_LABEL_REGEX = re.compile(
-    r"(?i)\b("
+    r"(?is)\b("
     r"private\s+key|chave\s+privada|"
     r"seed\s+phrase|frase\s+semente|"
     r"recovery\s+phrase|frase\s+de\s+recupera[cç][aã]o|"
@@ -44,15 +45,57 @@ LONG_SECRET_AFTER_LABEL_REGEX = re.compile(
     r")\b\s*[:=\-]?\s*(.{24,})"
 )
 
+INVISIBLE_SECURITY_CODEPOINTS = {
+    0x200B,  # zero width space
+    0x200C,  # zero width non-joiner
+    0x200D,  # zero width joiner
+    0x2060,  # word joiner
+    0xFEFF,  # zero width no-break space / BOM
+}
+
+ALLOWED_LINK_SCHEMES = frozenset({"http", "https"})
+
+
+def _normalize_security_text(value: str) -> str:
+    normalized = unicodedata.normalize("NFKC", value or "")
+    return "".join(
+        char
+        for char in normalized
+        if ord(char) not in INVISIBLE_SECURITY_CODEPOINTS
+    )
+
+
+def normalize_link_target(value: str) -> tuple[str | None, str | None]:
+    raw = _normalize_security_text(value).strip()
+    if not raw:
+        return None, None
+
+    lowered = raw.lower()
+    if lowered.startswith("www.") or lowered.startswith("t.me/"):
+        raw = "https://" + raw
+
+    try:
+        parsed = urlparse(raw)
+    except ValueError:
+        return None, None
+
+    scheme = (parsed.scheme or "").lower()
+    if scheme and scheme not in ALLOWED_LINK_SCHEMES:
+        return None, scheme
+
+    if not scheme:
+        raw = "https://" + raw
+
+    return _normalize_domain(raw), None
+
 
 def _normalize_domain(raw_url: str) -> str | None:
-    candidate = (raw_url or "").strip().rstrip(".,);]}>")
+    candidate = _normalize_security_text(raw_url).strip().rstrip(".,);]}>")
     candidate = candidate.translate({
         0x3002: ".",
         0xFF0E: ".",
         0xFF61: ".",
     })
-    candidate = candidate.replace("\u200b", "").replace("\u2060", "")
     if candidate.lower().startswith("www."):
         candidate = "https://" + candidate
     elif candidate.lower().startswith("t.me/"):
@@ -76,15 +119,13 @@ def _normalize_domain(raw_url: str) -> str | None:
 
 
 def normalize_policy_domain(value: str) -> str | None:
-    raw = (value or "").strip()
+    raw = _normalize_security_text(value).strip()
     if not raw:
         return None
 
-    candidate = raw
-    if not re.match(r"(?i)^(?:https?://|www\.|t\.me/)", candidate):
-        candidate = "https://" + candidate
-
-    domain = _normalize_domain(candidate)
+    domain, unsupported_scheme = normalize_link_target(raw)
+    if unsupported_scheme is not None:
+        return None
     if not domain or not POLICY_DOMAIN_REGEX.fullmatch(domain):
         return None
     return domain
@@ -92,7 +133,8 @@ def normalize_policy_domain(value: str) -> str | None:
 
 def extract_domains(text: str) -> list[str]:
     domains: list[str] = []
-    for raw in URL_REGEX.findall(text or ""):
+    normalized_text = _normalize_security_text(text)
+    for raw in URL_REGEX.findall(normalized_text):
         domain = _normalize_domain(raw)
         if domain and domain not in domains:
             domains.append(domain)
@@ -106,7 +148,7 @@ def domain_matches(domain: str, allowed: str) -> bool:
 
 
 def detect_sensitive_content(text: str) -> SensitiveContentDecision:
-    text = text or ""
+    text = _normalize_security_text(text)
     if not SENSITIVE_LABEL_REGEX.search(text):
         return SensitiveContentDecision()
 
@@ -117,7 +159,16 @@ def detect_sensitive_content(text: str) -> SensitiveContentDecision:
     tail = match.group(2).strip()
     words = re.findall(r"[A-Za-zÀ-ÿ0-9_'-]+", tail)
 
-    if len(words) in {12, 15, 18, 21, 24}:
+    plausible_seed_prefix = (
+        len(words) >= 12
+        and all(
+            word.replace("'", "").replace("-", "").isalpha()
+            and 2 <= len(word) <= 32
+            for word in words[:12]
+        )
+    )
+
+    if plausible_seed_prefix:
         return SensitiveContentDecision(
             detected=True,
             kind="possible_wallet_secret",
@@ -336,15 +387,23 @@ class Guardian:
         self,
         text: str,
         extra_domains: list[str] | tuple[str, ...] | None = None,
+        unsupported_schemes: list[str] | tuple[str, ...] | None = None,
     ) -> LinkDecision:
         domains = extract_domains(text)
+        unsupported = sorted(
+            {
+                str(scheme).strip().lower()
+                for scheme in (unsupported_schemes or ())
+                if str(scheme).strip()
+            }
+        )
 
         for raw_domain in extra_domains or ():
             normalized = normalize_policy_domain(raw_domain)
             if normalized and normalized not in domains:
                 domains.append(normalized)
 
-        if not domains:
+        if not domains and not unsupported:
             return LinkDecision()
 
         unauthorized: list[str] = []
@@ -376,13 +435,18 @@ class Guardian:
             if not self.settings.allow_links or not allowed_by_env:
                 unauthorized.append(domain)
 
-        if unauthorized:
+        if unauthorized or unsupported:
             return LinkDecision(
                 has_links=True,
                 domains=domains,
                 unauthorized_domains=unauthorized,
+                unsupported_schemes=unsupported,
                 should_delete=True,
-                reason="link/domínio não autorizado",
+                reason=(
+                    "link/esquema não autorizado"
+                    if unsupported
+                    else "link/domínio não autorizado"
+                ),
             )
 
         return LinkDecision(
