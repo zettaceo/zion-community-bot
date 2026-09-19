@@ -394,6 +394,53 @@ class ZionDB:
         except sqlite3.Error as exc:
             return False, type(exc).__name__
 
+    def runtime_pragmas(self) -> dict[str, int | str]:
+        with self._lock:
+            journal_row = self._conn.execute(
+                "PRAGMA journal_mode"
+            ).fetchone()
+            foreign_row = self._conn.execute(
+                "PRAGMA foreign_keys"
+            ).fetchone()
+            timeout_row = self._conn.execute(
+                "PRAGMA busy_timeout"
+            ).fetchone()
+
+        return {
+            "journal_mode": (
+                str(journal_row[0]).lower()
+                if journal_row
+                else "unknown"
+            ),
+            "foreign_keys": (
+                int(foreign_row[0])
+                if foreign_row
+                else 0
+            ),
+            "busy_timeout_ms": (
+                int(timeout_row[0])
+                if timeout_row
+                else 0
+            ),
+        }
+
+    def checkpoint_wal(self) -> dict[str, int]:
+        with self._lock:
+            row = self._conn.execute(
+                "PRAGMA wal_checkpoint(PASSIVE)"
+            ).fetchone()
+        if not row:
+            return {
+                "busy": -1,
+                "log_frames": -1,
+                "checkpointed_frames": -1,
+            }
+        return {
+            "busy": int(row[0]),
+            "log_frames": int(row[1]),
+            "checkpointed_frames": int(row[2]),
+        }
+
     def file_size_bytes(self) -> int:
         total = 0
         for candidate in (
