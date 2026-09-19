@@ -8,7 +8,7 @@ from pathlib import Path
 
 
 TELEGRAM_TOKEN = re.compile(
-    rb"(?<![A-Za-z0-9_])\d{6,}:[A-Za-z0-9_-]{20,}"
+    rb"(?<!\d)\d{6,}:[A-Za-z0-9_-]{20,}"
 )
 
 FAKE_TELEGRAM_TOKENS = {
