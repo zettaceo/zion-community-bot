@@ -92,8 +92,26 @@ class HealthService:
 
     def diagnostics(self) -> dict[str, object]:
         snapshot = self.snapshot()
-        latency = self.db.ai_latency_stats(time.time() - 86400)
-        pragmas = self.db.runtime_pragmas()
+
+        try:
+            latency = self.db.ai_latency_stats(time.time() - 86400)
+        except Exception:
+            latency = {"count": 0, "avg_ms": 0, "p95_ms": 0}
+
+        try:
+            pragmas = self.db.runtime_pragmas()
+        except Exception:
+            pragmas = {
+                "journal_mode": "unknown",
+                "foreign_keys": 0,
+                "busy_timeout_ms": 0,
+            }
+
+        try:
+            schema_version = self.db.schema_version()
+        except Exception:
+            schema_version = -1
+
         return {
             "state": snapshot.state.value,
             "db_ok": snapshot.db_ok,
@@ -111,7 +129,7 @@ class HealthService:
             ),
             "wifi_interface_present": snapshot.wifi_interface_present,
             "ai_latency_24h": latency,
-            "schema_version": self.db.schema_version(),
+            "schema_version": schema_version,
             "sqlite_pragmas": pragmas,
         }
 
