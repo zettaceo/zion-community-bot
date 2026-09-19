@@ -87,6 +87,10 @@ class AIService:
         except (TypeError, ValueError):
             return default
 
+    @property
+    def circuit_failures(self) -> int:
+        return self._circuit_failures
+
     def circuit_open(self) -> bool:
         if self._circuit_open_until <= 0:
             return False
