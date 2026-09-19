@@ -23,7 +23,7 @@ class HealthService:
         self.settings = settings
         self.db = db
         self._started_monotonic = time.monotonic()
-        self._integrity_checked_at = 0.0
+        self._integrity_checked_at = float("-inf")
         self._integrity_cache: tuple[bool, str] = (True, "not_checked")
 
     def _integrity_status(self) -> tuple[bool, str]:
