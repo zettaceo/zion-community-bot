@@ -49,6 +49,17 @@ class V11DatabaseTests(unittest.TestCase):
         self.assertEqual(len(due), 1)
         self.assertEqual(due[0]["id"], schedule_id)
 
+        self.assertTrue(
+            self.db.claim_recurring_message(
+                schedule_id,
+                now=1000.0,
+            )
+        )
+        self.assertEqual(
+            self.db.due_recurring_messages(now=1000.0),
+            [],
+        )
+
         state = self.db.advance_recurring_message(
             schedule_id,
             success=True,
@@ -98,6 +109,16 @@ class V11DatabaseTests(unittest.TestCase):
             created_by=1,
         )
 
+        attempt = self.db.claim_scheduled_message(
+            schedule_id,
+            now=1000.0,
+        )
+        self.assertEqual(attempt, 1)
+        self.assertEqual(
+            self.db.due_scheduled_messages(now=1000.0),
+            [],
+        )
+
         state = self.db.mark_scheduled_message(
             schedule_id,
             success=False,
@@ -115,6 +136,12 @@ class V11DatabaseTests(unittest.TestCase):
             len(self.db.due_scheduled_messages(now=1060.0)),
             1,
         )
+
+        attempt = self.db.claim_scheduled_message(
+            schedule_id,
+            now=1060.0,
+        )
+        self.assertEqual(attempt, 2)
 
         state = self.db.mark_scheduled_message(
             schedule_id,
@@ -143,6 +170,12 @@ class V11DatabaseTests(unittest.TestCase):
         due = self.db.due_scheduled_messages(now=1100.0)
         self.assertEqual(len(due), 1)
         self.assertEqual(due[0]["attempts"], 0)
+
+        attempt = self.db.claim_scheduled_message(
+            schedule_id,
+            now=1100.0,
+        )
+        self.assertEqual(attempt, 1)
 
         state = self.db.mark_scheduled_message(
             schedule_id,
@@ -186,6 +219,12 @@ class V11DatabaseTests(unittest.TestCase):
             created_by=1,
         )
 
+        self.assertTrue(
+            self.db.claim_recurring_message(
+                schedule_id,
+                now=1000.0,
+            )
+        )
         state = self.db.advance_recurring_message(
             schedule_id,
             success=False,
@@ -204,6 +243,12 @@ class V11DatabaseTests(unittest.TestCase):
             1,
         )
 
+        self.assertTrue(
+            self.db.claim_recurring_message(
+                schedule_id,
+                now=1030.0,
+            )
+        )
         state = self.db.advance_recurring_message(
             schedule_id,
             success=False,
