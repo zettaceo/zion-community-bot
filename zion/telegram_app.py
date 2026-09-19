@@ -84,6 +84,8 @@ class Runtime:
                 tuple[bool, float],
             ] = {}
             self.update_lags: deque[float] = deque(maxlen=100)
+            self.health_alert_signature: str | None = None
+            self.health_alert_last_sent_at = 0.0
         except Exception:
             db = getattr(self, "db", None)
             if isinstance(db, ZionDB):
@@ -3060,19 +3062,34 @@ async def operational_alert_cycle(
     snapshot = rt.health.snapshot()
     diagnostics = rt.health.diagnostics()
     pragmas = diagnostics["sqlite_pragmas"]
-    community = rt.db.community_stats()
     _, p95_lag = update_lag_stats(rt)
+
+    try:
+        community = rt.db.community_stats()
+    except Exception as exc:
+        logger.warning(
+            "Falha ao ler community_stats para health alert: %s",
+            type(exc).__name__,
+        )
+        community = {
+            "failed_scheduled": 0,
+            "paused_recurring": 0,
+        }
+
     issues: list[str] = []
 
     if not snapshot.db_ok:
         issues.append("database_or_integrity")
-    if pragmas["journal_mode"] != "wal":
+    if pragmas["journal_mode"] not in {"wal", "unknown"}:
         issues.append("sqlite_not_wal")
-    if int(pragmas["foreign_keys"]) != 1:
+    if (
+        pragmas["journal_mode"] != "unknown"
+        and int(pragmas["foreign_keys"]) != 1
+    ):
         issues.append("sqlite_foreign_keys_off")
-    if community["failed_scheduled"] > 0:
+    if community.get("failed_scheduled", 0) > 0:
         issues.append("scheduled_delivery_failed")
-    if community["paused_recurring"] > 0:
+    if community.get("paused_recurring", 0) > 0:
         issues.append("recurring_delivery_paused")
     if snapshot.details.get("disk_low"):
         issues.append("disk_low")
@@ -3087,14 +3104,29 @@ async def operational_alert_cycle(
         issues.append("telegram_update_lag")
 
     signature = "|".join(sorted(issues)) if issues else "OK"
-    previous = rt.db.get_setting("health_alert_signature")
-
     now = time.time()
-    raw_last_sent = rt.db.get_setting("health_alert_last_sent_at") or "0"
+
+    previous = rt.health_alert_signature
+    last_sent_at = rt.health_alert_last_sent_at
+
     try:
+        persisted = rt.db.get_setting("health_alert_signature")
+        if persisted is not None:
+            previous = persisted
+
+        raw_last_sent = (
+            rt.db.get_setting("health_alert_last_sent_at")
+            or "0"
+        )
         last_sent_at = float(raw_last_sent)
-    except ValueError:
-        last_sent_at = 0.0
+    except Exception as exc:
+        logger.warning(
+            "Health alert persistence indisponível: %s",
+            type(exc).__name__,
+        )
+
+    rt.health_alert_signature = previous
+    rt.health_alert_last_sent_at = last_sent_at
 
     if signature == previous:
         if signature == "OK":
@@ -3105,10 +3137,22 @@ async def operational_alert_cycle(
         ):
             return
 
-    rt.db.set_setting("health_alert_signature", signature)
+    try:
+        rt.db.set_setting("health_alert_signature", signature)
+    except Exception as exc:
+        logger.warning(
+            "Falha ao persistir assinatura de health alert: %s",
+            type(exc).__name__,
+        )
+    rt.health_alert_signature = signature
 
     if not issues:
-        rt.db.set_setting("health_alert_last_sent_at", "0")
+        try:
+            rt.db.set_setting("health_alert_last_sent_at", "0")
+        except Exception:
+            pass
+        rt.health_alert_last_sent_at = 0.0
+
         if previous and previous != "OK":
             for operator_id in sorted(rt.settings.admin_user_ids):
                 success = False
@@ -3127,43 +3171,54 @@ async def operational_alert_cycle(
                     logger.warning(
                         "Falha ao enviar recuperação para operator=%s: %s",
                         operator_id,
-                        exc,
+                        type(exc).__name__,
                     )
-                rt.db.record_action(
-                    incident_id=None,
-                    chat_id=operator_id,
-                    user_id=None,
-                    action_type="operator_recovery",
-                    actor_type="health",
-                    actor_id=None,
-                    reason="operational_health_recovered",
-                    success=success,
-                    metadata={"previous_signature": previous},
-                )
+
+                try:
+                    rt.db.record_action(
+                        incident_id=None,
+                        chat_id=operator_id,
+                        user_id=None,
+                        action_type="operator_recovery",
+                        actor_type="health",
+                        actor_id=None,
+                        reason="operational_health_recovered",
+                        success=success,
+                        metadata={"previous_signature": previous},
+                    )
+                except Exception:
+                    pass
         return
 
-    incident_id = rt.db.create_incident(
-        chat_id=None,
-        user_id=None,
-        category="operational_health_warning",
-        severity=(
-            Severity.HIGH
-            if not snapshot.db_ok
-            else Severity.MEDIUM
-        ),
-        source="health",
-        evidence={
-            "issues": issues,
-            "disk_free_mb": snapshot.disk_free_mb,
-            "telegram_update_lag_p95": round(p95_lag, 3),
-            "repeat_interval_seconds": (
-                rt.settings.health_alert_repeat_seconds
+    incident_id: str | None = None
+    try:
+        incident_id = rt.db.create_incident(
+            chat_id=None,
+            user_id=None,
+            category="operational_health_warning",
+            severity=(
+                Severity.HIGH
+                if not snapshot.db_ok
+                else Severity.MEDIUM
             ),
-        },
-        note=(
-            "Operational alert; no automated destructive action executed."
-        ),
-    )
+            source="health",
+            evidence={
+                "issues": issues,
+                "disk_free_mb": snapshot.disk_free_mb,
+                "telegram_update_lag_p95": round(p95_lag, 3),
+                "repeat_interval_seconds": (
+                    rt.settings.health_alert_repeat_seconds
+                ),
+            },
+            note=(
+                "Operational alert; no automated destructive action executed."
+            ),
+        )
+    except Exception as exc:
+        logger.warning(
+            "Falha ao persistir incidente operacional: %s",
+            type(exc).__name__,
+        )
 
     alert_text = (
         "⚠️ ZION OPERATIONAL ALERT\n"
@@ -3183,21 +3238,29 @@ async def operational_alert_cycle(
             logger.warning(
                 "Falha ao enviar alerta operacional para operator=%s: %s",
                 operator_id,
-                exc,
+                type(exc).__name__,
             )
-        rt.db.record_action(
-            incident_id=incident_id,
-            chat_id=operator_id,
-            user_id=None,
-            action_type="operator_alert",
-            actor_type="health",
-            actor_id=None,
-            reason="operational_health_warning",
-            success=success,
-            metadata={"issues": issues},
-        )
 
-    rt.db.set_setting("health_alert_last_sent_at", str(now))
+        try:
+            rt.db.record_action(
+                incident_id=incident_id,
+                chat_id=operator_id,
+                user_id=None,
+                action_type="operator_alert",
+                actor_type="health",
+                actor_id=None,
+                reason="operational_health_warning",
+                success=success,
+                metadata={"issues": issues},
+            )
+        except Exception:
+            pass
+
+    try:
+        rt.db.set_setting("health_alert_last_sent_at", str(now))
+    except Exception:
+        pass
+    rt.health_alert_last_sent_at = now
 
 
 async def scheduler_loop(application: Application) -> None:
