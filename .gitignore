@@ -43,3 +43,6 @@ Thumbs.db
 *.tmp
 *.swp
 *.bak
+
+# Backups locais de deploy
+backups/
