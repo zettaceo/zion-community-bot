@@ -14,6 +14,8 @@ def make_settings(root: Path) -> Settings:
         legacy_state_path=root / "legacy.json",
         knowledge_dir=root / "knowledge",
         log_path=root / "zion-test.log",
+        log_max_bytes=1024 * 1024,
+        log_backup_count=3,
         wifi_interface="test0",
         allow_links=False,
         allowed_domains=frozenset({"z-swap.example"}),
