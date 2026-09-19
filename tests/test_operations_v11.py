@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import sqlite3
 import tempfile
 import time
 import unittest
@@ -35,6 +36,54 @@ class V11OperationalAlertTests(unittest.TestCase):
             encoding="utf-8",
         )
         return make_settings(root)
+
+    def test_runtime_refuses_foreign_key_corruption_and_releases_lock(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            settings = self._healthy_settings(root)
+
+            db = ZionDB(settings.db_path)
+            db.initialize()
+            db.close()
+
+            raw = sqlite3.connect(settings.db_path)
+            try:
+                raw.execute("PRAGMA foreign_keys=OFF")
+                raw.execute(
+                    """
+                    INSERT INTO ama_questions(
+                        id, ama_id, chat_id, user_id,
+                        question, status, created_at
+                    )
+                    VALUES (
+                        'runtime-orphan', 'missing',
+                        1, 2, 'broken', 'pending', 1
+                    )
+                    """
+                )
+                raw.commit()
+            finally:
+                raw.close()
+
+            with self.assertRaises(RuntimeError):
+                Runtime(settings)
+
+            raw = sqlite3.connect(settings.db_path)
+            try:
+                raw.execute(
+                    "DELETE FROM ama_questions WHERE id='runtime-orphan'"
+                )
+                raw.commit()
+            finally:
+                raw.close()
+
+            recovered = Runtime(settings)
+            try:
+                self.assertTrue(recovered.process_lock.acquired)
+            finally:
+                recovered.close()
 
     def test_runtime_rejects_second_instance_until_close(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
