@@ -1,14 +1,24 @@
 from __future__ import annotations
 
 import os
+import stat
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 from zion.ai_service import sanitize_for_ai
-from zion.logging_safe import redact_secrets
+from zion.logging_safe import configure_logging, redact_secrets
 
 
 class SecurityTests(unittest.TestCase):
+    def test_log_file_permissions_are_private(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "zion.log"
+            configure_logging(path)
+            mode = stat.S_IMODE(path.stat().st_mode)
+            self.assertEqual(mode, 0o600)
+
     def test_telegram_token_redacted(self) -> None:
         fake = "123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghi"
         result = redact_secrets(
