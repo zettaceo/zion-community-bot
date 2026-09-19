@@ -1148,15 +1148,48 @@ class ZionDB:
                 )
             self._conn.commit()
 
-    def cancel_recurring_message(self, schedule_id: str) -> bool:
+    def cancel_recurring_message(
+        self,
+        schedule_id_or_prefix: str,
+    ) -> bool:
+        value = schedule_id_or_prefix.strip()
+        if not value:
+            return False
+
         with self._lock:
+            exact = self._conn.execute(
+                """
+                SELECT id
+                FROM recurring_messages
+                WHERE id=? AND status='active'
+                """,
+                (value,),
+            ).fetchone()
+
+            if exact:
+                resolved_id = str(exact["id"])
+            else:
+                rows = self._conn.execute(
+                    """
+                    SELECT id
+                    FROM recurring_messages
+                    WHERE id LIKE ? AND status='active'
+                    ORDER BY created_at DESC
+                    LIMIT 2
+                    """,
+                    (value + "%",),
+                ).fetchall()
+                if len(rows) != 1:
+                    return False
+                resolved_id = str(rows[0]["id"])
+
             cursor = self._conn.execute(
                 """
                 UPDATE recurring_messages
                 SET status='cancelled'
                 WHERE id=? AND status='active'
                 """,
-                (schedule_id,),
+                (resolved_id,),
             )
             self._conn.commit()
         return cursor.rowcount > 0
