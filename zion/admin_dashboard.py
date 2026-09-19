@@ -132,8 +132,7 @@ def main() -> None:
 
     configure_logging(root_dir / "zion-dashboard.log")
 
-    db = ZionDB(db_path)
-    db.initialize()
+    db = ZionDB(db_path, readonly=True)
     started_monotonic = time.monotonic()
 
     class Handler(BaseHTTPRequestHandler):
