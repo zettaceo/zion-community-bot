@@ -6,6 +6,7 @@ on:
       - main
       - dev
       - zion-v1
+      - zion-v1.1-dev
   pull_request:
 
 permissions:
