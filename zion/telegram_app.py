@@ -2547,6 +2547,18 @@ async def command_guard_handler(
     record_user(update, context, increment_messages=True)
 
     text = message.text or message.caption or ""
+    if await protect_credential_exposure(
+        update,
+        context,
+        text,
+        source="guardian_command_preflight",
+        notice_text=(
+            "🚨 ZION bloqueou um comando que aparentava conter "
+            "uma credencial. O conteúdo não foi processado."
+        ),
+    ):
+        raise ApplicationHandlerStop
+
     if await protect_wallet_secret(
         update,
         context,
@@ -2657,9 +2669,22 @@ async def moderation_handler(
 
     record_user(update, context, increment_messages=True)
 
-    # Carteira/seed é protegida para TODOS, inclusive administradores.
+    # Segredos são protegidos para TODOS, inclusive administradores.
     # Admin não deve perder esta camada por causa da isenção de moderação.
     text = message.text or message.caption or ""
+    if await protect_credential_exposure(
+        update,
+        context,
+        text,
+        source="guardian",
+        notice_text=(
+            f"🚨 {user_display_name(user)}: mensagem removida por "
+            "possível exposição de credencial. Revogue/rotacione a "
+            "credencial caso ela seja real."
+        ),
+    ):
+        return
+
     if await protect_wallet_secret(
         update,
         context,
@@ -2694,7 +2719,7 @@ async def moderation_handler(
         return
 
     # Administradores continuam isentos de flood e política de links,
-    # mas somente depois da proteção universal de segredo de carteira.
+    # mas somente depois da proteção universal de segredos.
     if admin:
         return
 
