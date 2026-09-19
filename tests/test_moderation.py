@@ -7,9 +7,10 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from telegram.constants import ChatMemberStatus
+from telegram.ext import ApplicationHandlerStop
 
 from tests.helpers import make_settings
-from zion.telegram_app import Runtime, moderation_handler
+from zion.telegram_app import Runtime, command_guard_handler, moderation_handler
 
 
 class FakeBot:
@@ -117,6 +118,39 @@ class ModerationPipelineTests(unittest.TestCase):
         )
         incidents = self.runtime.db.list_incidents()
         self.assertEqual(incidents[0]["category"], "possible_wallet_secret")
+
+    def test_command_link_cannot_bypass_link_policy(self) -> None:
+        update = fake_update(
+            user_id=2,
+            text="/ask veja https://example.com/agora",
+            message_id=20,
+        )
+
+        with self.assertRaises(ApplicationHandlerStop):
+            asyncio.run(command_guard_handler(update, self.context))
+
+        self.assertIn(
+            (update.effective_chat.id, update.effective_message.message_id),
+            self.context.bot.deleted,
+        )
+
+    def test_admin_command_wallet_secret_is_protected(self) -> None:
+        update = fake_update(
+            user_id=1,
+            text=(
+                "/ask seed phrase: alpha beta gamma delta epsilon zeta "
+                "eta theta iota kappa lambda mu"
+            ),
+            message_id=21,
+        )
+
+        with self.assertRaises(ApplicationHandlerStop):
+            asyncio.run(command_guard_handler(update, self.context))
+
+        self.assertIn(
+            (update.effective_chat.id, update.effective_message.message_id),
+            self.context.bot.deleted,
+        )
 
     def test_normal_member_message_passes(self) -> None:
         update = fake_update(
