@@ -30,6 +30,7 @@ from .logging_safe import (
 )
 from .migrate import migrate_legacy_guardian_state
 from .models import FloodDecision, OperatingState, Severity
+from .process_lock import ProcessLock
 
 
 logger = logging.getLogger("zion.telegram")
@@ -59,27 +60,38 @@ class AskRateLimiter:
 class Runtime:
     def __init__(self, settings: Settings):
         self.settings = settings
-        self.db = ZionDB(settings.db_path)
-        self.db.initialize()
-        migrate_legacy_guardian_state(
-            self.db,
-            settings.legacy_state_path,
-        )
-        self.knowledge = KnowledgeBase(settings.knowledge_dir)
-        self.guardian = Guardian(settings, self.db)
-        self.ai = AIService(settings, self.db, self.knowledge)
-        self.health = HealthService(settings, self.db)
-        self.ask_limiter = AskRateLimiter(
-            settings.ai_user_requests_per_minute
-        )
-        self.observe_limiter = AskRateLimiter(
-            settings.ai_user_requests_per_minute
-        )
-        self.admin_cache: dict[
-            tuple[int, int],
-            tuple[bool, float],
-        ] = {}
-        self.update_lags: deque[float] = deque(maxlen=100)
+        self.process_lock = ProcessLock(settings.runtime_lock_path)
+        try:
+            self.db = ZionDB(settings.db_path)
+            self.db.initialize()
+            migrate_legacy_guardian_state(
+                self.db,
+                settings.legacy_state_path,
+            )
+            self.knowledge = KnowledgeBase(settings.knowledge_dir)
+            self.guardian = Guardian(settings, self.db)
+            self.ai = AIService(settings, self.db, self.knowledge)
+            self.health = HealthService(settings, self.db)
+            self.ask_limiter = AskRateLimiter(
+                settings.ai_user_requests_per_minute
+            )
+            self.observe_limiter = AskRateLimiter(
+                settings.ai_user_requests_per_minute
+            )
+            self.admin_cache: dict[
+                tuple[int, int],
+                tuple[bool, float],
+            ] = {}
+            self.update_lags: deque[float] = deque(maxlen=100)
+        except Exception:
+            self.process_lock.close()
+            raise
+
+    def close(self) -> None:
+        try:
+            self.db.close()
+        finally:
+            self.process_lock.close()
 
 
 def runtime(context: ContextTypes.DEFAULT_TYPE) -> Runtime:
@@ -740,6 +752,8 @@ async def diagnostics_command(
         f"State: {diag['state']}\n"
         f"SQLite quick_check: "
         f"{'OK' if diag['sqlite_integrity_ok'] else 'FAIL'}\n"
+        f"Runtime lock: "
+        f"{'HELD' if rt.process_lock.acquired else 'MISSING'}\n"
         f"SQLite schema: v{diag['schema_version']}\n"
         f"SQLite journal/FK: "
         f"{pragmas['journal_mode']}/{pragmas['foreign_keys']}\n"
@@ -3352,7 +3366,7 @@ async def post_shutdown(application: Application) -> None:
 
     rt = application.bot_data.get("zion_runtime")
     if isinstance(rt, Runtime):
-        rt.db.close()
+        rt.close()
 
 
 async def error_handler(
