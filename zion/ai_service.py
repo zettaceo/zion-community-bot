@@ -453,11 +453,14 @@ class AIService:
                 chat_id=chat_id,
                 user_id=user_id,
                 purpose="moderation_observe",
-                model=self.settings.mistral_model,
+                model=result.model or self.settings.mistral_model,
                 success=True,
                 category=result.category,
                 risk=result.risk,
                 requires_human=result.requires_human,
+                latency_ms=result.latency_ms,
+                input_tokens=result.input_tokens,
+                output_tokens=result.output_tokens,
                 input_hash=self._hash_text(safe_text),
             )
             return result
