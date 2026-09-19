@@ -1418,6 +1418,121 @@ async def report_command(
     )
 
 
+async def brief_command(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+) -> None:
+    if not await require_admin(update, context):
+        return
+    if not update.effective_message:
+        return
+
+    rt = runtime(context)
+    since = time.time() - 86400
+    metrics = rt.db.operational_stats_since(since)
+    tokens = rt.ai.tokens_used_today()
+
+    await update.effective_message.reply_text(
+        "ZION 24H BRIEF\n"
+        f"State: {rt.db.get_operating_state().value}\n"
+        f"New users: {metrics['new_users']}\n"
+        f"Strikes: {metrics['strikes']}\n"
+        f"Incidents: {metrics['incidents']}\n"
+        f"Open incidents: {metrics['open_incidents']}\n"
+        f"Actions: {metrics['actions']}\n"
+        f"AI events: {metrics['ai_events']}\n"
+        f"Mistral tokens today UTC: {tokens}"
+    )
+
+
+async def announce_command(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+) -> None:
+    if not await require_admin(update, context):
+        return
+    if (
+        not update.effective_message
+        or not update.effective_chat
+        or not update.effective_user
+    ):
+        return
+
+    text = " ".join(context.args).strip()
+    if not text:
+        await update.effective_message.reply_text(
+            "Use: /announce <mensagem>"
+        )
+        return
+
+    success = False
+    try:
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text=text[:3900],
+        )
+        success = True
+    finally:
+        runtime(context).db.record_action(
+            incident_id=None,
+            chat_id=update.effective_chat.id,
+            user_id=None,
+            action_type="announce",
+            actor_type="admin",
+            actor_id=str(update.effective_user.id),
+            reason="manual_admin_command",
+            success=success,
+            metadata={"length": len(text)},
+        )
+
+
+async def poll_command(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+) -> None:
+    if not await require_admin(update, context):
+        return
+    if (
+        not update.effective_message
+        or not update.effective_chat
+        or not update.effective_user
+    ):
+        return
+
+    raw = " ".join(context.args).strip()
+    parts = [part.strip() for part in raw.split("|") if part.strip()]
+    if len(parts) < 3:
+        await update.effective_message.reply_text(
+            "Use: /poll Pergunta | Opção 1 | Opção 2 [| Opção 3 ...]"
+        )
+        return
+
+    question = parts[0][:280]
+    options = [value[:100] for value in parts[1:11]]
+
+    success = False
+    try:
+        await context.bot.send_poll(
+            chat_id=update.effective_chat.id,
+            question=question,
+            options=options,
+            is_anonymous=False,
+        )
+        success = True
+    finally:
+        runtime(context).db.record_action(
+            incident_id=None,
+            chat_id=update.effective_chat.id,
+            user_id=None,
+            action_type="poll",
+            actor_type="admin",
+            actor_id=str(update.effective_user.id),
+            reason="manual_admin_command",
+            success=success,
+            metadata={"options_count": len(options)},
+        )
+
+
 async def schedule_command(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
@@ -2111,6 +2226,9 @@ def build_application(settings: Settings | None = None) -> Application:
         "ban": ban_command,
         "unban": unban_command,
         "report": report_command,
+        "brief": brief_command,
+        "announce": announce_command,
+        "poll": poll_command,
         "schedule": schedule_command,
         "reloadkb": reload_knowledge_command,
     }
