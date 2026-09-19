@@ -2420,6 +2420,68 @@ class ZionDB:
             self._conn.commit()
         return int(cursor.rowcount)
 
+    def prune_ai_events(self, before: float) -> int:
+        with self._lock:
+            cursor = self._conn.execute(
+                """
+                DELETE FROM ai_events
+                WHERE created_at < ?
+                """,
+                (before,),
+            )
+        return int(cursor.rowcount)
+
+    def prune_completed_scheduled_messages(
+        self,
+        before: float,
+    ) -> int:
+        with self._lock:
+            cursor = self._conn.execute(
+                """
+                DELETE FROM scheduled_messages
+                WHERE status IN ('sent', 'failed', 'cancelled')
+                  AND COALESCE(sent_at, created_at) < ?
+                """,
+                (before,),
+            )
+        return int(cursor.rowcount)
+
+    def prune_closed_ama_sessions(
+        self,
+        before: float,
+    ) -> int:
+        with self._lock:
+            cursor = self._conn.execute(
+                """
+                DELETE FROM ama_sessions
+                WHERE status='closed'
+                  AND closed_at IS NOT NULL
+                  AND closed_at < ?
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM ama_questions
+                      WHERE ama_questions.ama_id=ama_sessions.id
+                  )
+                """,
+                (before,),
+            )
+        return int(cursor.rowcount)
+
+    def prune_expired_containments(
+        self,
+        now: float | None = None,
+    ) -> int:
+        ts = time.time() if now is None else now
+        with self._lock:
+            cursor = self._conn.execute(
+                """
+                DELETE FROM containments
+                WHERE blocked_until <= ?
+                """,
+                (ts,),
+            )
+        return int(cursor.rowcount)
+
     def ai_latency_stats(
         self,
         since: float,
