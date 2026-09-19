@@ -79,6 +79,12 @@ class Runtime:
             self.observe_limiter = AskRateLimiter(
                 settings.ai_user_requests_per_minute
             )
+            self.report_limiter = AskRateLimiter(
+                settings.report_requests_per_minute
+            )
+            self.ama_limiter = AskRateLimiter(
+                settings.ama_requests_per_minute
+            )
             self.admin_cache: dict[
                 tuple[int, int],
                 tuple[bool, float],
@@ -1778,8 +1784,15 @@ async def report_command(
         )
         return
 
+    rt = runtime(context)
+    if not rt.report_limiter.allow(update.effective_user.id):
+        await update.effective_message.reply_text(
+            "Limite temporário de denúncias atingido. Tente novamente em instantes."
+        )
+        return
+
     reason = " ".join(context.args).strip() or "user_report"
-    incident_id = runtime(context).db.create_incident(
+    incident_id = rt.db.create_incident(
         chat_id=update.effective_chat.id,
         user_id=target.id,
         category="user_report",
@@ -2279,6 +2292,13 @@ async def ama_open_command(
         return
 
     rt = runtime(context)
+    if not rt.ama_limiter.allow(update.effective_user.id):
+        await update.effective_message.reply_text(
+            "Limite temporário de perguntas do AMA atingido. "
+            "Tente novamente em instantes."
+        )
+        return
+
     active = rt.db.active_ama(update.effective_chat.id)
     if active:
         await update.effective_message.reply_text(
