@@ -86,6 +86,8 @@ class PrivateRotatingFileHandler(RotatingFileHandler):
         base = Path(self.baseFilename)
         for candidate in base.parent.glob(base.name + "*"):
             try:
+                if candidate.is_symlink():
+                    continue
                 if candidate.is_file():
                     os.chmod(candidate, 0o600)
             except OSError:
@@ -114,6 +116,8 @@ def configure_logging(
     backup_count: int = 5,
 ) -> logging.Logger:
     log_path.parent.mkdir(parents=True, exist_ok=True)
+    if log_path.is_symlink():
+        raise RuntimeError("ZION log path must not be a symlink.")
 
     formatter = SecretSafeFormatter(
         "%(asctime)s | %(levelname)s | %(name)s | %(message)s"
