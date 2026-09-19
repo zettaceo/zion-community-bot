@@ -133,6 +133,63 @@ class AITests(unittest.TestCase):
         gaps = self.db.list_knowledge_gaps()
         self.assertEqual(len(gaps), 1)
 
+    def test_hard_budget_gate_blocks_call_before_provider(self) -> None:
+        (self.root / "knowledge" / "official.md").write_text(
+            "# Guardian\nGuardian flood protection is active.\n",
+            encoding="utf-8",
+        )
+        knowledge = KnowledgeBase(self.settings.knowledge_dir)
+        settings = replace(
+            self.settings,
+            ai_enabled=True,
+            mistral_api_key="fake-key-for-test-only",
+            ai_daily_token_budget=100,
+            mistral_max_tokens=700,
+        )
+        ai = AIService(settings, self.db, knowledge)
+
+        class CountingClient:
+            configured = True
+
+            def __init__(self) -> None:
+                self.calls = 0
+
+            async def answer(self, *, question: str, context: str):
+                self.calls += 1
+                raise AssertionError("provider should not be called")
+
+        client = CountingClient()
+        ai.client = client
+
+        answer = asyncio.run(
+            ai.answer(
+                chat_id=1,
+                user_id=2,
+                question="Guardian flood",
+            )
+        )
+
+        self.assertIn("orçamento diário", answer.text.lower())
+        self.assertEqual(client.calls, 0)
+        self.assertEqual(ai._reserved_tokens, 0)
+
+    def test_budget_reservation_released_after_provider_failure(self) -> None:
+        settings = replace(
+            self.settings,
+            ai_enabled=True,
+            mistral_api_key="fake-key-for-test-only",
+            ai_daily_token_budget=50000,
+        )
+        ai = AIService(settings, self.db, self.knowledge)
+
+        reservation = ai._reserve_budget(100)
+        self.assertEqual(reservation, 100)
+        self.assertEqual(ai._reserved_tokens, 100)
+
+        ai._release_budget(reservation)
+
+        self.assertEqual(ai._reserved_tokens, 0)
+
     def test_budget_remaining_uses_recorded_tokens(self) -> None:
         self.db.record_ai_event(
             chat_id=1,
