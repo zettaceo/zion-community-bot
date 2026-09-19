@@ -52,6 +52,33 @@ class ProcessLockTests(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 ProcessLock(link)
 
+    def test_lock_hardlink_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            state = root / "state"
+            state.mkdir()
+            target = state / "target.lock"
+            target.write_text("", encoding="utf-8")
+            link = state / "runtime.lock"
+            os.link(target, link)
+
+            with self.assertRaises(RuntimeError):
+                ProcessLock(link)
+
+    def test_lock_directory_symlink_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            real_state = root / "real-state"
+            real_state.mkdir()
+            linked_state = root / "state"
+            linked_state.symlink_to(
+                real_state,
+                target_is_directory=True,
+            )
+
+            with self.assertRaises(RuntimeError):
+                ProcessLock(linked_state / "runtime.lock")
+
     def test_lock_descriptor_is_not_inheritable(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "state" / "runtime.lock"
