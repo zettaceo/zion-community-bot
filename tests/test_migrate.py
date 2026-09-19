@@ -70,6 +70,64 @@ class LegacyMigrationTests(unittest.TestCase):
             now,
         )
 
+    def test_legacy_strike_keeps_original_one_hour_expiry(self) -> None:
+        now = time.time()
+        last = now - 120
+        self.state.write_text(
+            json.dumps(
+                {
+                    "message_history": {},
+                    "flood_blocked_until": {},
+                    "flood_strikes": {
+                        "10:20": [1, last],
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        migrate_legacy_guardian_state(self.db, self.state)
+
+        rows = self.db.list_active_strikes(
+            10,
+            20,
+            now=now,
+            limit=10,
+        )
+        self.assertEqual(len(rows), 1)
+        self.assertAlmostEqual(
+            float(rows[0]["expires_at"]),
+            last + 3600,
+            delta=1.0,
+        )
+
+    def test_expired_legacy_strikes_are_not_reintroduced(self) -> None:
+        now = time.time()
+        self.state.write_text(
+            json.dumps(
+                {
+                    "message_history": {},
+                    "flood_blocked_until": {},
+                    "flood_strikes": {
+                        "10:20": [3, now - 7200],
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        migrate_legacy_guardian_state(self.db, self.state)
+
+        self.assertEqual(
+            self.db.count_active_strikes(
+                10,
+                20,
+                now=now,
+                reasons=("legacy_flood",),
+            ),
+            0,
+        )
+
     def test_malformed_legacy_state_applies_nothing(self) -> None:
         self.state.write_text(
             json.dumps(
