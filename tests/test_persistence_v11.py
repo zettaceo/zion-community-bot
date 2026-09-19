@@ -10,7 +10,11 @@ import time
 import unittest
 from pathlib import Path
 
-from zion.db import SUPPORTED_SCHEMA_VERSION, ZionDB
+from zion.db import (
+    SUPPORTED_SCHEMA_VERSION,
+    ZION_APPLICATION_ID,
+    ZionDB,
+)
 
 
 class PersistenceHardeningTests(unittest.TestCase):
@@ -195,6 +199,109 @@ class PersistenceHardeningTests(unittest.TestCase):
             len(verification["foreign_key_violations"]),
             0,
         )
+
+    def test_new_database_gets_zion_application_id(self) -> None:
+        pragmas = self.db.runtime_pragmas()
+        self.assertEqual(
+            pragmas["application_id"],
+            ZION_APPLICATION_ID,
+        )
+
+    def test_unidentified_sqlite_database_is_rejected_untouched(self) -> None:
+        foreign = self.root / "foreign.db"
+        conn = sqlite3.connect(foreign)
+        try:
+            conn.execute(
+                """
+                CREATE TABLE customer_records(
+                    id INTEGER PRIMARY KEY,
+                    value TEXT NOT NULL
+                )
+                """
+            )
+            conn.execute(
+                "INSERT INTO customer_records(value) VALUES ('keep-me')"
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        other = ZionDB(foreign)
+        try:
+            with self.assertRaises(RuntimeError):
+                other.initialize()
+
+            tables = {
+                str(row["name"])
+                for row in other._conn.execute(
+                    """
+                    SELECT name FROM sqlite_master
+                    WHERE type='table'
+                      AND name NOT LIKE 'sqlite_%'
+                    """
+                ).fetchall()
+            }
+            self.assertEqual(tables, {"customer_records"})
+            value = other._conn.execute(
+                "SELECT value FROM customer_records"
+            ).fetchone()[0]
+            self.assertEqual(value, "keep-me")
+            self.assertEqual(
+                other._conn.execute(
+                    "PRAGMA application_id"
+                ).fetchone()[0],
+                0,
+            )
+        finally:
+            other.close()
+
+    def test_legacy_zion_database_adopts_application_id(self) -> None:
+        self.db.close()
+
+        legacy = self.root / "legacy-identity.db"
+        conn = sqlite3.connect(legacy)
+        try:
+            conn.executescript(
+                """
+                CREATE TABLE scheduled_messages(
+                    id TEXT PRIMARY KEY,
+                    chat_id INTEGER NOT NULL,
+                    send_at REAL NOT NULL,
+                    text TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'pending',
+                    created_by INTEGER,
+                    created_at REAL NOT NULL,
+                    sent_at REAL
+                );
+                CREATE TABLE recurring_messages(
+                    id TEXT PRIMARY KEY,
+                    chat_id INTEGER NOT NULL,
+                    interval_seconds INTEGER NOT NULL,
+                    next_send_at REAL NOT NULL,
+                    text TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'active',
+                    created_by INTEGER,
+                    created_at REAL NOT NULL,
+                    last_sent_at REAL
+                );
+                """
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        adopted = ZionDB(legacy)
+        try:
+            adopted.initialize()
+            self.assertEqual(
+                adopted.runtime_pragmas()["application_id"],
+                ZION_APPLICATION_ID,
+            )
+        finally:
+            adopted.close()
+
+        self.db = ZionDB(self.db_path)
+        self.db.initialize()
 
     def test_future_schema_is_rejected_before_mutation(self) -> None:
         future_path = self.root / "future.db"
