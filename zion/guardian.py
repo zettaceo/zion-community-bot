@@ -83,7 +83,7 @@ def detect_sensitive_content(text: str) -> SensitiveContentDecision:
     tail = match.group(2).strip()
     words = re.findall(r"[A-Za-zÀ-ÿ0-9_'-]+", tail)
 
-    if len(words) >= 8:
+    if len(words) in {12, 15, 18, 21, 24}:
         return SensitiveContentDecision(
             detected=True,
             kind="possible_wallet_secret",
