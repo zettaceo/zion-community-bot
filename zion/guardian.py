@@ -250,13 +250,26 @@ class Guardian:
     def evaluate_chat_burst(
         self,
         chat_id: int,
+        user_id: int | None = None,
         now: float | None = None,
     ) -> ChatBurstDecision:
         ts = time.time() if now is None else now
+        since = ts - self.settings.chat_burst_window_seconds
         messages, users = self.db.chat_recent_activity(
             chat_id,
-            ts - self.settings.chat_burst_window_seconds,
+            since,
         )
+
+        # Callers evaluate immediately before recording the current message.
+        # Project it into the window without writing twice.
+        if user_id is not None:
+            messages += 1
+            if self.db.count_recent_messages(
+                chat_id,
+                user_id,
+                since,
+            ) == 0:
+                users += 1
 
         decision = ChatBurstDecision(
             message_count=messages,
