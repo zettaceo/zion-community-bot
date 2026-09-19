@@ -110,7 +110,7 @@ class ModerationPipelineTests(unittest.TestCase):
         self.context = FakeContext(self.runtime)
 
     def tearDown(self) -> None:
-        self.runtime.db.close()
+        self.runtime.close()
         self.temp.cleanup()
 
     def test_telegram_url_entities_are_extracted(self) -> None:
