@@ -2092,6 +2092,7 @@ async def welcome_handler(
         return
 
     rt = runtime(context)
+    record_update_lag(update, context)
     chat_id = update.effective_chat.id
 
     for member in update.effective_message.new_chat_members:
@@ -2219,6 +2220,40 @@ async def _observe_with_ai(
                 "foi executada pela IA."
             ),
         )
+
+
+async def _evaluate_chat_burst(
+    context: ContextTypes.DEFAULT_TYPE,
+    *,
+    chat_id: int,
+    user_id: int,
+) -> float:
+    rt = runtime(context)
+    now = time.time()
+    burst = rt.guardian.evaluate_chat_burst(
+        chat_id,
+        user_id=user_id,
+        now=now,
+    )
+    if burst.triggered:
+        try:
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=(
+                    "🛡️ ZION: pico distribuído de mensagens detectado.\n"
+                    f"{burst.message_count} mensagens de "
+                    f"{burst.unique_users} usuários em "
+                    f"{burst.window_seconds}s.\n"
+                    "Estado ELEVATED ativado temporariamente. "
+                    "Nenhum usuário foi punido apenas por este gatilho."
+                ),
+            )
+        except Exception as exc:
+            logger.warning(
+                "Falha ao publicar alerta de chat burst: %s",
+                exc,
+            )
+    return now
 
 
 async def _enforce_flood(
@@ -2362,6 +2397,7 @@ async def command_guard_handler(
     user = update.effective_user
     chat = update.effective_chat
     rt = runtime(context)
+    record_update_lag(update, context)
 
     record_user(update, context, increment_messages=True)
 
@@ -2407,10 +2443,16 @@ async def command_guard_handler(
         )
         raise ApplicationHandlerStop
 
+    activity_now = await _evaluate_chat_burst(
+        context,
+        chat_id=chat.id,
+        user_id=user.id,
+    )
     flood = rt.guardian.record_message(
         chat_id=chat.id,
         user_id=user.id,
         message_id=message.message_id,
+        now=activity_now,
     )
     if flood.triggered:
         await _enforce_flood(update, context, flood)
@@ -2466,6 +2508,7 @@ async def moderation_handler(
     user = update.effective_user
     chat = update.effective_chat
     rt = runtime(context)
+    record_update_lag(update, context)
 
     record_user(update, context, increment_messages=True)
 
@@ -2530,10 +2573,16 @@ async def moderation_handler(
         )
         return
 
+    activity_now = await _evaluate_chat_burst(
+        context,
+        chat_id=chat.id,
+        user_id=user.id,
+    )
     flood = rt.guardian.record_message(
         chat_id=chat.id,
         user_id=user.id,
         message_id=message.message_id,
+        now=activity_now,
     )
     if flood.triggered:
         await _enforce_flood(update, context, flood)
