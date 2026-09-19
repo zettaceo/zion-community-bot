@@ -84,6 +84,12 @@ class V11DatabaseTests(unittest.TestCase):
         self.assertIsNotNone(active)
         self.assertEqual(active["id"], ama_id)
         self.assertEqual(self.db.community_stats()["open_amas"], 1)
+        with self.assertRaises(ValueError):
+            self.db.create_ama(
+                chat_id=10,
+                title="Second AMA",
+                created_by=1,
+            )
 
         question_id = self.db.add_ama_question(
             ama_id=ama_id,
