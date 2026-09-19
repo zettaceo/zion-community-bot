@@ -313,7 +313,7 @@ def update_lag_stats(rt: Runtime) -> tuple[float, float]:
     latest = float(rt.update_lags[-1])
     index = min(
         len(values) - 1,
-        max(0, int(len(values) * 0.95) - 1),
+        max(0, ((95 * len(values) + 99) // 100) - 1),
     )
     return latest, float(values[index])
 
