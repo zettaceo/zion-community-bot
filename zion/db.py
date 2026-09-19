@@ -637,6 +637,77 @@ class ZionDB:
             ).fetchone()
         return str(row["disposition"]) if row else None
 
+    def schedule_message(
+        self,
+        *,
+        chat_id: int,
+        send_at: float,
+        text: str,
+        created_by: int | None,
+    ) -> str:
+        schedule_id = uuid.uuid4().hex
+        with self._lock:
+            self._conn.execute(
+                """
+                INSERT INTO scheduled_messages (
+                    id, chat_id, send_at, text, status,
+                    created_by, created_at
+                )
+                VALUES (?, ?, ?, ?, 'pending', ?, ?)
+                """,
+                (
+                    schedule_id,
+                    chat_id,
+                    send_at,
+                    text,
+                    created_by,
+                    time.time(),
+                ),
+            )
+            self._conn.commit()
+        return schedule_id
+
+    def due_scheduled_messages(
+        self,
+        now: float | None = None,
+        limit: int = 20,
+    ) -> list[dict[str, Any]]:
+        ts = now or time.time()
+        safe_limit = max(1, min(int(limit), 100))
+        with self._lock:
+            rows = self._conn.execute(
+                """
+                SELECT id, chat_id, send_at, text, created_by
+                FROM scheduled_messages
+                WHERE status='pending' AND send_at <= ?
+                ORDER BY send_at ASC
+                LIMIT ?
+                """,
+                (ts, safe_limit),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def mark_scheduled_message(
+        self,
+        schedule_id: str,
+        *,
+        success: bool,
+    ) -> None:
+        with self._lock:
+            self._conn.execute(
+                """
+                UPDATE scheduled_messages
+                SET status=?, sent_at=?
+                WHERE id=?
+                """,
+                (
+                    "sent" if success else "failed",
+                    time.time(),
+                    schedule_id,
+                ),
+            )
+            self._conn.commit()
+
     def record_ai_event(
         self,
         *,
