@@ -26,5 +26,23 @@ TimeoutStopSec=20
 UMask=0077
 NoNewPrivileges=true
 
+# Sandbox de processo. O bot só precisa escrever no runtime local
+# e no diretório compartilhado de lock entre worktrees.
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictRealtime=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+ReadWritePaths=/home/zetta/zion-community-bot
+ReadWritePaths=/home/zetta/.local/state/zion-community-bot
+
 [Install]
 WantedBy=multi-user.target
