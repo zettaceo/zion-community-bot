@@ -34,6 +34,33 @@ class V11DatabaseTests(unittest.TestCase):
         self.assertGreater(self.db.file_size_bytes(), 0)
         self.assertEqual(self.db.schema_version(), 2)
 
+    def test_idempotency_key_is_atomic_until_expiry(self) -> None:
+        self.assertTrue(
+            self.db.claim_idempotency_key(
+                "telegram_command:123",
+                ttl_seconds=60,
+                now=1000.0,
+            )
+        )
+        self.assertFalse(
+            self.db.claim_idempotency_key(
+                "telegram_command:123",
+                ttl_seconds=60,
+                now=1059.0,
+            )
+        )
+        self.assertTrue(
+            self.db.claim_idempotency_key(
+                "telegram_command:123",
+                ttl_seconds=60,
+                now=1060.0,
+            )
+        )
+        self.assertEqual(
+            self.db.prune_idempotency_keys(before=1121.0),
+            1,
+        )
+
     def test_recurring_message_lifecycle(self) -> None:
         schedule_id = self.db.schedule_recurring_message(
             chat_id=10,
