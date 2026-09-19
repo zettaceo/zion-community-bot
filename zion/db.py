@@ -42,6 +42,9 @@ CREATE TABLE IF NOT EXISTS user_events (
 CREATE INDEX IF NOT EXISTS idx_user_events_user
 ON user_events(chat_id, user_id, created_at DESC);
 
+CREATE INDEX IF NOT EXISTS idx_user_events_type_window
+ON user_events(chat_id, event_type, created_at DESC);
+
 CREATE TABLE IF NOT EXISTS strikes (
     id TEXT PRIMARY KEY,
     chat_id INTEGER NOT NULL,
@@ -77,6 +80,9 @@ CREATE TABLE IF NOT EXISTS recent_messages (
 CREATE INDEX IF NOT EXISTS idx_recent_messages_user
 ON recent_messages(chat_id, user_id, created_at DESC);
 
+CREATE INDEX IF NOT EXISTS idx_recent_messages_created
+ON recent_messages(created_at);
+
 CREATE TABLE IF NOT EXISTS incidents (
     id TEXT PRIMARY KEY,
     chat_id INTEGER,
@@ -93,6 +99,9 @@ CREATE TABLE IF NOT EXISTS incidents (
 
 CREATE INDEX IF NOT EXISTS idx_incidents_created
 ON incidents(created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_incidents_retention
+ON incidents(category, status, updated_at);
 
 CREATE TABLE IF NOT EXISTS actions (
     id TEXT PRIMARY KEY,
@@ -156,6 +165,9 @@ CREATE TABLE IF NOT EXISTS knowledge_gaps (
 
 CREATE INDEX IF NOT EXISTS idx_knowledge_gaps_open
 ON knowledge_gaps(status, seen_count DESC, last_seen DESC);
+
+CREATE INDEX IF NOT EXISTS idx_knowledge_gaps_last_seen
+ON knowledge_gaps(last_seen);
 
 CREATE TABLE IF NOT EXISTS scheduled_messages (
     id TEXT PRIMARY KEY,
