@@ -1,0 +1,28 @@
+[Unit]
+Description=ZION Community Bot
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=zetta
+WorkingDirectory=/home/zetta/zion-community-bot
+EnvironmentFile=/home/zetta/zion-community-bot/.env
+
+# O network-online.target nem sempre significa que DNS já responde.
+# Mantemos o serviço em "activating" até api.telegram.org resolver,
+# evitando ciclos de crash/restart durante o boot.
+ExecStartPre=/bin/sh -c 'until /usr/bin/getent hosts api.telegram.org >/dev/null 2>&1; do echo "ZION aguardando rede/DNS para api.telegram.org..."; sleep 5; done'
+
+ExecStart=/home/zetta/zion-community-bot/.venv/bin/python /home/zetta/zion-community-bot/bot.py
+
+Restart=always
+RestartSec=10
+TimeoutStopSec=20
+
+# Arquivos criados pelo processo ficam privados por padrão.
+UMask=0077
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target
