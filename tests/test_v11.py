@@ -64,7 +64,9 @@ class V11DatabaseTests(unittest.TestCase):
             self.db.community_stats()["active_recurring"],
             1,
         )
-        self.assertTrue(self.db.cancel_recurring_message(schedule_id))
+        self.assertTrue(
+            self.db.cancel_recurring_message(schedule_id[:8])
+        )
         self.assertEqual(
             self.db.community_stats()["active_recurring"],
             0,
