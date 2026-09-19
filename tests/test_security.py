@@ -45,6 +45,15 @@ class SecurityTests(unittest.TestCase):
         )
         self.assertIn("[REDACTED]", result)
 
+    def test_wallet_secret_redacted_before_ai(self) -> None:
+        text = (
+            "seed phrase: alpha beta gamma delta epsilon zeta "
+            "eta theta iota kappa lambda mu"
+        )
+        result = sanitize_for_ai(text)
+        self.assertNotIn("alpha beta gamma", result)
+        self.assertIn("[REDACTED_WALLET_SECRET]", result)
+
     def test_environment_secret_redacted(self) -> None:
         with patch.dict(
             os.environ,
