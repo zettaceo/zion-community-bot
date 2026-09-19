@@ -1,0 +1,36 @@
+# Segredos e variáveis de ambiente
+.env
+.env.*
+!.env.example
+
+# Ambiente virtual Python
+.venv/
+venv/
+env/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Logs
+*.log
+logs/
+
+# Cache e testes
+.pytest_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Sistema operacional e editores
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Arquivos temporários
+*.tmp
+*.swp
+*.bak
