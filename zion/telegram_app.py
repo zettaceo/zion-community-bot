@@ -110,6 +110,44 @@ def format_duration(seconds: int) -> str:
     return f"{seconds} segundos"
 
 
+def telegram_entity_domains(message: Any) -> list[str]:
+    domains: list[str] = []
+
+    entity_sets = (
+        (
+            getattr(message, "entities", None) or [],
+            getattr(message, "parse_entity", None),
+        ),
+        (
+            getattr(message, "caption_entities", None) or [],
+            getattr(message, "parse_caption_entity", None),
+        ),
+    )
+
+    for entities, parser in entity_sets:
+        for entity in entities:
+            entity_type = getattr(entity, "type", "")
+            entity_type = getattr(entity_type, "value", entity_type)
+
+            candidate = None
+            if entity_type == "text_link":
+                candidate = getattr(entity, "url", None)
+            elif entity_type == "url" and callable(parser):
+                try:
+                    candidate = parser(entity)
+                except Exception:
+                    candidate = None
+
+            if not candidate:
+                continue
+
+            domain = normalize_policy_domain(str(candidate))
+            if domain and domain not in domains:
+                domains.append(domain)
+
+    return domains
+
+
 def parse_duration(value: str) -> int | None:
     raw = (value or "").strip().lower()
     if not raw:
@@ -2037,7 +2075,10 @@ async def command_guard_handler(
         await _enforce_flood(update, context, flood)
         raise ApplicationHandlerStop
 
-    links = rt.guardian.evaluate_links(text)
+    links = rt.guardian.evaluate_links(
+        text,
+        extra_domains=telegram_entity_domains(message),
+    )
     if links.should_delete:
         deleted = await delete_message_safe(
             context,
@@ -2157,7 +2198,10 @@ async def moderation_handler(
         await _enforce_flood(update, context, flood)
         return
 
-    links = rt.guardian.evaluate_links(text)
+    links = rt.guardian.evaluate_links(
+        text,
+        extra_domains=telegram_entity_domains(message),
+    )
     if links.should_delete:
         deleted = await delete_message_safe(
             context,
