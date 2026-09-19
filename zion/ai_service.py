@@ -52,10 +52,99 @@ class AIService:
         self.knowledge = knowledge
         self.client = MistralClient(settings)
         self._semaphore = asyncio.Semaphore(settings.ai_max_concurrency)
+        self._circuit_failures = self._load_int_setting(
+            "ai_circuit_failures",
+            0,
+        )
+        self._circuit_open_until = self._load_float_setting(
+            "ai_circuit_open_until",
+            0.0,
+        )
 
     @property
     def enabled(self) -> bool:
         return self.client.configured
+
+    def _load_int_setting(
+        self,
+        key: str,
+        default: int,
+    ) -> int:
+        raw = self.db.get_setting(key)
+        try:
+            return int(raw) if raw is not None else default
+        except (TypeError, ValueError):
+            return default
+
+    def _load_float_setting(
+        self,
+        key: str,
+        default: float,
+    ) -> float:
+        raw = self.db.get_setting(key)
+        try:
+            return float(raw) if raw is not None else default
+        except (TypeError, ValueError):
+            return default
+
+    def circuit_open(self) -> bool:
+        if self._circuit_open_until <= 0:
+            return False
+
+        now = time.time()
+        if now < self._circuit_open_until:
+            return True
+
+        self._reset_circuit()
+        return False
+
+    def circuit_remaining_seconds(self) -> int:
+        if not self.circuit_open():
+            return 0
+        return max(
+            0,
+            int(self._circuit_open_until - time.time()),
+        )
+
+    def _reset_circuit(self) -> None:
+        self._circuit_failures = 0
+        self._circuit_open_until = 0.0
+        self.db.set_setting("ai_circuit_failures", "0")
+        self.db.set_setting("ai_circuit_open_until", "0")
+
+    def _record_provider_success(self) -> None:
+        if self._circuit_failures or self._circuit_open_until:
+            self._reset_circuit()
+
+    def _record_provider_failure(self) -> None:
+        self._circuit_failures += 1
+        self.db.set_setting(
+            "ai_circuit_failures",
+            str(self._circuit_failures),
+        )
+
+        if self._circuit_failures < self.settings.ai_circuit_failures:
+            return
+
+        self._circuit_open_until = (
+            time.time() + self.settings.ai_circuit_seconds
+        )
+        self.db.set_setting(
+            "ai_circuit_open_until",
+            str(self._circuit_open_until),
+        )
+        logger.warning(
+            "Circuit breaker Mistral aberto por %ss após %s falhas consecutivas.",
+            self.settings.ai_circuit_seconds,
+            self._circuit_failures,
+        )
+
+    def provider_available(self) -> bool:
+        return (
+            self.enabled
+            and self.budget_available()
+            and not self.circuit_open()
+        )
 
     def tokens_used_today(self) -> int:
         now = time.time()
@@ -132,12 +221,20 @@ class AIService:
                 model=self.settings.mistral_model,
             )
 
+        if self.circuit_open():
+            return AIAnswer(
+                text="A camada de IA está temporariamente em proteção automática. Tente novamente em alguns minutos.",
+                model=self.settings.mistral_model,
+            )
+
         try:
             async with self._semaphore:
                 answer = await self.client.answer(
                     question=safe_question,
                     context=context,
                 )
+
+            self._record_provider_success()
 
             source_names = sorted(
                 {
@@ -169,6 +266,7 @@ class AIService:
             return answer
 
         except Exception as exc:
+            self._record_provider_failure()
             logger.warning("Falha na resposta Mistral: %s", exc)
             self.db.record_ai_event(
                 chat_id=chat_id,
@@ -176,7 +274,7 @@ class AIService:
                 purpose="support_answer",
                 model=self.settings.mistral_model,
                 success=False,
-                input_hash=self._hash_text(question),
+                input_hash=question_hash,
                 metadata={"error_type": type(exc).__name__},
             )
             return AIAnswer(
@@ -206,10 +304,18 @@ class AIService:
                 model=self.settings.mistral_model,
             )
 
+        if self.circuit_open():
+            return AIAnswer(
+                text="A camada de IA está temporariamente em proteção automática. Tente novamente em alguns minutos.",
+                model=self.settings.mistral_model,
+            )
+
         safe_text = sanitize_for_ai(text)
         try:
             async with self._semaphore:
                 answer = await self.client.summarize(safe_text)
+
+            self._record_provider_success()
 
             self.db.record_ai_event(
                 chat_id=chat_id,
@@ -224,6 +330,7 @@ class AIService:
             )
             return answer
         except Exception as exc:
+            self._record_provider_failure()
             logger.warning("Falha no resumo Mistral: %s", exc)
             self.db.record_ai_event(
                 chat_id=chat_id,
@@ -259,6 +366,12 @@ class AIService:
                 model=self.settings.mistral_model,
             )
 
+        if self.circuit_open():
+            return AIAnswer(
+                text="A camada de IA está temporariamente em proteção automática. Tente novamente em alguns minutos.",
+                model=self.settings.mistral_model,
+            )
+
         safe_text = sanitize_for_ai(text)
         safe_target = re.sub(
             r"[^A-Za-zÀ-ÿ -]",
@@ -272,6 +385,8 @@ class AIService:
                     text=safe_text,
                     target_language=safe_target,
                 )
+
+            self._record_provider_success()
 
             self.db.record_ai_event(
                 chat_id=chat_id,
@@ -287,6 +402,7 @@ class AIService:
             )
             return answer
         except Exception as exc:
+            self._record_provider_failure()
             logger.warning("Falha na tradução Mistral: %s", exc)
             self.db.record_ai_event(
                 chat_id=chat_id,
@@ -318,11 +434,16 @@ class AIService:
         if not self.budget_available():
             return None
 
+        if self.circuit_open():
+            return None
+
         safe_text = sanitize_for_ai(text)
 
         try:
             async with self._semaphore:
                 result = await self.client.classify(safe_text)
+
+            self._record_provider_success()
 
             self.db.record_ai_event(
                 chat_id=chat_id,
@@ -338,6 +459,7 @@ class AIService:
             return result
 
         except Exception as exc:
+            self._record_provider_failure()
             logger.warning("Falha no classificador Mistral: %s", exc)
             self.db.record_ai_event(
                 chat_id=chat_id,
