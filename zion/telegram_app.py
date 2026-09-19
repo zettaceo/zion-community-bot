@@ -11,6 +11,7 @@ from telegram import ChatPermissions, Update
 from telegram.constants import ChatMemberStatus
 from telegram.ext import (
     Application,
+    ApplicationHandlerStop,
     CommandHandler,
     ContextTypes,
     MessageHandler,
@@ -25,7 +26,7 @@ from .health import HealthService
 from .knowledge import KnowledgeBase
 from .logging_safe import configure_logging
 from .migrate import migrate_legacy_guardian_state
-from .models import OperatingState, Severity
+from .models import FloodDecision, OperatingState, Severity
 
 
 logger = logging.getLogger("zion.telegram")
@@ -990,6 +991,174 @@ async def _observe_with_ai(
         )
 
 
+async def _enforce_flood(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    flood: FloodDecision,
+) -> None:
+    if (
+        not update.effective_message
+        or not update.effective_user
+        or not update.effective_chat
+    ):
+        return
+
+    user = update.effective_user
+    chat = update.effective_chat
+    rt = runtime(context)
+
+    deleted_count = 0
+    for message_id in flood.message_ids:
+        if await delete_message_safe(context, chat.id, message_id):
+            deleted_count += 1
+
+    incident_id = rt.db.create_incident(
+        chat_id=chat.id,
+        user_id=user.id,
+        category="flood",
+        severity=(
+            Severity.HIGH
+            if flood.should_ban
+            else Severity.MEDIUM
+        ),
+        source="guardian",
+        evidence={
+            "strike_count": flood.strike_count,
+            "tracked_messages": len(flood.message_ids),
+            "deleted_messages": deleted_count,
+        },
+    )
+
+    if flood.should_ban:
+        success = await ban_user_safe(context, chat.id, user.id)
+        if success:
+            rt.db.clear_containment(chat.id, user.id)
+        action_type = "ban"
+    else:
+        success = await mute_user_safe(
+            context,
+            chat.id,
+            user.id,
+            flood.mute_seconds,
+        )
+        action_type = "mute"
+
+    rt.db.record_action(
+        incident_id=incident_id,
+        chat_id=chat.id,
+        user_id=user.id,
+        action_type=action_type,
+        actor_type="guardian",
+        actor_id=None,
+        reason="flood",
+        success=success,
+        metadata={
+            "strike_count": flood.strike_count,
+            "duration_seconds": flood.mute_seconds,
+        },
+    )
+
+    if flood.should_ban and success:
+        action_text = "banido por reincidência objetiva de flood."
+    elif flood.should_ban:
+        # Se o ban falhar, aplicamos contenção/mute como fallback.
+        rt.db.set_containment(
+            chat.id,
+            user.id,
+            time.time() + flood.mute_seconds,
+            "flood_ban_fallback",
+        )
+        await mute_user_safe(
+            context,
+            chat.id,
+            user.id,
+            flood.mute_seconds,
+        )
+        action_text = (
+            "ban automático falhou; contenção preventiva aplicada."
+        )
+    else:
+        action_text = (
+            f"silenciado por {format_duration(flood.mute_seconds)}."
+        )
+
+    try:
+        await context.bot.send_message(
+            chat_id=chat.id,
+            text=(
+                f"⚠️ {user_display_name(user)}: flood detectado.\n"
+                f"{deleted_count} mensagens removidas.\n"
+                f"Ocorrência {flood.strike_count}/"
+                f"{rt.settings.flood_ban_after_strikes}.\n"
+                f"{action_text}"
+            ),
+        )
+    except Exception as exc:
+        logger.warning("Falha ao publicar aviso de flood: %s", exc)
+
+
+async def command_guard_handler(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+) -> None:
+    """Apply flood/containment/lockdown to commands too.
+
+    Without this preflight, a user could bypass anti-flood by sending
+    repeated Telegram commands, because normal moderation excludes commands.
+    """
+    if (
+        not update.effective_message
+        or not update.effective_user
+        or not update.effective_chat
+    ):
+        return
+
+    message = update.effective_message
+    user = update.effective_user
+    chat = update.effective_chat
+    rt = runtime(context)
+
+    record_user(update, context, increment_messages=True)
+
+    if await is_admin(update, context):
+        return
+
+    if rt.db.get_operating_state() == OperatingState.LOCKDOWN:
+        deleted = await delete_message_safe(
+            context,
+            chat.id,
+            message.message_id,
+        )
+        rt.db.record_action(
+            incident_id=None,
+            chat_id=chat.id,
+            user_id=user.id,
+            action_type="delete",
+            actor_type="guardian",
+            actor_id=None,
+            reason="lockdown_command",
+            success=deleted,
+        )
+        raise ApplicationHandlerStop
+
+    if rt.guardian.containment_remaining(chat.id, user.id) > 0:
+        await delete_message_safe(
+            context,
+            chat.id,
+            message.message_id,
+        )
+        raise ApplicationHandlerStop
+
+    flood = rt.guardian.record_message(
+        chat_id=chat.id,
+        user_id=user.id,
+        message_id=message.message_id,
+    )
+    if flood.triggered:
+        await _enforce_flood(update, context, flood)
+        raise ApplicationHandlerStop
+
+
 async def moderation_handler(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
@@ -1047,81 +1216,7 @@ async def moderation_handler(
     )
 
     if flood.triggered:
-        deleted_count = 0
-        for message_id in flood.message_ids:
-            if await delete_message_safe(context, chat.id, message_id):
-                deleted_count += 1
-
-        incident_id = rt.db.create_incident(
-            chat_id=chat.id,
-            user_id=user.id,
-            category="flood",
-            severity=(
-                Severity.HIGH
-                if flood.should_ban
-                else Severity.MEDIUM
-            ),
-            source="guardian",
-            evidence={
-                "strike_count": flood.strike_count,
-                "tracked_messages": len(flood.message_ids),
-                "deleted_messages": deleted_count,
-            },
-        )
-
-        if flood.should_ban:
-            success = await ban_user_safe(context, chat.id, user.id)
-            if success:
-                rt.db.clear_containment(chat.id, user.id)
-            action_type = "ban"
-        else:
-            success = await mute_user_safe(
-                context,
-                chat.id,
-                user.id,
-                flood.mute_seconds,
-            )
-            action_type = "mute"
-
-        rt.db.record_action(
-            incident_id=incident_id,
-            chat_id=chat.id,
-            user_id=user.id,
-            action_type=action_type,
-            actor_type="guardian",
-            actor_id=None,
-            reason="flood",
-            success=success,
-            metadata={
-                "strike_count": flood.strike_count,
-                "duration_seconds": flood.mute_seconds,
-            },
-        )
-
-        if flood.should_ban and success:
-            action_text = "banido por reincidência objetiva de flood."
-        elif flood.should_ban:
-            action_text = (
-                "ban automático falhou; contenção preventiva mantida."
-            )
-        else:
-            action_text = (
-                f"silenciado por {format_duration(flood.mute_seconds)}."
-            )
-
-        try:
-            await context.bot.send_message(
-                chat_id=chat.id,
-                text=(
-                    f"⚠️ {user_display_name(user)}: flood detectado.\n"
-                    f"{deleted_count} mensagens removidas.\n"
-                    f"Ocorrência {flood.strike_count}/"
-                    f"{rt.settings.flood_ban_after_strikes}.\n"
-                    f"{action_text}"
-                ),
-            )
-        except Exception as exc:
-            logger.warning("Falha ao publicar aviso de flood: %s", exc)
+        await _enforce_flood(update, context, flood)
         return
 
     text = message.text or message.caption or ""
@@ -1332,6 +1427,13 @@ def build_application(settings: Settings | None = None) -> Application:
         "schedule": schedule_command,
         "reloadkb": reload_knowledge_command,
     }
+
+    # Group -1 runs before command handlers. This closes the
+    # command-flood bypass while still allowing valid commands in group 0.
+    app.add_handler(
+        MessageHandler(filters.COMMAND, command_guard_handler),
+        group=-1,
+    )
 
     for name, handler in commands.items():
         app.add_handler(CommandHandler(name, handler))
