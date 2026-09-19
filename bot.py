@@ -44,6 +44,10 @@ FLOOD_STRIKE_RESET_SECONDS = int(
     os.getenv("FLOOD_STRIKE_RESET_SECONDS", "3600")
 )
 
+FLOOD_BAN_AFTER_STRIKES = int(
+    os.getenv("FLOOD_BAN_AFTER_STRIKES", "4")
+)
+
 ADMIN_CACHE_SECONDS = int(
     os.getenv("ADMIN_CACHE_SECONDS", "60")
 )
@@ -355,6 +359,31 @@ async def restrict_user_safe(
         return False
 
 
+async def ban_user_safe(
+    context: ContextTypes.DEFAULT_TYPE,
+    chat_id: int,
+    user_id: int,
+) -> bool:
+    try:
+        await context.bot.ban_chat_member(
+            chat_id=chat_id,
+            user_id=user_id,
+            revoke_messages=True,
+        )
+
+        return True
+
+    except Exception as exc:
+        logger.error(
+            "Não foi possível banir user_id=%s "
+            "no chat=%s: %s",
+            user_id,
+            chat_id,
+            exc,
+        )
+        return False
+
+
 async def delete_and_warn(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
@@ -417,21 +446,11 @@ async def handle_flood(
         )
     )
 
-    # Ativa a contenção local imediatamente.
-    # Mesmo se o Telegram não permitir o mute,
-    # as próximas mensagens continuam sendo apagadas.
+    # Assim que o flood é confirmado, o usuário entra em
+    # contenção local. Qualquer nova mensagem que ainda
+    # consiga chegar durante a punição é apagada.
     flood_blocked_until[key] = (
         now + mute_seconds
-    )
-
-    # Primeiro tentamos silenciar no próprio Telegram.
-    # Isso interrompe novas mensagens na origem e evita
-    # que o bot precise "correr atrás" do spam.
-    restricted = await restrict_user_safe(
-        context=context,
-        chat_id=chat_id_value,
-        user_id=user.id,
-        mute_seconds=mute_seconds,
     )
 
     message_ids = [
@@ -451,11 +470,51 @@ async def handle_flood(
         ):
             deleted_count += 1
 
+    should_ban = (
+        FLOOD_BAN_AFTER_STRIKES > 0
+        and strike_count >= FLOOD_BAN_AFTER_STRIKES
+    )
+
+    banned = False
+    restricted = False
+
+    if should_ban:
+        # No banimento pedimos ao Telegram para revogar
+        # também as mensagens do usuário no grupo.
+        banned = await ban_user_safe(
+            context=context,
+            chat_id=chat_id_value,
+            user_id=user.id,
+        )
+
+        if banned:
+            flood_blocked_until.pop(key, None)
+            message_history.pop(key, None)
+            admin_cache.pop(key, None)
+        else:
+            # Se o ban falhar por qualquer motivo,
+            # mantemos a contenção e tentamos o mute.
+            restricted = await restrict_user_safe(
+                context=context,
+                chat_id=chat_id_value,
+                user_id=user.id,
+                mute_seconds=mute_seconds,
+            )
+    else:
+        # Antes do limite de ban, o Telegram é usado para
+        # silenciar na origem e parar o envio de mensagens.
+        restricted = await restrict_user_safe(
+            context=context,
+            chat_id=chat_id_value,
+            user_id=user.id,
+            mute_seconds=mute_seconds,
+        )
+
     logger.warning(
         "FLOOD | user=%s | user_id=%s | "
         "chat=%s | strike=%s | mensagens=%s | "
         "removidas=%s | mute=%ss | "
-        "telegram_restrict=%s",
+        "telegram_restrict=%s | ban=%s",
         display_name,
         user.id,
         chat_id_value,
@@ -464,6 +523,7 @@ async def handle_flood(
         deleted_count,
         mute_seconds,
         restricted,
+        banned,
     )
 
     duration_text = format_duration(
@@ -471,7 +531,17 @@ async def handle_flood(
     )
 
     try:
-        if restricted:
+        if banned:
+            action_text = (
+                "banido da comunidade por reincidência "
+                "de flood."
+            )
+        elif should_ban:
+            action_text = (
+                "ban automático falhou; contenção "
+                f"ativa por {duration_text}."
+            )
+        elif restricted:
             action_text = (
                 f"silenciado por {duration_text}."
             )
@@ -486,6 +556,8 @@ async def handle_flood(
             text=(
                 f"⚠️ {display_name}: flood detectado.\n"
                 f"{deleted_count} mensagens removidas.\n"
+                f"Ocorrência {strike_count}/"
+                f"{FLOOD_BAN_AFTER_STRIKES}.\n"
                 f"{action_text}"
             ),
         )
