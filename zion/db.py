@@ -370,8 +370,17 @@ class ZionDB:
         chat_id: int,
         user_id: int,
         now: float | None = None,
+        reasons: tuple[str, ...] | None = None,
     ) -> int:
         ts = time.time() if now is None else now
+        params: list[Any] = [chat_id, user_id, ts]
+        reason_clause = ""
+
+        if reasons:
+            placeholders = ",".join("?" for _ in reasons)
+            reason_clause = f" AND reason IN ({placeholders})"
+            params.extend(reasons)
+
         with self._lock:
             row = self._conn.execute(
                 """
@@ -380,8 +389,9 @@ class ZionDB:
                 WHERE chat_id=?
                   AND user_id=?
                   AND (expires_at IS NULL OR expires_at >= ?)
-                """,
-                (chat_id, user_id, ts),
+                """
+                + reason_clause,
+                tuple(params),
             ).fetchone()
         return int(row["count"]) if row else 0
 
