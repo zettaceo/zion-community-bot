@@ -69,6 +69,14 @@ class Runtime:
                 self.db,
                 settings.legacy_state_path,
             )
+
+            startup_integrity = self.db.verify_integrity(full=False)
+            if not startup_integrity["ok"]:
+                raise RuntimeError(
+                    "ZION refused to start on an inconsistent SQLite "
+                    f"database: {startup_integrity}"
+                )
+
             self.startup_delivery_recovery = (
                 self.db.quarantine_stale_delivery_claims(
                     stale_after_seconds=None,
