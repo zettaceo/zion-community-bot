@@ -317,6 +317,8 @@ Implemented in modular v1:
 - admin moderation;
 - lockdown.
 
+v1.1 development additionally normalizes Unicode/IDNA domains and detects distributed chat bursts. Distributed-burst detection changes temporary operating state only; it does not punish an individual by itself.
+
 ### Phase 2 — Data
 Implemented baseline:
 - normalized local schema;
@@ -338,9 +340,12 @@ Implemented baseline:
 - hashed AI-event input;
 - concurrency and per-user request controls.
 
+v1.1 development:
+- section-level source labels in grounded support replies;
+- stronger prompt-injection boundaries around official context and user questions;
+- existing knowledge-gap discovery retained and audited.
+
 Future:
-- summaries;
-- FAQ discovery;
 - embeddings;
 - richer human-review queue.
 
@@ -351,11 +356,14 @@ Implemented baseline:
 - knowledge support;
 - scheduled messages.
 
+v1.1 development:
+- recurring content scheduling;
+- AMA collection workflow with bounded question retention;
+- richer bilingual PT-BR/EN onboarding/help;
+- polls and one-shot scheduling remain available.
+
 Future:
-- recurring content;
-- polls;
-- AMA workflows;
-- richer bilingual templates.
+- richer editorial templates and approval queues.
 
 ### Phase 5 — Operations
 Implemented baseline:
@@ -367,10 +375,17 @@ Implemented baseline:
 - local runbooks;
 - CI validation.
 
+v1.1 development:
+- SQLite quick-check and database-size diagnostics;
+- Telegram update-lag sampling;
+- Mistral latency aggregation;
+- configurable low-disk warning threshold;
+- deduplicated operator alerts;
+- private Tailscale + SSH runbook.
+
 Future:
-- authenticated remote admin UI if remote exposure is ever required;
-- remote metrics;
-- alerting.
+- authenticated remote admin UI only if justified;
+- structured metrics exporter.
 
 ### Phase 6 — Controlled autonomy
 Not authorized by default.
@@ -397,4 +412,4 @@ Any future autonomous action must:
 - admin private-chat access requires explicit ID;
 - deployment script validates before restart.
 
-This document is the architectural source of truth for ZION v1.
+This document is the architectural source of truth for the ZION modular line. v1.1 changes remain development-only until explicitly reviewed and deployed.
