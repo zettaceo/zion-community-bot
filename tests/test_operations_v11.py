@@ -36,6 +36,24 @@ class V11OperationalAlertTests(unittest.TestCase):
         )
         return make_settings(root)
 
+    def test_runtime_rejects_second_instance_until_close(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            settings = self._healthy_settings(root)
+
+            first = Runtime(settings)
+            try:
+                with self.assertRaises(RuntimeError):
+                    Runtime(settings)
+            finally:
+                first.close()
+
+            restarted = Runtime(settings)
+            try:
+                self.assertTrue(restarted.process_lock.acquired)
+            finally:
+                restarted.close()
+
     def test_runtime_startup_quarantines_orphaned_claims(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
