@@ -77,6 +77,11 @@ def configure_logging(log_path: Path, level: int = logging.INFO) -> logging.Logg
     file_handler = logging.FileHandler(log_path)
     file_handler.setFormatter(formatter)
 
+    try:
+        os.chmod(log_path, 0o600)
+    except OSError:
+        pass
+
     stream_handler = logging.StreamHandler()
     stream_handler.setFormatter(formatter)
 
