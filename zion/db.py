@@ -1295,13 +1295,22 @@ class ZionDB:
         if not active:
             return None
         with self._lock:
+            now = time.time()
             self._conn.execute(
                 """
                 UPDATE ama_sessions
                 SET status='closed', closed_at=?
                 WHERE id=?
                 """,
-                (time.time(), active["id"]),
+                (now, active["id"]),
+            )
+            self._conn.execute(
+                """
+                UPDATE ama_questions
+                SET status='closed'
+                WHERE ama_id=? AND status='pending'
+                """,
+                (active["id"],),
             )
             self._conn.commit()
         return active
