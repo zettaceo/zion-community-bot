@@ -120,6 +120,7 @@ class Settings:
     health_alert_repeat_seconds: int
     schedule_max_attempts: int
     schedule_retry_seconds: int
+    delivery_claim_timeout_seconds: int
     recurring_max_failures: int
     ama_retention_days: int
 
@@ -310,6 +311,11 @@ class Settings:
                 "ZION_SCHEDULE_RETRY_SECONDS",
                 60,
                 10,
+            ),
+            delivery_claim_timeout_seconds=_int(
+                "ZION_DELIVERY_CLAIM_TIMEOUT_SECONDS",
+                300,
+                30,
             ),
             recurring_max_failures=_int(
                 "ZION_RECURRING_MAX_FAILURES",
