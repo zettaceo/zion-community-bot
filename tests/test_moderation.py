@@ -15,6 +15,7 @@ from zion.telegram_app import (
     command_guard_handler,
     is_operator,
     moderation_handler,
+    telegram_entity_domains,
 )
 
 
@@ -111,6 +112,27 @@ class ModerationPipelineTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.runtime.db.close()
         self.temp.cleanup()
+
+    def test_telegram_url_entities_are_extracted(self) -> None:
+        url_entity = SimpleNamespace(
+            type="url",
+            url=None,
+        )
+        hidden_entity = SimpleNamespace(
+            type="text_link",
+            url="https://hidden.example/path",
+        )
+        message = SimpleNamespace(
+            entities=[url_entity, hidden_entity],
+            caption_entities=[],
+            parse_entity=lambda entity: "bare.example",
+            parse_caption_entity=lambda entity: "",
+        )
+
+        domains = telegram_entity_domains(message)
+
+        self.assertIn("bare.example", domains)
+        self.assertIn("hidden.example", domains)
 
     def test_explicit_operator_allowlist(self) -> None:
         operator = fake_update(
