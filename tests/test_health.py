@@ -42,6 +42,19 @@ class HealthTests(unittest.TestCase):
             "ok",
         )
         self.assertGreaterEqual(diagnostics["db_size_mb"], 0)
+        self.assertEqual(diagnostics["schema_version"], 1)
+        self.assertEqual(
+            diagnostics["sqlite_pragmas"]["journal_mode"],
+            "wal",
+        )
+        self.assertEqual(
+            diagnostics["sqlite_pragmas"]["foreign_keys"],
+            1,
+        )
+        self.assertGreaterEqual(
+            diagnostics["sqlite_pragmas"]["busy_timeout_ms"],
+            5000,
+        )
         self.assertEqual(
             diagnostics["ai_latency_24h"],
             {"count": 0, "avg_ms": 0, "p95_ms": 0},
