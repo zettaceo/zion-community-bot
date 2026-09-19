@@ -8,7 +8,7 @@ from zion.config import Settings
 def make_settings(root: Path) -> Settings:
     return Settings(
         root_dir=root,
-        telegram_token="test-token-not-real",
+        telegram_token="123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghi",
         admin_user_ids=frozenset({1}),
         db_path=root / "zion-test.db",
         legacy_state_path=root / "legacy.json",
