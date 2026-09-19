@@ -11,7 +11,16 @@ def _bool(name: str, default: bool = False) -> bool:
     value = os.getenv(name)
     if value is None:
         return default
-    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+    normalized = value.strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+
+    raise ValueError(
+        f"invalid boolean for {name}; use true/false, yes/no, on/off or 1/0"
+    )
 
 
 def _int(name: str, default: int, minimum: int | None = None) -> int:
@@ -57,9 +66,11 @@ def _int_set(name: str) -> frozenset[int]:
     result: set[int] = set()
     for item in _csv(name):
         try:
-            result.add(int(item))
+            value = int(item)
         except ValueError:
             continue
+        if value > 0:
+            result.add(value)
     return frozenset(result)
 
 
@@ -140,7 +151,9 @@ class Settings:
             issues.append("wifi_interface_empty")
 
         try:
-            self.runtime_lock_path.relative_to(self.root_dir)
+            lock_path = self.runtime_lock_path.resolve(strict=False)
+            root_path = self.root_dir.resolve(strict=False)
+            lock_path.relative_to(root_path)
         except ValueError:
             pass
         else:
