@@ -726,6 +726,7 @@ async def diagnostics_command(
     diag = rt.health.diagnostics()
     latest_lag, p95_lag = update_lag_stats(rt)
     latency = diag["ai_latency_24h"]
+    pragmas = diag["sqlite_pragmas"]
 
     disk_state = "LOW" if diag["disk_low"] else "OK"
     lag_state = (
@@ -740,6 +741,9 @@ async def diagnostics_command(
         f"SQLite quick_check: "
         f"{'OK' if diag['sqlite_integrity_ok'] else 'FAIL'}\n"
         f"SQLite schema: v{diag['schema_version']}\n"
+        f"SQLite journal/FK: "
+        f"{pragmas['journal_mode']}/{pragmas['foreign_keys']}\n"
+        f"SQLite busy timeout: {pragmas['busy_timeout_ms']} ms\n"
         f"SQLite size: {diag['db_size_mb']} MB\n"
         f"Disk: {disk_state} ({diag['disk_free_mb']} MB free)\n"
         f"Sensitive files: "
@@ -2976,11 +2980,22 @@ async def operational_alert_cycle(
     rt: Runtime,
 ) -> None:
     snapshot = rt.health.snapshot()
+    diagnostics = rt.health.diagnostics()
+    pragmas = diagnostics["sqlite_pragmas"]
+    community = rt.db.community_stats()
     _, p95_lag = update_lag_stats(rt)
     issues: list[str] = []
 
     if not snapshot.db_ok:
         issues.append("database_or_integrity")
+    if pragmas["journal_mode"] != "wal":
+        issues.append("sqlite_not_wal")
+    if int(pragmas["foreign_keys"]) != 1:
+        issues.append("sqlite_foreign_keys_off")
+    if community["failed_scheduled"] > 0:
+        issues.append("scheduled_delivery_failed")
+    if community["paused_recurring"] > 0:
+        issues.append("recurring_delivery_paused")
     if snapshot.details.get("disk_low"):
         issues.append("disk_low")
     if not snapshot.details.get("sensitive_files_private"):
@@ -3147,6 +3162,21 @@ async def scheduler_loop(application: Application) -> None:
                         reports_redacted,
                         ama_questions_deleted,
                     )
+                try:
+                    checkpoint = rt.db.checkpoint_wal()
+                    if checkpoint["busy"] not in {0, -1}:
+                        logger.warning(
+                            "SQLite WAL checkpoint busy | frames=%s | "
+                            "checkpointed=%s",
+                            checkpoint["log_frames"],
+                            checkpoint["checkpointed_frames"],
+                        )
+                except Exception as exc:
+                    logger.warning(
+                        "Falha no checkpoint passivo SQLite: %s",
+                        type(exc).__name__,
+                    )
+
                 await operational_alert_cycle(application, rt)
                 last_housekeeping = now
 
