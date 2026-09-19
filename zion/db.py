@@ -553,6 +553,20 @@ class ZionDB:
             self._conn.commit()
         return incident_id
 
+    def prune_resolved_user_reports(self, before: float) -> int:
+        with self._lock:
+            cursor = self._conn.execute(
+                """
+                DELETE FROM incidents
+                WHERE category='user_report'
+                  AND status IN ('resolved', 'ignored')
+                  AND updated_at < ?
+                """,
+                (before,),
+            )
+            self._conn.commit()
+        return int(cursor.rowcount)
+
     def get_incident(
         self,
         incident_id_or_prefix: str,
@@ -784,6 +798,18 @@ class ZionDB:
                 ),
             )
             self._conn.commit()
+
+    def prune_knowledge_gaps(self, before: float) -> int:
+        with self._lock:
+            cursor = self._conn.execute(
+                """
+                DELETE FROM knowledge_gaps
+                WHERE last_seen < ?
+                """,
+                (before,),
+            )
+            self._conn.commit()
+        return int(cursor.rowcount)
 
     def list_knowledge_gaps(
         self,
