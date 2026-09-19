@@ -355,6 +355,32 @@ class ZionDB:
             ).fetchone()
         return int(row["count"]) if row else 0
 
+    def list_active_strikes(
+        self,
+        chat_id: int,
+        user_id: int,
+        *,
+        limit: int = 20,
+        now: float | None = None,
+    ) -> list[dict[str, Any]]:
+        ts = now or time.time()
+        safe_limit = max(1, min(int(limit), 50))
+        with self._lock:
+            rows = self._conn.execute(
+                """
+                SELECT id, reason, severity, source,
+                       occurred_at, expires_at, metadata_json
+                FROM strikes
+                WHERE chat_id=?
+                  AND user_id=?
+                  AND (expires_at IS NULL OR expires_at >= ?)
+                ORDER BY occurred_at DESC
+                LIMIT ?
+                """,
+                (chat_id, user_id, ts, safe_limit),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
     def set_containment(
         self,
         chat_id: int,
@@ -526,6 +552,65 @@ class ZionDB:
             )
             self._conn.commit()
         return incident_id
+
+    def get_incident(
+        self,
+        incident_id_or_prefix: str,
+    ) -> dict[str, Any] | None:
+        value = incident_id_or_prefix.strip()
+        if not value:
+            return None
+
+        with self._lock:
+            exact = self._conn.execute(
+                """
+                SELECT *
+                FROM incidents
+                WHERE id=?
+                """,
+                (value,),
+            ).fetchone()
+            if exact:
+                return dict(exact)
+
+            rows = self._conn.execute(
+                """
+                SELECT *
+                FROM incidents
+                WHERE id LIKE ?
+                ORDER BY created_at DESC
+                LIMIT 2
+                """,
+                (value + "%",),
+            ).fetchall()
+
+        if len(rows) == 1:
+            return dict(rows[0])
+        return None
+
+    def set_incident_status(
+        self,
+        incident_id_or_prefix: str,
+        status: str,
+    ) -> bool:
+        if status not in {"open", "resolved", "ignored"}:
+            raise ValueError("invalid incident status")
+
+        incident = self.get_incident(incident_id_or_prefix)
+        if not incident:
+            return False
+
+        with self._lock:
+            cursor = self._conn.execute(
+                """
+                UPDATE incidents
+                SET status=?, updated_at=?
+                WHERE id=?
+                """,
+                (status, time.time(), incident["id"]),
+            )
+            self._conn.commit()
+        return cursor.rowcount > 0
 
     def record_action(
         self,
