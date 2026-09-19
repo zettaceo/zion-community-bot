@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import re
+import sys
 import time
 from collections import defaultdict, deque
 from datetime import datetime, timedelta, timezone
@@ -89,18 +90,107 @@ flood_strikes = {}
 # (chat_id, user_id) -> (eh_admin, timestamp_de_expiracao)
 admin_cache = {}
 
-logging.basicConfig(
-    format="%(asctime)s | %(levelname)s | %(message)s",
-    level=logging.INFO,
-    handlers=[
-        logging.FileHandler("zion.log"),
-        logging.StreamHandler(),
-    ],
+
+SECRET_ENV_MARKERS = (
+    "TOKEN",
+    "SECRET",
+    "PASSWORD",
+    "PASSWD",
+    "API_KEY",
+    "PRIVATE_KEY",
+    "ACCESS_KEY",
+    "CLIENT_SECRET",
 )
 
-# Não registrar as URLs completas das chamadas HTTP do Telegram.
-# A URL da Bot API contém o token do bot.
+SENSITIVE_VALUES = sorted(
+    {
+        value
+        for name, value in os.environ.items()
+        if value
+        and len(value) >= 6
+        and any(
+            marker in name.upper()
+            for marker in SECRET_ENV_MARKERS
+        )
+    },
+    key=len,
+    reverse=True,
+)
+
+TELEGRAM_TOKEN_REGEX = re.compile(
+    r"(?<![A-Za-z0-9_])\d{6,}:[A-Za-z0-9_-]{20,}"
+)
+
+SECRET_PARAMETER_REGEX = re.compile(
+    r"(?i)"
+    r"((?:token|api[_-]?key|secret|password|passwd|"
+    r"access[_-]?key|client[_-]?secret)=)"
+    r"([^&\s]+)"
+)
+
+
+def redact_secrets(value) -> str:
+    text = str(value)
+
+    for secret in SENSITIVE_VALUES:
+        text = text.replace(
+            secret,
+            "[REDACTED]",
+        )
+
+    text = TELEGRAM_TOKEN_REGEX.sub(
+        "[REDACTED_TELEGRAM_TOKEN]",
+        text,
+    )
+
+    text = SECRET_PARAMETER_REGEX.sub(
+        r"\1[REDACTED]",
+        text,
+    )
+
+    return text
+
+
+class SecretSafeFormatter(logging.Formatter):
+    def format(self, record):
+        formatted = super().format(record)
+        return redact_secrets(formatted)
+
+
+LOG_FORMAT = (
+    "%(asctime)s | %(levelname)s | %(message)s"
+)
+
+safe_formatter = SecretSafeFormatter(
+    LOG_FORMAT
+)
+
+file_handler = logging.FileHandler(
+    Path(__file__).resolve().parent / "zion.log"
+)
+file_handler.setFormatter(
+    safe_formatter
+)
+
+stream_handler = logging.StreamHandler()
+stream_handler.setFormatter(
+    safe_formatter
+)
+
+logging.basicConfig(
+    level=logging.INFO,
+    handlers=[
+        file_handler,
+        stream_handler,
+    ],
+    force=True,
+)
+
+# Redução adicional de superfície: bibliotecas HTTP não devem
+# despejar requisições completas no log. Mesmo que alguma volte
+# a registrar URLs, o formatter acima ainda mascara segredos.
 logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
 logging.getLogger("telegram").setLevel(logging.WARNING)
 
 logger = logging.getLogger("zion")
@@ -924,4 +1014,12 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        logger.info("ZION interrompido manualmente.")
+    except Exception:
+        logger.exception(
+            "Falha fatal no ZION. O systemd poderá reiniciá-lo."
+        )
+        sys.exit(1)
