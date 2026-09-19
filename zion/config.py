@@ -78,6 +78,15 @@ class Settings:
     raid_window_seconds: int
     raid_elevated_seconds: int
 
+    chat_burst_max_messages: int
+    chat_burst_window_seconds: int
+    chat_burst_min_users: int
+    chat_burst_elevated_seconds: int
+
+    disk_warn_mb: int
+    update_lag_warn_seconds: int
+    ama_retention_days: int
+
     ai_enabled: bool
     ai_observe: bool
     ai_min_observe_chars: int
@@ -169,6 +178,37 @@ class Settings:
             raid_max_joins=_int("ZION_RAID_MAX_JOINS", 8, 2),
             raid_window_seconds=_int("ZION_RAID_WINDOW_SECONDS", 60, 10),
             raid_elevated_seconds=_int("ZION_RAID_ELEVATED_SECONDS", 900, 60),
+            chat_burst_max_messages=_int(
+                "ZION_CHAT_BURST_MAX_MESSAGES",
+                45,
+                10,
+            ),
+            chat_burst_window_seconds=_int(
+                "ZION_CHAT_BURST_WINDOW_SECONDS",
+                15,
+                5,
+            ),
+            chat_burst_min_users=_int(
+                "ZION_CHAT_BURST_MIN_USERS",
+                6,
+                2,
+            ),
+            chat_burst_elevated_seconds=_int(
+                "ZION_CHAT_BURST_ELEVATED_SECONDS",
+                600,
+                60,
+            ),
+            disk_warn_mb=_int("ZION_DISK_WARN_MB", 2048, 128),
+            update_lag_warn_seconds=_int(
+                "ZION_UPDATE_LAG_WARN_SECONDS",
+                120,
+                10,
+            ),
+            ama_retention_days=_int(
+                "ZION_AMA_RETENTION_DAYS",
+                30,
+                1,
+            ),
             ai_enabled=_bool("ZION_AI_ENABLED", False),
             ai_observe=_bool("ZION_AI_OBSERVE", False),
             ai_min_observe_chars=_int("ZION_AI_MIN_OBSERVE_CHARS", 16, 1),
