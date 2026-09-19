@@ -42,7 +42,7 @@ class HealthTests(unittest.TestCase):
             "ok",
         )
         self.assertGreaterEqual(diagnostics["db_size_mb"], 0)
-        self.assertEqual(diagnostics["schema_version"], 1)
+        self.assertEqual(diagnostics["schema_version"], 2)
         self.assertEqual(
             diagnostics["sqlite_pragmas"]["journal_mode"],
             "wal",
