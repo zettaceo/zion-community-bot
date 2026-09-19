@@ -13,6 +13,7 @@ from tests.helpers import make_settings
 from zion.telegram_app import (
     Runtime,
     command_guard_handler,
+    command_idempotency_guard_handler,
     is_operator,
     moderation_handler,
     telegram_entity_domains,
@@ -77,6 +78,7 @@ def fake_update(
     user_id: int,
     text: str | None,
     message_id: int = 10,
+    update_id: int | None = None,
 ):
     user = SimpleNamespace(
         id=user_id,
@@ -94,6 +96,7 @@ def fake_update(
         caption=None,
     )
     return SimpleNamespace(
+        update_id=message_id if update_id is None else update_id,
         effective_message=message,
         effective_user=user,
         effective_chat=chat,
@@ -112,6 +115,53 @@ class ModerationPipelineTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.runtime.close()
         self.temp.cleanup()
+
+    def test_duplicate_command_update_is_suppressed(self) -> None:
+        update = fake_update(
+            user_id=1,
+            text="/status",
+            message_id=77,
+            update_id=9001,
+        )
+
+        asyncio.run(
+            command_idempotency_guard_handler(
+                update,
+                self.context,
+            )
+        )
+
+        with self.assertRaises(ApplicationHandlerStop):
+            asyncio.run(
+                command_idempotency_guard_handler(
+                    update,
+                    self.context,
+                )
+            )
+
+    def test_command_idempotency_db_failure_is_fail_closed(self) -> None:
+        update = fake_update(
+            user_id=1,
+            text="/status",
+            message_id=78,
+            update_id=9002,
+        )
+        original = self.runtime.db.claim_idempotency_key
+
+        def fail(*args, **kwargs):
+            raise RuntimeError("forced idempotency failure")
+
+        self.runtime.db.claim_idempotency_key = fail
+        try:
+            with self.assertRaises(ApplicationHandlerStop):
+                asyncio.run(
+                    command_idempotency_guard_handler(
+                        update,
+                        self.context,
+                    )
+                )
+        finally:
+            self.runtime.db.claim_idempotency_key = original
 
     def test_telegram_url_entities_are_extracted(self) -> None:
         url_entity = SimpleNamespace(
