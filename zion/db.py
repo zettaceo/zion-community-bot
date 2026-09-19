@@ -565,6 +565,18 @@ class ZionDB:
             ).fetchone()
         return int(row["count"]) if row else 0
 
+    def prune_user_events(self, before: float) -> int:
+        with self._lock:
+            cursor = self._conn.execute(
+                """
+                DELETE FROM user_events
+                WHERE created_at < ?
+                """,
+                (before,),
+            )
+            self._conn.commit()
+        return int(cursor.rowcount)
+
     def add_strike(
         self,
         *,
