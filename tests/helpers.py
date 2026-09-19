@@ -35,6 +35,8 @@ def make_settings(root: Path) -> Settings:
         user_event_retention_days=30,
         idempotency_retention_days=30,
         knowledge_gap_retention_days=30,
+        ai_event_retention_days=90,
+        completed_job_retention_days=30,
         raid_max_joins=8,
         raid_window_seconds=60,
         raid_elevated_seconds=900,
