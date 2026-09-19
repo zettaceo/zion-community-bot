@@ -113,3 +113,24 @@ This limits the blast radius if ZION is ever added to another group.
 ## Audit-preserving retention
 
 For resolved/ignored user reports, ZION removes retained free-text note/evidence after the configured retention window but keeps the minimal incident row. This preserves the existence and outcome of a moderation event without keeping its detailed report contents indefinitely.
+
+
+## Prompt-injection boundary
+
+Grounded support wraps official context and the user question in separate explicit data regions. The Mistral system instruction states that neither user content nor text inside retrieved context may redefine ZION's role, request secrets or override safety rules.
+
+Source labels are appended from the local retrieval result rather than trusted from model-generated citation text.
+
+## Unicode / IDNA link defense
+
+URL hosts are normalized with IDNA before allow/block comparison. Unicode lookalikes therefore resolve to their own punycode hostname and do not inherit permission from a visually similar ASCII domain.
+
+## Distributed-abuse boundary
+
+Chat-wide burst detection is deliberately non-punitive. Its only automatic policy effect is temporary ELEVATED state. Individual deletion/mute/ban still requires an existing deterministic per-user rule.
+
+## Remote administration
+
+Remote shell access is designed for Tailscale + SSH public-key authentication. TCP/22 must not be exposed by router port forwarding. Private SSH keys and Tailscale authentication material never belong in Git.
+
+See `docs/REMOTE-ACCESS.md` and `docs/DEPLOYMENT-MODEL.md`.
