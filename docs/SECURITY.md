@@ -143,3 +143,12 @@ In addition to wallet-secret detection, ZION v1.1 deterministically protects hig
 This protection runs before administrator exemptions and before AI processing. When triggered, the message is removed, the sensitive body is not stored in the incident evidence, and the sender is advised to rotate a real credential.
 
 Generic crypto terminology such as `token=USDC` is not treated as a credential by this detector.
+
+
+## Runtime exclusivity and at-most-once controls
+
+The writable bot runtime uses a kernel-backed file lock shared across worktrees. A second runtime cannot start while the first owns the lock. The lock path is outside the repository by default so switching worktrees does not create a second lock namespace.
+
+Telegram command update IDs are persisted before command side effects. Duplicate delivery of the same command update is stopped before the command handler.
+
+Scheduled Telegram sends use an atomic SQLite claim before network I/O. Because a process can die after Telegram accepts a send but before local success is committed, ZION does not claim mathematical exactly-once delivery. Instead, unknown outcomes are quarantined and require an explicit operator decision. This prevents automatic duplicate replay.
