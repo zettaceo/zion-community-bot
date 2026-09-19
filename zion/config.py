@@ -60,6 +60,7 @@ class Settings:
     log_path: Path
     log_max_bytes: int
     log_backup_count: int
+    runtime_lock_path: Path
     wifi_interface: str
 
     allow_links: bool
@@ -160,6 +161,18 @@ class Settings:
                 5,
                 1,
             ),
+            runtime_lock_path=Path(
+                os.getenv(
+                    "ZION_RUNTIME_LOCK_PATH",
+                    str(
+                        Path.home()
+                        / ".local"
+                        / "state"
+                        / "zion-community-bot"
+                        / "runtime.lock"
+                    ),
+                )
+            ).expanduser(),
             wifi_interface=os.getenv(
                 "ZION_WIFI_INTERFACE",
                 "wlx78bdbc575d1c",
