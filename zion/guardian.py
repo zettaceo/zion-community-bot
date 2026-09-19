@@ -7,6 +7,7 @@ from urllib.parse import urlparse
 from .config import Settings
 from .db import ZionDB
 from .models import (
+    ChatBurstDecision,
     FloodDecision,
     LinkDecision,
     OperatingState,
@@ -45,7 +46,13 @@ LONG_SECRET_AFTER_LABEL_REGEX = re.compile(
 
 
 def _normalize_domain(raw_url: str) -> str | None:
-    candidate = raw_url.strip().rstrip(".,);]}>")
+    candidate = (raw_url or "").strip().rstrip(".,);]}>")
+    candidate = candidate.translate({
+        0x3002: ".",
+        0xFF0E: ".",
+        0xFF61: ".",
+    })
+    candidate = candidate.replace("\u200b", "").replace("\u2060", "")
     if candidate.lower().startswith("www."):
         candidate = "https://" + candidate
     elif candidate.lower().startswith("t.me/"):
@@ -59,6 +66,12 @@ def _normalize_domain(raw_url: str) -> str | None:
     host = (parsed.hostname or "").lower().strip(".")
     if host.startswith("www."):
         host = host[4:]
+    if not host:
+        return None
+    try:
+        host = host.encode("idna").decode("ascii").lower()
+    except (UnicodeError, ValueError):
+        return None
     return host or None
 
 
@@ -233,6 +246,76 @@ class Guardian:
             should_ban=should_ban,
             message_ids=message_ids,
         )
+
+    def evaluate_chat_burst(
+        self,
+        chat_id: int,
+        now: float | None = None,
+    ) -> ChatBurstDecision:
+        ts = time.time() if now is None else now
+        messages, users = self.db.chat_recent_activity(
+            chat_id,
+            ts - self.settings.chat_burst_window_seconds,
+        )
+
+        decision = ChatBurstDecision(
+            message_count=messages,
+            unique_users=users,
+            window_seconds=self.settings.chat_burst_window_seconds,
+            elevated_seconds=self.settings.chat_burst_elevated_seconds,
+        )
+
+        if self.db.get_operating_state() != OperatingState.NORMAL:
+            return decision
+
+        if (
+            messages < self.settings.chat_burst_max_messages
+            or users < self.settings.chat_burst_min_users
+        ):
+            return decision
+
+        expires_at = ts + self.settings.chat_burst_elevated_seconds
+        self.db.set_operating_state(OperatingState.ELEVATED)
+        self.db.set_setting(
+            "operating_state_expires_at",
+            str(expires_at),
+        )
+        incident_id = self.db.create_incident(
+            chat_id=chat_id,
+            user_id=None,
+            category="distributed_chat_burst",
+            severity=Severity.MEDIUM,
+            source="guardian",
+            evidence={
+                "messages": messages,
+                "unique_users": users,
+                "window_seconds": self.settings.chat_burst_window_seconds,
+                "temporary_state": OperatingState.ELEVATED.value,
+                "expires_at": expires_at,
+            },
+            note=(
+                "Distributed burst only changes temporary operating state; "
+                "it does not punish individual users."
+            ),
+            now=ts,
+        )
+        self.db.record_action(
+            incident_id=incident_id,
+            chat_id=chat_id,
+            user_id=None,
+            action_type="state_change",
+            actor_type="guardian",
+            actor_id=None,
+            reason="distributed_chat_burst",
+            success=True,
+            metadata={
+                "state": OperatingState.ELEVATED.value,
+                "expires_at": expires_at,
+            },
+            now=ts,
+        )
+        decision.triggered = True
+        return decision
 
     def evaluate_links(
         self,
