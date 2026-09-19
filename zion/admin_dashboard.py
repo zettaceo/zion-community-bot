@@ -17,6 +17,19 @@ from .logging_safe import configure_logging
 logger = logging.getLogger("zion.dashboard")
 
 
+def _allowed_dashboard_host(value: str, port: int) -> bool:
+    host = (value or "").strip().lower()
+    allowed = {
+        "localhost",
+        f"localhost:{port}",
+        "127.0.0.1",
+        f"127.0.0.1:{port}",
+        "[::1]",
+        f"[::1]:{port}",
+    }
+    return host in allowed
+
+
 def _status_payload(
     db: ZionDB,
     *,
@@ -174,7 +187,31 @@ def main() -> None:
                 "base-uri 'none'; frame-ancestors 'none'",
             )
 
+        def _send_bytes(
+            self,
+            status: int,
+            content_type: str,
+            body: bytes,
+        ) -> None:
+            self.send_response(status)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(body)))
+            self._security_headers()
+            self.end_headers()
+            self.wfile.write(body)
+
         def do_GET(self) -> None:
+            if not _allowed_dashboard_host(
+                self.headers.get("Host", ""),
+                port,
+            ):
+                self._send_bytes(
+                    421,
+                    "text/plain; charset=utf-8",
+                    b"Misdirected Request",
+                )
+                return
+
             payload = _status_payload(
                 db,
                 root_dir=root_dir,
@@ -190,13 +227,11 @@ def main() -> None:
                     },
                     separators=(",", ":"),
                 ).encode("utf-8")
-                self.send_response(
-                    200 if payload["database"] == "ok" else 503
+                self._send_bytes(
+                    200 if payload["database"] == "ok" else 503,
+                    "application/json; charset=utf-8",
+                    body,
                 )
-                self.send_header("Content-Type", "application/json")
-                self._security_headers()
-                self.end_headers()
-                self.wfile.write(body)
                 return
 
             if self.path == "/api/status":
@@ -205,29 +240,27 @@ def main() -> None:
                     ensure_ascii=False,
                     separators=(",", ":"),
                 ).encode("utf-8")
-                self.send_response(200)
-                self.send_header(
-                    "Content-Type",
+                self._send_bytes(
+                    200,
                     "application/json; charset=utf-8",
+                    body,
                 )
-                self._security_headers()
-                self.end_headers()
-                self.wfile.write(body)
                 return
 
             if self.path != "/":
-                self.send_error(404)
+                self._send_bytes(
+                    404,
+                    "text/plain; charset=utf-8",
+                    b"Not Found",
+                )
                 return
 
             body = _render_html(payload).encode("utf-8")
-            self.send_response(200)
-            self.send_header(
-                "Content-Type",
+            self._send_bytes(
+                200,
                 "text/html; charset=utf-8",
+                body,
             )
-            self._security_headers()
-            self.end_headers()
-            self.wfile.write(body)
 
         def log_message(self, format: str, *args: object) -> None:
             logger.info(
