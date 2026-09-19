@@ -11,7 +11,7 @@ from zion.ai_service import AIService, sanitize_for_ai
 from zion.db import ZionDB
 from zion.knowledge import KnowledgeBase
 from zion.mistral import MistralClient, MistralRawResponse, _parse_json_object
-from zion.models import AIAnswer
+from zion.models import AIAnswer, OperatingState
 
 
 class AITests(unittest.TestCase):
@@ -170,6 +170,94 @@ class AITests(unittest.TestCase):
 
         self.assertIn("Fontes ZION:", answer.text)
         self.assertIn("official.md — Security", answer.text)
+
+    def test_lockdown_blocks_provider_before_any_call(self) -> None:
+        (self.root / "knowledge" / "official.md").write_text(
+            "# Guardian\nGuardian protection remains active.\n",
+            encoding="utf-8",
+        )
+        knowledge = KnowledgeBase(self.settings.knowledge_dir)
+        settings = replace(
+            self.settings,
+            ai_enabled=True,
+            ai_observe=True,
+            mistral_api_key="fake-key-for-test-only",
+        )
+        ai = AIService(settings, self.db, knowledge)
+
+        class CountingClient:
+            configured = True
+
+            def __init__(self) -> None:
+                self.calls = 0
+
+            async def answer(self, *, question: str, context: str):
+                self.calls += 1
+                raise AssertionError("provider must stay blocked")
+
+            async def classify(self, text: str):
+                self.calls += 1
+                raise AssertionError("provider must stay blocked")
+
+        client = CountingClient()
+        ai.client = client
+        self.db.set_operating_state(OperatingState.LOCKDOWN)
+
+        answer = asyncio.run(
+            ai.answer(
+                chat_id=1,
+                user_id=2,
+                question="Guardian protection",
+            )
+        )
+        classification = asyncio.run(
+            ai.classify(
+                chat_id=1,
+                user_id=2,
+                text="ordinary message",
+            )
+        )
+
+        self.assertIn("LOCKDOWN", answer.text)
+        self.assertIsNone(classification)
+        self.assertEqual(client.calls, 0)
+
+    def test_elevated_state_still_allows_support_ai(self) -> None:
+        (self.root / "knowledge" / "official.md").write_text(
+            "# Guardian\nGuardian protection remains active.\n",
+            encoding="utf-8",
+        )
+        knowledge = KnowledgeBase(self.settings.knowledge_dir)
+        settings = replace(
+            self.settings,
+            ai_enabled=True,
+            mistral_api_key="fake-key-for-test-only",
+        )
+        ai = AIService(settings, self.db, knowledge)
+
+        class FakeClient:
+            configured = True
+
+            async def answer(self, *, question: str, context: str):
+                return AIAnswer(
+                    text="grounded",
+                    model="fake",
+                    input_tokens=1,
+                    output_tokens=1,
+                    latency_ms=1,
+                )
+
+        ai.client = FakeClient()
+        self.db.set_operating_state(OperatingState.ELEVATED)
+
+        answer = asyncio.run(
+            ai.answer(
+                chat_id=1,
+                user_id=2,
+                question="Guardian protection",
+            )
+        )
+        self.assertIn("grounded", answer.text)
 
     def test_hard_budget_gate_blocks_call_before_provider(self) -> None:
         (self.root / "knowledge" / "official.md").write_text(
