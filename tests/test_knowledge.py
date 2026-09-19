@@ -22,5 +22,32 @@ class KnowledgeTests(unittest.TestCase):
             self.assertEqual(results[0].heading, "Security")
 
 
+    def test_stopword_only_query_returns_no_context(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "official.md").write_text(
+                "# Security\nNever share a seed phrase.\n",
+                encoding="utf-8",
+            )
+            kb = KnowledgeBase(root)
+            self.assertEqual(
+                kb.search("what is the and of"),
+                [],
+            )
+
+    def test_render_context_is_bounded(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "official.md").write_text(
+                "# Guardian\n" + ("guardian " * 3000),
+                encoding="utf-8",
+            )
+            kb = KnowledgeBase(root)
+            rendered = kb.render_context(
+                "guardian",
+                max_chars=500,
+            )
+            self.assertLessEqual(len(rendered), 500)
+
 if __name__ == "__main__":
     unittest.main()
