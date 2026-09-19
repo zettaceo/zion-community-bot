@@ -80,3 +80,13 @@ The old `zion_state.json` is imported once into SQLite when modular v1 first sta
 ## Backup
 
 A future remote backup target can be added after deciding retention/privacy policy. Until then, do not upload the SQLite file to public storage.
+
+## AI budget
+
+`ZION_AI_DAILY_TOKEN_BUDGET` limits combined recorded Mistral input+output tokens per UTC day.
+
+Default: `50000`.
+
+Set `0` only if the team intentionally wants no software-side daily token ceiling.
+
+Use admin `/aistatus` to inspect current UTC-day usage.
