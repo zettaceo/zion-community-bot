@@ -1352,7 +1352,10 @@ class ZionDB:
         if not values:
             return {"count": 0, "avg_ms": 0, "p95_ms": 0}
         avg = int(sum(values) / len(values))
-        index = min(len(values) - 1, max(0, int(len(values) * 0.95) - 1))
+        index = min(
+            len(values) - 1,
+            max(0, ((95 * len(values) + 99) // 100) - 1),
+        )
         return {
             "count": len(values),
             "avg_ms": avg,
