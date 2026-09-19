@@ -18,6 +18,28 @@ class ApplicationBuildTests(unittest.TestCase):
             self.assertIsInstance(runtime, Runtime)
             self.assertTrue(application.handlers)
 
+            commands: set[str] = set()
+            for handlers in application.handlers.values():
+                for handler in handlers:
+                    values = getattr(handler, "commands", None)
+                    if values:
+                        commands.update(values)
+
+            self.assertTrue(
+                {
+                    "status",
+                    "health",
+                    "diagnostics",
+                    "help",
+                    "ama",
+                    "amaopen",
+                    "amalist",
+                    "amaclose",
+                    "recurring",
+                    "cancelrecurring",
+                }.issubset(commands)
+            )
+
             runtime.db.close()
 
 
