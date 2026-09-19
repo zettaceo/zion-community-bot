@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 
@@ -80,25 +81,52 @@ def redact_secrets(value: object) -> str:
     return text
 
 
+class PrivateRotatingFileHandler(RotatingFileHandler):
+    def _secure_files(self) -> None:
+        base = Path(self.baseFilename)
+        for candidate in base.parent.glob(base.name + "*"):
+            try:
+                if candidate.is_file():
+                    os.chmod(candidate, 0o600)
+            except OSError:
+                pass
+
+    def _open(self):
+        stream = super()._open()
+        self._secure_files()
+        return stream
+
+    def doRollover(self) -> None:
+        super().doRollover()
+        self._secure_files()
+
+
 class SecretSafeFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
         return redact_secrets(super().format(record))
 
 
-def configure_logging(log_path: Path, level: int = logging.INFO) -> logging.Logger:
+def configure_logging(
+    log_path: Path,
+    level: int = logging.INFO,
+    *,
+    max_bytes: int = 5 * 1024 * 1024,
+    backup_count: int = 5,
+) -> logging.Logger:
     log_path.parent.mkdir(parents=True, exist_ok=True)
 
     formatter = SecretSafeFormatter(
         "%(asctime)s | %(levelname)s | %(name)s | %(message)s"
     )
 
-    file_handler = logging.FileHandler(log_path)
+    file_handler = PrivateRotatingFileHandler(
+        log_path,
+        maxBytes=max(1024 * 1024, int(max_bytes)),
+        backupCount=max(1, int(backup_count)),
+        encoding="utf-8",
+    )
     file_handler.setFormatter(formatter)
-
-    try:
-        os.chmod(log_path, 0o600)
-    except OSError:
-        pass
+    file_handler._secure_files()
 
     stream_handler = logging.StreamHandler()
     stream_handler.setFormatter(formatter)
