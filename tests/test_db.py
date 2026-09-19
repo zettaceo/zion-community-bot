@@ -20,6 +20,15 @@ class DatabaseTests(unittest.TestCase):
         self.db.close()
         self.temp.cleanup()
 
+    def test_symlinked_database_path_is_rejected(self) -> None:
+        target = Path(self.temp.name) / "target.db"
+        target.write_text("not a database", encoding="utf-8")
+        link = Path(self.temp.name) / "linked.db"
+        link.symlink_to(target)
+
+        with self.assertRaises(RuntimeError):
+            ZionDB(link)
+
     def test_database_permissions_are_private(self) -> None:
         mode = stat.S_IMODE(self.path.stat().st_mode)
         self.assertEqual(mode, 0o600)
