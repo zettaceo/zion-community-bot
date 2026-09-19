@@ -265,6 +265,24 @@ class ZionDB:
             self._conn.commit()
         return event_id
 
+    def count_user_events(
+        self,
+        *,
+        chat_id: int,
+        event_type: str,
+        since: float,
+    ) -> int:
+        with self._lock:
+            row = self._conn.execute(
+                """
+                SELECT COUNT(*) AS count
+                FROM user_events
+                WHERE chat_id=? AND event_type=? AND created_at >= ?
+                """,
+                (chat_id, event_type, since),
+            ).fetchone()
+        return int(row["count"]) if row else 0
+
     def add_strike(
         self,
         *,
