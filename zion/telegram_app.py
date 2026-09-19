@@ -60,6 +60,7 @@ class AskRateLimiter:
 class Runtime:
     def __init__(self, settings: Settings):
         self.settings = settings
+        self._closed = False
         self.process_lock = ProcessLock(settings.runtime_lock_path)
         try:
             self.db = ZionDB(settings.db_path)
@@ -84,10 +85,16 @@ class Runtime:
             ] = {}
             self.update_lags: deque[float] = deque(maxlen=100)
         except Exception:
+            db = getattr(self, "db", None)
+            if isinstance(db, ZionDB):
+                db.close()
             self.process_lock.close()
             raise
 
     def close(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
         try:
             self.db.close()
         finally:
