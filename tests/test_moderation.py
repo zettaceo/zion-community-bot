@@ -17,6 +17,8 @@ class FakeBot:
     def __init__(self) -> None:
         self.deleted: list[tuple[int, int]] = []
         self.sent: list[tuple[int, str]] = []
+        self.restricted: list[tuple[int, int]] = []
+        self.banned: list[tuple[int, int]] = []
 
     async def get_chat_member(self, chat_id: int, user_id: int):
         return SimpleNamespace(status=ChatMemberStatus.MEMBER)
@@ -26,6 +28,25 @@ class FakeBot:
 
     async def send_message(self, *, chat_id: int, text: str):
         self.sent.append((chat_id, text))
+
+    async def restrict_chat_member(
+        self,
+        *,
+        chat_id: int,
+        user_id: int,
+        permissions,
+        until_date,
+    ):
+        self.restricted.append((chat_id, user_id))
+
+    async def ban_chat_member(
+        self,
+        *,
+        chat_id: int,
+        user_id: int,
+        revoke_messages: bool,
+    ):
+        self.banned.append((chat_id, user_id))
 
 
 class FakeApplication:
@@ -45,7 +66,12 @@ class FakeContext:
         self.application = FakeApplication(runtime)
 
 
-def fake_update(*, user_id: int, text: str, message_id: int = 10):
+def fake_update(
+    *,
+    user_id: int,
+    text: str | None,
+    message_id: int = 10,
+):
     user = SimpleNamespace(
         id=user_id,
         username=f"user{user_id}",
@@ -150,6 +176,34 @@ class ModerationPipelineTests(unittest.TestCase):
         self.assertIn(
             (update.effective_chat.id, update.effective_message.message_id),
             self.context.bot.deleted,
+        )
+
+    def test_non_text_messages_still_trigger_flood(self) -> None:
+        for message_id in (30, 31):
+            update = fake_update(
+                user_id=3,
+                text=None,
+                message_id=message_id,
+            )
+            asyncio.run(moderation_handler(update, self.context))
+
+        third = fake_update(
+            user_id=3,
+            text=None,
+            message_id=32,
+        )
+        asyncio.run(moderation_handler(third, self.context))
+
+        self.assertIn(
+            (third.effective_chat.id, third.effective_user.id),
+            self.context.bot.restricted,
+        )
+        self.assertTrue(
+            {
+                (third.effective_chat.id, 30),
+                (third.effective_chat.id, 31),
+                (third.effective_chat.id, 32),
+            }.issubset(set(self.context.bot.deleted))
         )
 
     def test_normal_member_message_passes(self) -> None:
