@@ -48,11 +48,21 @@ class HealthService:
             Path(str(self.settings.db_path) + "-wal"),
             Path(str(self.settings.db_path) + "-shm"),
             self.settings.log_path,
+            self.settings.runtime_lock_path,
             self.settings.legacy_state_path,
         )
         sensitive_files_private = all(
             _private_file(path)
             for path in sensitive_paths
+        )
+        rotated_logs_private = all(
+            _private_file(path)
+            for path in self.settings.log_path.parent.glob(
+                self.settings.log_path.name + "*"
+            )
+        )
+        sensitive_files_private = (
+            sensitive_files_private and rotated_logs_private
         )
 
         integrity_ok, integrity_result = self._integrity_status()
@@ -87,6 +97,12 @@ class HealthService:
                     and disk_free_mb < self.settings.disk_warn_mb
                 ),
                 "disk_warn_mb": self.settings.disk_warn_mb,
+                "configuration_issues": (
+                    self.settings.configuration_issues()
+                ),
+                "operator_count": len(
+                    self.settings.admin_user_ids
+                ),
             },
         )
 
@@ -131,6 +147,12 @@ class HealthService:
             "ai_latency_24h": latency,
             "schema_version": schema_version,
             "sqlite_pragmas": pragmas,
+            "configuration_issues": list(
+                snapshot.details.get("configuration_issues", ())
+            ),
+            "operator_count": int(
+                snapshot.details.get("operator_count", 0)
+            ),
         }
 
     @staticmethod
