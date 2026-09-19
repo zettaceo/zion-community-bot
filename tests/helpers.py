@@ -25,6 +25,7 @@ def make_settings(root: Path) -> Settings:
         flood_ban_after_strikes=4,
         admin_cache_seconds=60,
         report_retention_days=90,
+        knowledge_gap_retention_days=30,
         raid_max_joins=8,
         raid_window_seconds=60,
         raid_elevated_seconds=900,
