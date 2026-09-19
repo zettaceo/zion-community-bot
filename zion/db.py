@@ -967,7 +967,17 @@ class ZionDB:
     ) -> str:
         ts = time.time() if now is None else now
         incident_id = uuid.uuid4().hex
-        severity_value = severity.value if isinstance(severity, Severity) else str(severity)
+        severity_value = (
+            severity.value
+            if isinstance(severity, Severity)
+            else str(severity)
+        )
+        if severity_value not in {item.value for item in Severity}:
+            raise ValueError("invalid incident severity")
+        if status not in {"open", "resolved", "ignored"}:
+            raise ValueError("invalid incident status")
+
+        safe_note = str(note)[:2000]
         with self._lock:
             self._conn.execute(
                 """
@@ -988,7 +998,7 @@ class ZionDB:
                     ts,
                     ts,
                     _json(evidence),
-                    note,
+                    safe_note,
                 ),
             )
             self._conn.commit()
@@ -1190,7 +1200,13 @@ class ZionDB:
         self.set_setting("operating_state", state.value)
 
     def set_domain(self, domain: str, disposition: str, source: str) -> None:
+        if disposition not in {"allow", "block"}:
+            raise ValueError("invalid domain disposition")
+
         normalized = domain.lower().strip().strip(".")
+        if not normalized:
+            raise ValueError("empty domain")
+
         with self._lock:
             self._conn.execute(
                 """
