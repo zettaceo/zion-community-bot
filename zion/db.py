@@ -511,11 +511,7 @@ class ZionDB:
 
     def schema_version(self) -> int:
         with self._lock:
-            row = self._conn.execute(
-                "SELECT COALESCE(MAX(version), 0) AS version "
-                "FROM schema_migrations"
-            ).fetchone()
-        return int(row["version"]) if row else 0
+            return self._existing_schema_version_locked()
 
     def close(self) -> None:
         with self._lock:
