@@ -1868,7 +1868,7 @@ class ZionDB:
         with self._lock:
             rows = self._conn.execute(
                 """
-                SELECT id
+                SELECT id, interval_seconds, next_send_at, last_error_type
                 FROM recurring_messages
                 WHERE (id=? OR id LIKE ?)
                   AND status='paused'
@@ -1877,9 +1877,24 @@ class ZionDB:
                 """,
                 (value, value + "%"),
             ).fetchall()
-            unique_ids = list(dict.fromkeys(str(row["id"]) for row in rows))
-            if len(unique_ids) != 1:
+
+            unique: dict[str, sqlite3.Row] = {
+                str(row["id"]): row
+                for row in rows
+            }
+            if len(unique) != 1:
                 return False
+
+            resolved_id, row = next(iter(unique.items()))
+            last_error_type = str(row["last_error_type"] or "")
+
+            if last_error_type == "stale_claim_after_crash":
+                interval = max(300, int(row["interval_seconds"]))
+                next_at = float(row["next_send_at"])
+                while next_at <= ts:
+                    next_at += interval
+            else:
+                next_at = ts
 
             cursor = self._conn.execute(
                 """
@@ -1889,7 +1904,7 @@ class ZionDB:
                     claimed_at=NULL
                 WHERE id=? AND status='paused'
                 """,
-                (ts, unique_ids[0]),
+                (next_at, resolved_id),
             )
             self._conn.commit()
         return cursor.rowcount > 0
