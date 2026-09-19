@@ -547,6 +547,51 @@ async def user_command(
     )
 
 
+async def state_command(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+) -> None:
+    if not await require_admin(update, context):
+        return
+    if not update.effective_message or not update.effective_user:
+        return
+
+    rt = runtime(context)
+
+    if not context.args:
+        await update.effective_message.reply_text(
+            f"ZION operating state: {rt.db.get_operating_state().value}"
+        )
+        return
+
+    raw = context.args[0].strip().upper()
+    try:
+        state = OperatingState(raw)
+    except ValueError:
+        allowed = ", ".join(item.value for item in OperatingState)
+        await update.effective_message.reply_text(
+            f"Estado inválido. Permitidos: {allowed}"
+        )
+        return
+
+    previous = rt.db.get_operating_state()
+    rt.db.set_operating_state(state)
+    rt.db.set_setting("operating_state_expires_at", "0")
+    rt.db.record_action(
+        incident_id=None,
+        chat_id=update.effective_chat.id if update.effective_chat else None,
+        user_id=None,
+        action_type="state_change",
+        actor_type="admin",
+        actor_id=str(update.effective_user.id),
+        reason=f"{previous.value}->{state.value}",
+        success=True,
+    )
+    await update.effective_message.reply_text(
+        f"ZION state: {previous.value} → {state.value}"
+    )
+
+
 async def lockdown_command(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
@@ -558,6 +603,7 @@ async def lockdown_command(
 
     rt = runtime(context)
     rt.db.set_operating_state(OperatingState.LOCKDOWN)
+    rt.db.set_setting("operating_state_expires_at", "0")
     rt.db.record_action(
         incident_id=None,
         chat_id=update.effective_chat.id if update.effective_chat else None,
@@ -584,6 +630,7 @@ async def unlock_command(
 
     rt = runtime(context)
     rt.db.set_operating_state(OperatingState.NORMAL)
+    rt.db.set_setting("operating_state_expires_at", "0")
     rt.db.record_action(
         incident_id=None,
         chat_id=update.effective_chat.id if update.effective_chat else None,
@@ -925,19 +972,21 @@ async def welcome_handler(
         return
 
     rt = runtime(context)
+    chat_id = update.effective_chat.id
+
     for member in update.effective_message.new_chat_members:
         if member.is_bot:
             continue
 
         rt.db.upsert_user(
-            chat_id=update.effective_chat.id,
+            chat_id=chat_id,
             user_id=member.id,
             username=member.username,
             first_name=member.first_name,
             language_code=member.language_code,
         )
         rt.db.record_user_event(
-            update.effective_chat.id,
+            chat_id,
             member.id,
             "joined",
         )
@@ -946,6 +995,62 @@ async def welcome_handler(
             f"⚡ Bem-vindo(a), {member.first_name or 'novo membro'}.\n\n"
             "Você entrou na comunidade Z-SWAP. Leia /rules.\n"
             "Nunca compartilhe seed phrase, chave privada, senha ou token."
+        )
+
+    now = time.time()
+    joins = rt.db.count_user_events(
+        chat_id=chat_id,
+        event_type="joined",
+        since=now - rt.settings.raid_window_seconds,
+    )
+
+    if (
+        joins >= rt.settings.raid_max_joins
+        and rt.db.get_operating_state() == OperatingState.NORMAL
+    ):
+        expires_at = now + rt.settings.raid_elevated_seconds
+        rt.db.set_operating_state(OperatingState.ELEVATED)
+        rt.db.set_setting(
+            "operating_state_expires_at",
+            str(expires_at),
+        )
+
+        incident_id = rt.db.create_incident(
+            chat_id=chat_id,
+            user_id=None,
+            category="mass_join_detected",
+            severity=Severity.HIGH,
+            source="guardian",
+            evidence={
+                "joins": joins,
+                "window_seconds": rt.settings.raid_window_seconds,
+                "temporary_state": OperatingState.ELEVATED.value,
+                "expires_at": expires_at,
+            },
+        )
+        rt.db.record_action(
+            incident_id=incident_id,
+            chat_id=chat_id,
+            user_id=None,
+            action_type="state_change",
+            actor_type="guardian",
+            actor_id=None,
+            reason="mass_join_detected",
+            success=True,
+            metadata={
+                "state": OperatingState.ELEVATED.value,
+                "expires_at": expires_at,
+            },
+        )
+
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text=(
+                "🛡️ ZION: volume anormal de entradas detectado.\n"
+                "Estado ELEVATED ativado temporariamente.\n"
+                "O limite de flood foi endurecido; nenhuma punição "
+                "por IA foi habilitada."
+            ),
         )
 
 
@@ -1317,6 +1422,36 @@ async def moderation_handler(
         )
 
 
+def expire_temporary_state(rt: Runtime) -> None:
+    raw = rt.db.get_setting("operating_state_expires_at")
+    if not raw:
+        return
+
+    try:
+        expires_at = float(raw)
+    except ValueError:
+        rt.db.set_setting("operating_state_expires_at", "0")
+        return
+
+    if expires_at <= 0 or time.time() < expires_at:
+        return
+
+    if rt.db.get_operating_state() == OperatingState.ELEVATED:
+        rt.db.set_operating_state(OperatingState.NORMAL)
+        rt.db.record_action(
+            incident_id=None,
+            chat_id=None,
+            user_id=None,
+            action_type="state_change",
+            actor_type="guardian",
+            actor_id=None,
+            reason="temporary_elevated_expired",
+            success=True,
+        )
+
+    rt.db.set_setting("operating_state_expires_at", "0")
+
+
 async def scheduler_loop(application: Application) -> None:
     while True:
         try:
@@ -1325,7 +1460,17 @@ async def scheduler_loop(application: Application) -> None:
                 await asyncio.sleep(10)
                 continue
 
-            due = rt.db.due_scheduled_messages(limit=20)
+            expire_temporary_state(rt)
+
+            state = rt.db.get_operating_state()
+            due = (
+                rt.db.due_scheduled_messages(limit=20)
+                if state in {
+                    OperatingState.NORMAL,
+                    OperatingState.ELEVATED,
+                }
+                else []
+            )
             for item in due:
                 success = False
                 try:
@@ -1416,6 +1561,7 @@ def build_application(settings: Settings | None = None) -> Application:
         "stats": stats_command,
         "incidents": incidents_command,
         "user": user_command,
+        "state": state_command,
         "lockdown": lockdown_command,
         "unlock": unlock_command,
         "allowdomain": allow_domain_command,
