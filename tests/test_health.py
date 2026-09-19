@@ -33,6 +33,20 @@ class HealthTests(unittest.TestCase):
             snapshot.details["sensitive_files_private"]
         )
 
+    def test_diagnostics_include_sqlite_integrity(self) -> None:
+        diagnostics = self.health.diagnostics()
+        self.assertTrue(diagnostics["db_ok"])
+        self.assertTrue(diagnostics["sqlite_integrity_ok"])
+        self.assertEqual(
+            diagnostics["sqlite_integrity_result"].lower(),
+            "ok",
+        )
+        self.assertGreaterEqual(diagnostics["db_size_mb"], 0)
+        self.assertEqual(
+            diagnostics["ai_latency_24h"],
+            {"count": 0, "avg_ms": 0, "p95_ms": 0},
+        )
+
     def test_world_readable_env_is_reported(self) -> None:
         env_path = self.root / ".env"
         env_path.write_text("TEST=1\n", encoding="utf-8")
