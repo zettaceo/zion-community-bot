@@ -453,7 +453,59 @@ async def stats_command(
         f"Strikes: {stats.get('strikes', 0)}\n"
         f"Incidents: {stats.get('incidents', 0)}\n"
         f"Actions: {stats.get('actions', 0)}\n"
-        f"AI Events: {stats.get('ai_events', 0)}"
+        f"AI Events: {stats.get('ai_events', 0)}\n"
+        f"Knowledge Gaps: {stats.get('knowledge_gaps', 0)}"
+    )
+
+
+async def gaps_command(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+) -> None:
+    if not await require_admin(update, context):
+        return
+    if not update.effective_message:
+        return
+
+    gaps = runtime(context).db.list_knowledge_gaps(limit=10)
+    if not gaps:
+        await update.effective_message.reply_text(
+            "Nenhuma lacuna de conhecimento aberta."
+        )
+        return
+
+    lines = ["ZION KNOWLEDGE GAPS"]
+    for item in gaps:
+        lines.append(
+            f"{item['question_hash']} | x{item['seen_count']} | "
+            f"{item['sample_text'][:220]}"
+        )
+    await update.effective_message.reply_text("\n".join(lines)[:3900])
+
+
+async def resolve_gap_command(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+) -> None:
+    if not await require_admin(update, context):
+        return
+    if not update.effective_message:
+        return
+
+    if not context.args:
+        await update.effective_message.reply_text(
+            "Use: /resolvegap <question_hash>"
+        )
+        return
+
+    success = runtime(context).db.set_knowledge_gap_status(
+        context.args[0].strip(),
+        "resolved",
+    )
+    await update.effective_message.reply_text(
+        "Lacuna marcada como resolvida."
+        if success
+        else "Hash de lacuna não encontrado."
     )
 
 
@@ -1565,6 +1617,8 @@ def build_application(settings: Settings | None = None) -> Application:
         "ask": ask_command,
         "aistatus": ai_status_command,
         "stats": stats_command,
+        "gaps": gaps_command,
+        "resolvegap": resolve_gap_command,
         "incidents": incidents_command,
         "user": user_command,
         "state": state_command,
