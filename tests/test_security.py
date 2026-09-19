@@ -26,6 +26,17 @@ class SecurityTests(unittest.TestCase):
             mode = stat.S_IMODE(path.stat().st_mode)
             self.assertEqual(mode, 0o600)
 
+    def test_symlinked_log_target_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            target = root / "target.log"
+            target.write_text("do not follow", encoding="utf-8")
+            link = root / "zion.log"
+            link.symlink_to(target)
+
+            with self.assertRaises(RuntimeError):
+                configure_logging(link)
+
     def test_rotated_log_files_remain_private(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "rotate.log"
