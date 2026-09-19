@@ -16,13 +16,16 @@ FAKE_TELEGRAM_TOKENS = {
 }
 
 PEM_PRIVATE_KEY = re.compile(
-    rb"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----"
+    rb"-----BEGIN "
+    rb"(?:RSA |EC |OPENSSH )?"
+    rb"PRIVATE"
+    rb" KEY-----"
 )
 
 HIGH_RISK_PREFIXES = (
-    b"ghp_",
-    b"github_pat_",
-    b"AKIA",
+    b"gh" + b"p_",
+    b"github" + b"_pat_",
+    b"AK" + b"IA",
 )
 
 ENV_SECRET_ASSIGNMENT = re.compile(
