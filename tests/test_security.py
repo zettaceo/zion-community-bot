@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 import stat
 import tempfile
@@ -9,6 +10,8 @@ from unittest.mock import patch
 
 from zion.ai_service import sanitize_for_ai
 from zion.logging_safe import (
+    PrivateRotatingFileHandler,
+    SecretSafeFormatter,
     configure_logging,
     contains_high_confidence_credential,
     redact_secrets,
@@ -22,6 +25,42 @@ class SecurityTests(unittest.TestCase):
             configure_logging(path)
             mode = stat.S_IMODE(path.stat().st_mode)
             self.assertEqual(mode, 0o600)
+
+    def test_rotated_log_files_remain_private(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "rotate.log"
+            handler = PrivateRotatingFileHandler(
+                path,
+                maxBytes=128,
+                backupCount=2,
+                encoding="utf-8",
+            )
+            handler.setFormatter(
+                SecretSafeFormatter("%(levelname)s %(message)s")
+            )
+            logger = logging.getLogger(
+                f"zion-test-rotation-{id(handler)}"
+            )
+            logger.setLevel(logging.INFO)
+            logger.propagate = False
+            logger.handlers = [handler]
+
+            try:
+                for index in range(20):
+                    logger.info(
+                        "line-%s-%s",
+                        index,
+                        "x" * 40,
+                    )
+            finally:
+                handler.close()
+                logger.handlers = []
+
+            rotated = list(path.parent.glob("rotate.log*"))
+            self.assertGreaterEqual(len(rotated), 2)
+            for candidate in rotated:
+                mode = stat.S_IMODE(candidate.stat().st_mode)
+                self.assertEqual(mode, 0o600)
 
     def test_telegram_token_redacted(self) -> None:
         fake = "123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghi"
