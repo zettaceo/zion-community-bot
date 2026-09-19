@@ -10,6 +10,8 @@ from .db import ZionDB
 
 logger = logging.getLogger("zion.migrate")
 
+MAX_LEGACY_STATE_BYTES = 5 * 1024 * 1024
+
 
 def migrate_legacy_guardian_state(db: ZionDB, state_file: Path) -> None:
     marker = "legacy_guardian_state_imported_v1"
@@ -18,6 +20,28 @@ def migrate_legacy_guardian_state(db: ZionDB, state_file: Path) -> None:
 
     if not state_file.exists():
         db.set_setting(marker, "1")
+        return
+
+    if state_file.is_symlink() or not state_file.is_file():
+        logger.warning(
+            "Estado legado rejeitado: caminho não é arquivo regular."
+        )
+        return
+
+    try:
+        size = state_file.stat().st_size
+    except OSError as exc:
+        logger.warning(
+            "Estado legado não pôde ser inspecionado | error=%s",
+            type(exc).__name__,
+        )
+        return
+
+    if size > MAX_LEGACY_STATE_BYTES:
+        logger.warning(
+            "Estado legado rejeitado: arquivo excede limite de %s bytes.",
+            MAX_LEGACY_STATE_BYTES,
+        )
         return
 
     try:
