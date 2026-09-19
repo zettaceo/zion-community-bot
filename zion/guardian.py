@@ -19,6 +19,12 @@ URL_REGEX = re.compile(
     r"(?i)\b(?:https?://|www\.|t\.me/)[^\s<>]+"
 )
 
+POLICY_DOMAIN_REGEX = re.compile(
+    r"(?i)^(?=.{1,253}$)"
+    r"(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+"
+    r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
+)
+
 SENSITIVE_LABEL_REGEX = re.compile(
     r"(?i)\b("
     r"private\s+key|chave\s+privada|"
@@ -54,6 +60,21 @@ def _normalize_domain(raw_url: str) -> str | None:
     if host.startswith("www."):
         host = host[4:]
     return host or None
+
+
+def normalize_policy_domain(value: str) -> str | None:
+    raw = (value or "").strip()
+    if not raw:
+        return None
+
+    candidate = raw
+    if not re.match(r"(?i)^(?:https?://|www\.|t\.me/)", candidate):
+        candidate = "https://" + candidate
+
+    domain = _normalize_domain(candidate)
+    if not domain or not POLICY_DOMAIN_REGEX.fullmatch(domain):
+        return None
+    return domain
 
 
 def extract_domains(text: str) -> list[str]:
