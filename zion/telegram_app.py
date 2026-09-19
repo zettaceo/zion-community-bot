@@ -1997,6 +1997,76 @@ async def moderation_handler(
 
     record_user(update, context, increment_messages=True)
 
+    # Carteira/seed é protegida para TODOS, inclusive administradores.
+    # Admin não deve perder esta camada por causa da isenção de moderação.
+    text = message.text or message.caption or ""
+    if await protect_wallet_secret(
+        update,
+        context,
+        text,
+        source="guardian",
+        notice_text=(
+            f"🚨 {user_display_name(user)}: mensagem removida por "
+            "possível exposição de segredo de carteira. "
+            "Nunca publique seed phrase ou chave privada."
+        ),
+    ):
+        return
+
+    admin = await is_admin(update, context)
+
+    if rt.db.get_operating_state() == OperatingState.LOCKDOWN and not admin:
+        deleted = await delete_message_safe(
+            context,
+            chat.id,
+            message.message_id,
+        )
+        rt.db.record_action(
+            incident_id=None,
+            chat_id=chat.id,
+            user_id=user.id,
+            action_type="delete",
+            actor_type="guardian",
+            actor_id=None,
+            reason="lockdown",
+            success=deleted,
+        )
+        return
+
+    # Administradores continuam isentos de flood e política de links,
+    # mas somente depois da proteção universal de segredo de carteira.
+    if admin:
+        return
+
+    remaining = rt.guardian.containment_remaining(chat.id, user.id)
+    if remaining > 0:
+        deleted = await delete_message_safe(
+            context,
+            chat.id,
+            message.message_id,
+        )
+        rt.db.record_action(
+            incident_id=None,
+            chat_id=chat.id,
+            user_id=user.id,
+            action_type="delete",
+            actor_type="guardian",
+            actor_id=None,
+            reason="active_containment",
+            success=deleted,
+            metadata={"remaining_seconds": remaining},
+        )
+        return
+
+    flood = rt.guardian.record_message(
+        chat_id=chat.id,
+        user_id=user.id,
+        message_id=message.message_id,
+    )
+    if flood.triggered:
+        await _enforce_flood(update, context, flood)
+        return
+
     links = rt.guardian.evaluate_links(text)
     if links.should_delete:
         deleted = await delete_message_safe(
@@ -2034,8 +2104,11 @@ async def moderation_handler(
                     "link/domínio não autorizado."
                 ),
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning(
+                "Falha ao enviar aviso de link não autorizado: %s",
+                exc,
+            )
         return
 
     if (
