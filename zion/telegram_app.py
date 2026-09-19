@@ -1822,6 +1822,253 @@ async def schedule_command(
     )
 
 
+async def recurring_command(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+) -> None:
+    if not await require_admin(update, context):
+        return
+    if (
+        not update.effective_message
+        or not update.effective_chat
+        or not update.effective_user
+    ):
+        return
+
+    if len(context.args) < 3:
+        await update.effective_message.reply_text(
+            "Use: /recurring 24h 2026-09-20T15:00:00-03:00 mensagem"
+        )
+        return
+
+    interval = parse_duration(context.args[0])
+    if interval is None or interval < 300:
+        await update.effective_message.reply_text(
+            "Intervalo inválido. Use 5m até 30d."
+        )
+        return
+
+    try:
+        first = datetime.fromisoformat(context.args[1])
+    except ValueError:
+        await update.effective_message.reply_text(
+            "Data inválida. Use ISO 8601 com fuso."
+        )
+        return
+
+    if first.tzinfo is None or first.timestamp() <= time.time():
+        await update.effective_message.reply_text(
+            "Informe horário futuro com fuso explícito."
+        )
+        return
+
+    text = " ".join(context.args[2:]).strip()
+    if not text:
+        return
+
+    schedule_id = runtime(context).db.schedule_recurring_message(
+        chat_id=update.effective_chat.id,
+        first_send_at=first.timestamp(),
+        interval_seconds=interval,
+        text=text,
+        created_by=update.effective_user.id,
+    )
+    runtime(context).db.record_action(
+        incident_id=None,
+        chat_id=update.effective_chat.id,
+        user_id=None,
+        action_type="recurring_schedule",
+        actor_type="admin",
+        actor_id=str(update.effective_user.id),
+        reason="manual_admin_command",
+        success=True,
+        metadata={
+            "schedule_id": schedule_id,
+            "interval_seconds": interval,
+        },
+    )
+    await update.effective_message.reply_text(
+        f"🔁 Recorrência criada: {schedule_id[:8]} | "
+        f"primeiro envio {first.isoformat()} | "
+        f"intervalo {format_duration(interval)}."
+    )
+
+
+async def cancel_recurring_command(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+) -> None:
+    if not await require_admin(update, context):
+        return
+    if not update.effective_message or not context.args:
+        return
+
+    success = runtime(context).db.cancel_recurring_message(
+        context.args[0].strip(),
+    )
+    await update.effective_message.reply_text(
+        "Recorrência cancelada."
+        if success
+        else "Recorrência ativa não encontrada."
+    )
+
+
+async def ama_open_command(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+) -> None:
+    if not await require_admin(update, context):
+        return
+    if (
+        not update.effective_message
+        or not update.effective_chat
+        or not update.effective_user
+    ):
+        return
+
+    title = " ".join(context.args).strip()
+    if not title:
+        await update.effective_message.reply_text(
+            "Use: /amaopen <tema do AMA>"
+        )
+        return
+
+    ama_id = runtime(context).db.create_ama(
+        chat_id=update.effective_chat.id,
+        title=title,
+        created_by=update.effective_user.id,
+    )
+    runtime(context).db.record_action(
+        incident_id=None,
+        chat_id=update.effective_chat.id,
+        user_id=None,
+        action_type="ama_open",
+        actor_type="admin",
+        actor_id=str(update.effective_user.id),
+        reason="manual_admin_command",
+        success=True,
+        metadata={"ama_id": ama_id},
+    )
+    await update.effective_message.reply_text(
+        f"🎙️ AMA aberto: {title[:200]}\n"
+        "Envie perguntas com /ama <pergunta>. "
+        "As perguntas ficam armazenadas temporariamente para organização do AMA."
+    )
+
+
+async def ama_question_command(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+) -> None:
+    if (
+        not update.effective_message
+        or not update.effective_chat
+        or not update.effective_user
+    ):
+        return
+
+    question = " ".join(context.args).strip()
+    if not question:
+        await update.effective_message.reply_text(
+            "Use: /ama <pergunta>"
+        )
+        return
+
+    if await protect_sensitive_command_input(
+        update,
+        context,
+        question,
+    ):
+        return
+
+    rt = runtime(context)
+    active = rt.db.active_ama(update.effective_chat.id)
+    if not active:
+        await update.effective_message.reply_text(
+            "Não há AMA aberto neste chat."
+        )
+        return
+
+    question_id = rt.db.add_ama_question(
+        ama_id=str(active["id"]),
+        chat_id=update.effective_chat.id,
+        user_id=update.effective_user.id,
+        question=question,
+    )
+    await update.effective_message.reply_text(
+        f"🎙️ Pergunta registrada no AMA ({question_id[:8]})."
+    )
+
+
+async def ama_list_command(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+) -> None:
+    if not await require_admin(update, context):
+        return
+    if not update.effective_message or not update.effective_chat:
+        return
+
+    rt = runtime(context)
+    active = rt.db.active_ama(update.effective_chat.id)
+    if not active:
+        await update.effective_message.reply_text(
+            "Não há AMA aberto neste chat."
+        )
+        return
+
+    questions = rt.db.list_ama_questions(str(active["id"]), limit=30)
+    lines = [
+        f"🎙️ AMA: {active['title']}",
+        f"ID: {str(active['id'])[:8]}",
+        f"Perguntas: {len(questions)}",
+    ]
+    for item in questions:
+        lines.append(
+            f"{str(item['id'])[:8]} | user={item['user_id']} | "
+            f"{str(item['question'])[:220]}"
+        )
+    await update.effective_message.reply_text(
+        "\n".join(lines)[:3900]
+    )
+
+
+async def ama_close_command(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+) -> None:
+    if not await require_admin(update, context):
+        return
+    if (
+        not update.effective_message
+        or not update.effective_chat
+        or not update.effective_user
+    ):
+        return
+
+    closed = runtime(context).db.close_ama(update.effective_chat.id)
+    if not closed:
+        await update.effective_message.reply_text(
+            "Não há AMA aberto neste chat."
+        )
+        return
+
+    runtime(context).db.record_action(
+        incident_id=None,
+        chat_id=update.effective_chat.id,
+        user_id=None,
+        action_type="ama_close",
+        actor_type="admin",
+        actor_id=str(update.effective_user.id),
+        reason="manual_admin_command",
+        success=True,
+        metadata={"ama_id": str(closed["id"])},
+    )
+    await update.effective_message.reply_text(
+        f"🎙️ AMA encerrado: {closed['title']}"
+    )
+
+
 async def reload_knowledge_command(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
