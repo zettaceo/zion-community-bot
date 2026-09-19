@@ -25,6 +25,13 @@ BEARER_REGEX = re.compile(
     r"(?i)(authorization\s*[:=]\s*bearer\s+)([^\s,;]+)"
 )
 
+LABELED_CREDENTIAL_REGEX = re.compile(
+    r"(?is)\b("
+    r"api[ _-]?key|client[ _-]?secret|password|passwd|"
+    r"telegram[ _-]?bot[ _-]?token|bot[ _-]?token"
+    r")\b\s*[:=]\s*([^\s,;]{8,})"
+)
+
 SECRET_PARAMETER_REGEX = re.compile(
     r"(?i)"
     r"((?:token|api[_-]?key|secret|password|passwd|"
@@ -42,6 +49,17 @@ def _sensitive_values() -> list[str]:
         and any(marker in name.upper() for marker in SECRET_ENV_MARKERS)
     }
     return sorted(values, key=len, reverse=True)
+
+
+def contains_high_confidence_credential(value: object) -> bool:
+    text = str(value)
+    if TELEGRAM_TOKEN_REGEX.search(text):
+        return True
+    if BEARER_REGEX.search(text):
+        return True
+    if LABELED_CREDENTIAL_REGEX.search(text):
+        return True
+    return any(secret in text for secret in _sensitive_values())
 
 
 def redact_secrets(value: object) -> str:
