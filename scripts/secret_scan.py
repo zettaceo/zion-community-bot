@@ -57,9 +57,6 @@ def scan_file(path: Path) -> list[str]:
     except OSError as exc:
         return [f"{path}: não foi possível ler: {exc}"]
 
-    if b"\0" in data:
-        return []
-
     findings: list[str] = []
 
     for match in TELEGRAM_TOKEN.finditer(data):
