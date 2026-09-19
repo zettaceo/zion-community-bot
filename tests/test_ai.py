@@ -75,7 +75,48 @@ class AITests(unittest.TestCase):
         self.assertEqual(result.category, "other")
         self.assertEqual(result.risk, 1.0)
         self.assertFalse(result.requires_human)
+        self.assertEqual(result.input_tokens, 10)
+        self.assertEqual(result.output_tokens, 5)
+        self.assertEqual(result.latency_ms, 1)
 
+
+    def test_observe_classification_tokens_count_toward_budget(self) -> None:
+        from zion.models import AIClassification
+
+        settings = replace(
+            self.settings,
+            ai_enabled=True,
+            ai_observe=True,
+            mistral_api_key="fake-key-for-test-only",
+        )
+        ai = AIService(settings, self.db, self.knowledge)
+
+        class FakeClassifier:
+            configured = True
+
+            async def classify(self, text: str):
+                return AIClassification(
+                    category="normal",
+                    risk=0.1,
+                    requires_human=False,
+                    model="fake-model",
+                    input_tokens=20,
+                    output_tokens=5,
+                    latency_ms=3,
+                )
+
+        ai.client = FakeClassifier()
+
+        result = asyncio.run(
+            ai.classify(
+                chat_id=1,
+                user_id=2,
+                text="mensagem normal para observar",
+            )
+        )
+
+        self.assertIsNotNone(result)
+        self.assertEqual(self.db.ai_tokens_since(0), 25)
 
     def test_no_knowledge_records_gap_without_provider_call(self) -> None:
         answer = asyncio.run(
