@@ -69,6 +69,26 @@ class Runtime:
                 self.db,
                 settings.legacy_state_path,
             )
+            self.startup_delivery_recovery = (
+                self.db.quarantine_stale_delivery_claims(
+                    stale_after_seconds=None,
+                )
+            )
+            if any(self.startup_delivery_recovery.values()):
+                self.db.create_incident(
+                    chat_id=None,
+                    user_id=None,
+                    category="orphaned_delivery_claims_quarantined",
+                    severity=Severity.HIGH,
+                    source="runtime_startup",
+                    evidence=self.startup_delivery_recovery,
+                    note=(
+                        "Jobs left in sending by a previous process were "
+                        "quarantined. One-shot deliveries are UNCERTAIN and "
+                        "recurring deliveries are PAUSED; nothing is replayed "
+                        "automatically."
+                    ),
+                )
             self.knowledge = KnowledgeBase(settings.knowledge_dir)
             self.guardian = Guardian(settings, self.db)
             self.ai = AIService(settings, self.db, self.knowledge)
@@ -1093,6 +1113,7 @@ async def stats_command(
         f"Knowledge Gaps: {stats.get('knowledge_gaps', 0)}\n"
         f"Pending scheduled: {community['pending_scheduled']}\n"
         f"Failed scheduled: {community['failed_scheduled']}\n"
+        f"Uncertain scheduled: {community['uncertain_scheduled']}\n"
         f"Active recurring: {community['active_recurring']}\n"
         f"Paused recurring: {community['paused_recurring']}\n"
         f"Open AMAs: {community['open_amas']}\n"
@@ -1839,7 +1860,8 @@ async def brief_command(
         f"Actions: {metrics['actions']}\n"
         f"AI events: {metrics['ai_events']}\n"
         f"Mistral tokens today UTC: {tokens}\n"
-        f"Scheduled failed: {community['failed_scheduled']}\n"
+        f"Scheduled failed / uncertain: "
+        f"{community['failed_scheduled']}/{community['uncertain_scheduled']}\n"
         f"Active / paused recurring: "
         f"{community['active_recurring']}/{community['paused_recurring']}\n"
         f"Open AMAs / pending questions: "
@@ -3105,6 +3127,7 @@ async def operational_alert_cycle(
         )
         community = {
             "failed_scheduled": 0,
+            "uncertain_scheduled": 0,
             "paused_recurring": 0,
         }
 
@@ -3129,6 +3152,8 @@ async def operational_alert_cycle(
         issues.append("sqlite_foreign_keys_off")
     if community.get("failed_scheduled", 0) > 0:
         issues.append("scheduled_delivery_failed")
+    if community.get("uncertain_scheduled", 0) > 0:
+        issues.append("scheduled_delivery_uncertain")
     if community.get("paused_recurring", 0) > 0:
         issues.append("recurring_delivery_paused")
     if snapshot.details.get("disk_low"):
@@ -3316,6 +3341,34 @@ async def scheduler_loop(application: Application) -> None:
             expire_temporary_state(rt)
 
             now = time.time()
+
+            quarantined = rt.db.quarantine_stale_delivery_claims(
+                now=now,
+                stale_after_seconds=(
+                    rt.settings.delivery_claim_timeout_seconds
+                ),
+            )
+            if any(quarantined.values()):
+                rt.db.create_incident(
+                    chat_id=None,
+                    user_id=None,
+                    category="stale_delivery_claims_quarantined",
+                    severity=Severity.HIGH,
+                    source="scheduler",
+                    evidence=quarantined,
+                    note=(
+                        "A delivery claim exceeded its timeout. "
+                        "ZION quarantined it instead of auto-replaying, "
+                        "preventing duplicate delivery after an unknown outcome."
+                    ),
+                )
+                logger.error(
+                    "Delivery claim quarantine | scheduled_uncertain=%s | "
+                    "recurring_paused=%s",
+                    quarantined["scheduled_uncertain"],
+                    quarantined["recurring_paused"],
+                )
+
             if now - last_housekeeping >= 3600:
                 gaps_removed = rt.db.prune_knowledge_gaps(
                     now
