@@ -1412,6 +1412,32 @@ class ZionDB:
                 result[key] = int(row["count"]) if row else 0
         return result
 
+    def community_stats(self) -> dict[str, int]:
+        queries = {
+            "pending_scheduled": (
+                "SELECT COUNT(*) AS count FROM scheduled_messages "
+                "WHERE status='pending'"
+            ),
+            "active_recurring": (
+                "SELECT COUNT(*) AS count FROM recurring_messages "
+                "WHERE status='active'"
+            ),
+            "open_amas": (
+                "SELECT COUNT(*) AS count FROM ama_sessions "
+                "WHERE status='open'"
+            ),
+            "pending_ama_questions": (
+                "SELECT COUNT(*) AS count FROM ama_questions "
+                "WHERE status='pending'"
+            ),
+        }
+        result: dict[str, int] = {}
+        with self._lock:
+            for key, query in queries.items():
+                row = self._conn.execute(query).fetchone()
+                result[key] = int(row["count"]) if row else 0
+        return result
+
     def stats(self) -> dict[str, int]:
         tables = (
             "users",
