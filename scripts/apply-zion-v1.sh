@@ -166,10 +166,10 @@ fi
 DEST="$DEST" "$PYTHON" - <<'PY'
 import os
 import shutil
-import sqlite3
 from pathlib import Path
 
 from zion.config import Settings
+from zion.db import ZionDB
 
 settings = Settings.from_env()
 dest = Path(os.environ["DEST"])
@@ -182,48 +182,24 @@ if settings.legacy_state_path.is_file():
 source = settings.db_path
 if source.is_file():
     target = dest / "zion.db"
-    src = sqlite3.connect(
-        source.resolve().as_uri() + "?mode=ro",
-        uri=True,
-        timeout=5,
-    )
-    dst = sqlite3.connect(str(target))
+    db = ZionDB(source, readonly=True)
     try:
-        source_check = src.execute(
-            "PRAGMA quick_check"
-        ).fetchone()
-        source_result = (
-            str(source_check[0])
-            if source_check
-            else "no_result"
-        )
-        if source_result.lower() != "ok":
-            raise RuntimeError(
-                f"source SQLite quick_check failed: {source_result}"
-            )
-
-        src.backup(dst)
-
-        backup_check = dst.execute(
-            "PRAGMA quick_check"
-        ).fetchone()
-        backup_result = (
-            str(backup_check[0])
-            if backup_check
-            else "no_result"
-        )
-        if backup_result.lower() != "ok":
-            raise RuntimeError(
-                f"backup SQLite quick_check failed: {backup_result}"
-            )
+        metadata = db.backup_to(target)
     finally:
-        dst.close()
-        src.close()
+        db.close()
 
-    os.chmod(target, 0o600)
+    manifest = dest / "zion.db.sha256"
+    manifest.write_text(
+        f"{metadata['sha256']}  zion.db\n",
+        encoding="ascii",
+    )
+    os.chmod(manifest, 0o600)
+
     print(
-        f"sqlite backup: OK | source={source_result} | "
-        f"backup={backup_result}"
+        "sqlite backup: VERIFIED | "
+        f"schema=v{metadata['schema_version']} | "
+        f"bytes={metadata['size_bytes']} | "
+        f"sha256={metadata['sha256']}"
     )
 else:
     print("sqlite backup: source database not present yet")
@@ -255,10 +231,11 @@ try:
     if not db.ping():
         raise RuntimeError("database ping failed")
 
-    integrity_ok, integrity_result = db.integrity_check()
-    if not integrity_ok:
+    verification = db.verify_integrity(full=True)
+    if not verification["ok"]:
         raise RuntimeError(
-            f"SQLite quick_check failed: {integrity_result}"
+            "SQLite verification failed after migration: "
+            f"{verification}"
         )
 
     pragmas = db.runtime_pragmas()
@@ -268,11 +245,16 @@ try:
         )
     if int(pragmas["foreign_keys"]) != 1:
         raise RuntimeError("SQLite foreign_keys está desativado")
+    if int(pragmas["synchronous"]) != 2:
+        raise RuntimeError(
+            f"SQLite synchronous não está FULL: "
+            f"{pragmas['synchronous']}"
+        )
 
     print(
         f"database: OK ({settings.db_path}) | "
         f"schema=v{db.schema_version()} | "
-        f"quick_check={integrity_result}"
+        "integrity=OK | foreign_keys=OK | synchronous=FULL"
     )
 finally:
     db.close()
