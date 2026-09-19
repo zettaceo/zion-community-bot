@@ -339,12 +339,34 @@ class ZionDB:
                     f"supported=v{SUPPORTED_SCHEMA_VERSION}"
                 )
 
-            self._validate_or_adopt_application_id_locked()
-            self._conn.executescript(SCHEMA)
-            self._apply_schema_migrations_locked()
-
-        if self.get_setting("operating_state") is None:
-            self.set_setting("operating_state", OperatingState.NORMAL.value)
+            self._validate_or_adopt_application_id_locked(adopt=False)
+            # Runtime PRAGMAs must precede BEGIN (journal_mode/synchronous).
+            # Execute schema DDL individually: executescript would commit an
+            # enclosing transaction before starting the schema changes.
+            statements = []
+            pending = ""
+            for line in SCHEMA.splitlines(keepends=True):
+                pending += line
+                if sqlite3.complete_statement(pending):
+                    statement = pending.strip()
+                    if statement.upper().startswith("PRAGMA "):
+                        self._conn.execute(statement)
+                    else:
+                        statements.append(statement)
+                    pending = ""
+            if pending.strip():
+                raise RuntimeError("Incomplete schema statement.")
+            self._conn.execute(f"PRAGMA busy_timeout={self.busy_timeout_ms}")
+            with self._transaction_locked(immediate=True):
+                self._validate_or_adopt_application_id_locked()
+                for statement in statements:
+                    self._conn.execute(statement)
+                self._apply_schema_migrations_locked()
+                self._conn.execute(
+                    "INSERT INTO settings(key, value, updated_at) VALUES (?, ?, ?) "
+                    "ON CONFLICT(key) DO NOTHING",
+                    ("operating_state", OperatingState.NORMAL.value, time.time()),
+                )
         self._secure_runtime_permissions()
 
     def _application_id_locked(self) -> int:
@@ -353,7 +375,7 @@ class ZionDB:
         ).fetchone()
         return int(row[0]) if row else 0
 
-    def _validate_or_adopt_application_id_locked(self) -> None:
+    def _validate_or_adopt_application_id_locked(self, *, adopt: bool = True) -> None:
         application_id = self._application_id_locked()
         if application_id == ZION_APPLICATION_ID:
             return
@@ -374,9 +396,8 @@ class ZionDB:
         tables = {str(row["name"]) for row in rows}
 
         if not tables:
-            self._conn.execute(
-                f"PRAGMA application_id={ZION_APPLICATION_ID}"
-            )
+            if adopt:
+                self._conn.execute(f"PRAGMA application_id={ZION_APPLICATION_ID}")
             return
 
         legacy_signatures = (
@@ -393,9 +414,8 @@ class ZionDB:
                 "SQLite database."
             )
 
-        self._conn.execute(
-            f"PRAGMA application_id={ZION_APPLICATION_ID}"
-        )
+        if adopt:
+            self._conn.execute(f"PRAGMA application_id={ZION_APPLICATION_ID}")
 
     def _existing_schema_version_locked(self) -> int:
         row = self._conn.execute(

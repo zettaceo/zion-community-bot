@@ -213,3 +213,45 @@ class AtomicityTests(unittest.TestCase):
                 self.db.backup_to(self.root / 'uncommitted.db')
             self.assertTrue(self.db._conn.in_transaction)
         self.assertEqual(self.db.get_setting('pending'), '1')
+
+    def test_concurrent_initializers_record_each_migration_once(self):
+        from contextlib import contextmanager
+        from zion.db import SCHEMA
+        path = self.root / 'concurrent-init.db'
+        raw = sqlite3.connect(path)
+        raw.executescript(SCHEMA)
+        raw.close()
+        peers = [ZionDB(path), ZionDB(path)]
+        barrier = threading.Barrier(2)
+        errors = []
+
+        def initialize(db):
+            original = db._transaction_locked
+            first = True
+            @contextmanager
+            def synchronized_transaction(*, immediate=False):
+                nonlocal first
+                if first:
+                    first = False
+                    barrier.wait(timeout=5)
+                with original(immediate=immediate):
+                    yield
+            try:
+                with patch.object(db, '_transaction_locked', synchronized_transaction):
+                    db.initialize()
+            except BaseException as exc:
+                errors.append(exc)
+        workers = [threading.Thread(target=initialize, args=(db,)) for db in peers]
+        try:
+            for worker in workers:
+                worker.start()
+            for worker in workers:
+                worker.join(timeout=10)
+                self.assertFalse(worker.is_alive())
+            self.assertEqual(errors, [])
+            self.assertEqual([row[0] for row in peers[0]._conn.execute(
+                'SELECT version FROM schema_migrations ORDER BY version')], [1, 2])
+            self.assertTrue(peers[0].verify_integrity(full=True)['ok'])
+        finally:
+            for db in peers:
+                db.close()
