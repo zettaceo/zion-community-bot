@@ -438,7 +438,7 @@ async def ai_status_command(
         f"API key: {key_state}\n"
         f"Observe-only moderation: {rt.settings.ai_observe}\n"
         f"Circuit breaker: {circuit_text}\n"
-        f"Provider failures: {rt.ai._circuit_failures}/"
+        f"Provider failures: {rt.ai.circuit_failures}/"
         f"{rt.settings.ai_circuit_failures}\n"
         f"Tokens today UTC: {used}/{budget_text}\n"
         f"Knowledge chunks: {len(rt.knowledge.chunks)}"
