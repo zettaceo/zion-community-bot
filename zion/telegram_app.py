@@ -1958,12 +1958,21 @@ async def ama_open_command(
         )
         return
 
-    ama_id = runtime(context).db.create_ama(
+    rt = runtime(context)
+    active = rt.db.active_ama(update.effective_chat.id)
+    if active:
+        await update.effective_message.reply_text(
+            "Já existe um AMA aberto neste chat. "
+            "Use /amaclose antes de abrir outro."
+        )
+        return
+
+    ama_id = rt.db.create_ama(
         chat_id=update.effective_chat.id,
         title=title,
         created_by=update.effective_user.id,
     )
-    runtime(context).db.record_action(
+    rt.db.record_action(
         incident_id=None,
         chat_id=update.effective_chat.id,
         user_id=None,
