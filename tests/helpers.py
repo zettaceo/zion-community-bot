@@ -45,6 +45,8 @@ def make_settings(root: Path) -> Settings:
         chat_burst_min_users=4,
         chat_burst_elevated_seconds=600,
         disk_warn_mb=128,
+        db_warn_mb=512,
+        wal_warn_mb=128,
         update_lag_warn_seconds=120,
         health_alert_repeat_seconds=21600,
         schedule_max_attempts=5,
