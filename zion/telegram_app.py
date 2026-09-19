@@ -2710,12 +2710,17 @@ async def scheduler_loop(application: Application) -> None:
                         * 86400
                     )
                 )
-                if gaps_removed or reports_redacted:
+                ama_questions_deleted = rt.db.prune_ama_questions(
+                    now - (rt.settings.ama_retention_days * 86400)
+                )
+                if gaps_removed or reports_redacted or ama_questions_deleted:
                     logger.info(
                         "Housekeeping | knowledge_gaps_deleted=%s | "
-                        "resolved_reports_redacted=%s",
+                        "resolved_reports_redacted=%s | "
+                        "ama_questions_deleted=%s",
                         gaps_removed,
                         reports_redacted,
+                        ama_questions_deleted,
                     )
                 last_housekeeping = now
 
@@ -2743,6 +2748,33 @@ async def scheduler_loop(application: Application) -> None:
                         exc,
                     )
                 rt.db.mark_scheduled_message(
+                    str(item["id"]),
+                    success=success,
+                )
+
+            recurring_due = (
+                rt.db.due_recurring_messages(limit=20)
+                if state in {
+                    OperatingState.NORMAL,
+                    OperatingState.ELEVATED,
+                }
+                else []
+            )
+            for item in recurring_due:
+                success = False
+                try:
+                    await application.bot.send_message(
+                        chat_id=int(item["chat_id"]),
+                        text=str(item["text"]),
+                    )
+                    success = True
+                except Exception as exc:
+                    logger.warning(
+                        "Falha ao enviar recorrência %s: %s",
+                        item["id"],
+                        exc,
+                    )
+                rt.db.advance_recurring_message(
                     str(item["id"]),
                     success=success,
                 )
@@ -2817,6 +2849,7 @@ def build_application(settings: Settings | None = None) -> Application:
         "start": start_command,
         "status": status_command,
         "health": health_command,
+        "diagnostics": diagnostics_command,
         "guardian": guardian_command,
         "rules": rules_command,
         "privacy": privacy_command,
@@ -2848,6 +2881,12 @@ def build_application(settings: Settings | None = None) -> Application:
         "announce": announce_command,
         "poll": poll_command,
         "schedule": schedule_command,
+        "recurring": recurring_command,
+        "cancelrecurring": cancel_recurring_command,
+        "amaopen": ama_open_command,
+        "ama": ama_question_command,
+        "amalist": ama_list_command,
+        "amaclose": ama_close_command,
         "reloadkb": reload_knowledge_command,
     }
 
