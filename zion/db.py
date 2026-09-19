@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 import threading
 import time
@@ -187,6 +188,22 @@ class ZionDB:
             check_same_thread=False,
         )
         self._conn.row_factory = sqlite3.Row
+        self._secure_runtime_permissions()
+
+    def _secure_runtime_permissions(self) -> None:
+        for candidate in (
+            self.path,
+            Path(str(self.path) + "-wal"),
+            Path(str(self.path) + "-shm"),
+        ):
+            if not candidate.exists():
+                continue
+            try:
+                os.chmod(candidate, 0o600)
+            except OSError:
+                # Permission hardening is best-effort here; startup/health
+                # remains responsible for surfacing filesystem failures.
+                pass
 
     def initialize(self) -> None:
         with self._lock:
@@ -194,6 +211,7 @@ class ZionDB:
             self._conn.commit()
         if self.get_setting("operating_state") is None:
             self.set_setting("operating_state", OperatingState.NORMAL.value)
+        self._secure_runtime_permissions()
 
     def close(self) -> None:
         with self._lock:
