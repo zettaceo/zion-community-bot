@@ -21,7 +21,7 @@ from telegram.ext import (
 from .ai_service import AIService
 from .config import Settings
 from .db import ZionDB
-from .guardian import Guardian
+from .guardian import Guardian, normalize_policy_domain
 from .health import HealthService
 from .knowledge import KnowledgeBase
 from .logging_safe import configure_logging
@@ -1221,8 +1221,14 @@ async def allow_domain_command(
         )
         return
 
-    domain = context.args[0].lower().strip().strip(".")
-    runtime(context).db.set_domain(domain, "allow", "admin")
+    domain = normalize_policy_domain(context.args[0])
+    if not domain:
+        await update.effective_message.reply_text(
+            "Domínio inválido. Exemplo: example.com"
+        )
+        return
+
+    runtime(context).db.set_domain(domain, "allow", "operator")
     await update.effective_message.reply_text(
         f"Domínio permitido: {domain}"
     )
@@ -1243,8 +1249,14 @@ async def block_domain_command(
         )
         return
 
-    domain = context.args[0].lower().strip().strip(".")
-    runtime(context).db.set_domain(domain, "block", "admin")
+    domain = normalize_policy_domain(context.args[0])
+    if not domain:
+        await update.effective_message.reply_text(
+            "Domínio inválido. Exemplo: example.com"
+        )
+        return
+
+    runtime(context).db.set_domain(domain, "block", "operator")
     await update.effective_message.reply_text(
         f"Domínio bloqueado: {domain}"
     )
