@@ -1,0 +1,15 @@
+[Unit]
+Description=ZION Wi-Fi Guardian
+After=NetworkManager.service
+Wants=NetworkManager.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/zion-wifi-guardian
+
+User=root
+Group=root
+UMask=0077
+NoNewPrivileges=true
+
+Nice=10
