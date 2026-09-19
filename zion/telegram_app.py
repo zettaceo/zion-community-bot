@@ -729,6 +729,9 @@ async def health_command(
         f"Wi-Fi Interface: {'PRESENT' if snapshot.wifi_interface_present else 'MISSING'}\n"
         f"Sensitive Files: "
         f"{'PRIVATE' if snapshot.details.get('sensitive_files_private') else 'WARNING'}\n"
+        f"Config: "
+        f"{'OK' if not snapshot.details.get('configuration_issues') else 'WARNING'}\n"
+        f"Operators: {snapshot.details.get('operator_count', 0)}\n"
         f"Disk Free: {snapshot.disk_free_mb} MB\n"
         f"Process Uptime: {uptime}"
     )
@@ -777,7 +780,10 @@ async def diagnostics_command(
         f"{latest_lag:.2f}s/{p95_lag:.2f}s [{lag_state}]\n"
         f"AI latency 24h avg/p95: "
         f"{latency['avg_ms']}ms/{latency['p95_ms']}ms "
-        f"(n={latency['count']})"
+        f"(n={latency['count']})\n"
+        f"Operators: {diag['operator_count']}\n"
+        f"Config issues: "
+        f"{', '.join(diag['configuration_issues']) if diag['configuration_issues'] else 'NONE'}"
     )
 
 
@@ -3080,6 +3086,8 @@ async def operational_alert_cycle(
 
     if not snapshot.db_ok:
         issues.append("database_or_integrity")
+    for config_issue in diagnostics.get("configuration_issues", []):
+        issues.append(f"config:{config_issue}")
     if pragmas["journal_mode"] not in {"wal", "unknown"}:
         issues.append("sqlite_not_wal")
     if (
@@ -3618,6 +3626,12 @@ def build_application(settings: Settings | None = None) -> Application:
 def main() -> None:
     settings = Settings.from_env()
     app = build_application(settings)
+    issues = settings.configuration_issues()
+    if issues:
+        logger.warning(
+            "ZION configuration warnings: %s",
+            ",".join(issues),
+        )
     logger.info(
         "ZION iniciado | db=sqlite | ai_provider=mistral | ai_enabled=%s | observe=%s",
         settings.ai_enabled,
