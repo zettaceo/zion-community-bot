@@ -492,10 +492,20 @@ async def start_command(
         return
 
     await update.effective_message.reply_text(
-        "ZION online.\n\n"
-        "Sistema oficial da comunidade Z-SWAP.\n"
-        "Guardian determinístico ativo.\n"
-        "Use /rules para consultar as regras e /ask para suporte."
+        "⚡ ZION — Z-SWAP Community OS\n\n"
+        "PT-BR\n"
+        "Sou o sistema oficial de comunidade da Z-SWAP: segurança, "
+        "moderação determinística, suporte e operações.\n"
+        "• /help — comandos e suporte\n"
+        "• /rules — regras da comunidade\n"
+        "• /privacy — privacidade e uso de IA\n"
+        "• /ask <pergunta> — base oficial quando a IA estiver habilitada\n\n"
+        "Nunca envie seed phrase, chave privada, senha, token ou API key.\n\n"
+        "EN\n"
+        "I am Z-SWAP's official community system for safety, deterministic "
+        "moderation, support and operations.\n"
+        "Use /help, /rules and /privacy. Never share a seed phrase, "
+        "private key, password, token or API key."
     )
 
 
@@ -615,6 +625,46 @@ async def health_command(
     )
 
 
+async def diagnostics_command(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+) -> None:
+    if not await require_operator(update, context):
+        return
+    if not update.effective_message:
+        return
+
+    rt = runtime(context)
+    diag = rt.health.diagnostics()
+    latest_lag, p95_lag = update_lag_stats(rt)
+    latency = diag["ai_latency_24h"]
+
+    disk_state = "LOW" if diag["disk_low"] else "OK"
+    lag_state = (
+        "WARNING"
+        if p95_lag > rt.settings.update_lag_warn_seconds
+        else "OK"
+    )
+
+    await update.effective_message.reply_text(
+        "ZION DIAGNOSTICS\n"
+        f"State: {diag['state']}\n"
+        f"SQLite quick_check: "
+        f"{'OK' if diag['sqlite_integrity_ok'] else 'FAIL'}\n"
+        f"SQLite size: {diag['db_size_mb']} MB\n"
+        f"Disk: {disk_state} ({diag['disk_free_mb']} MB free)\n"
+        f"Sensitive files: "
+        f"{'PRIVATE' if diag['sensitive_files_private'] else 'WARNING'}\n"
+        f"Wi-Fi interface: "
+        f"{'PRESENT' if diag['wifi_interface_present'] else 'MISSING'}\n"
+        f"Telegram update lag latest/p95(100): "
+        f"{latest_lag:.2f}s/{p95_lag:.2f}s [{lag_state}]\n"
+        f"AI latency 24h avg/p95: "
+        f"{latency['avg_ms']}ms/{latency['p95_ms']}ms "
+        f"(n={latency['count']})"
+    )
+
+
 async def ai_status_command(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
@@ -724,14 +774,18 @@ async def help_command(
         return
 
     await update.effective_message.reply_text(
-        "ZION COMMANDS\n"
-        "/status — estado público do sistema\n"
-        "/rules — regras da comunidade\n"
-        "/privacy — uso de IA, dados e retenção\n"
-        "/ask <pergunta> — suporte Z-SWAP com Mistral + base oficial\n"
-        "/summary <texto> — resumo explícito via Mistral\n"
-        "/translate <idioma> <texto> — tradução explícita via Mistral\n"
-        "/report — responda a uma mensagem para denunciar"
+        "ZION COMMANDS / COMANDOS\n\n"
+        "COMUNIDADE / COMMUNITY\n"
+        "/status — estado público / public status\n"
+        "/rules — regras / rules\n"
+        "/privacy — privacidade, IA e retenção / privacy, AI and retention\n"
+        "/ask <pergunta> — suporte fundamentado na base oficial\n"
+        "/summary <texto> — resumo explícito via IA quando habilitada\n"
+        "/translate <idioma> <texto> — tradução explícita via IA\n"
+        "/report — responda a uma mensagem para denunciar\n"
+        "/ama <pergunta> — envia pergunta ao AMA ativo\n\n"
+        "A IA nunca recebe autoridade punitiva automática. "
+        "Ações irreversíveis dependem de regra determinística ou humano autorizado."
     )
 
 
@@ -1811,9 +1865,14 @@ async def welcome_handler(
         )
 
         await update.effective_message.reply_text(
-            f"⚡ Bem-vindo(a), {member.first_name or 'novo membro'}.\n\n"
-            "Você entrou na comunidade Z-SWAP. Leia /rules.\n"
-            "Nunca compartilhe seed phrase, chave privada, senha ou token."
+            f"⚡ Bem-vindo(a) / Welcome, "
+            f"{member.first_name or 'novo membro'}!\n\n"
+            "PT-BR: Você entrou na comunidade Z-SWAP. "
+            "Leia /rules, consulte /help e use /report para sinalizar problemas.\n"
+            "EN: Welcome to the Z-SWAP community. "
+            "Read /rules, check /help and use /report to flag issues.\n\n"
+            "🔐 Nunca compartilhe / Never share seed phrase, private key, "
+            "password, token or API key."
         )
 
     now = time.time()
