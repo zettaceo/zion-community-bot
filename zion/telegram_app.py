@@ -423,6 +423,12 @@ async def ai_status_command(
     used = rt.ai.tokens_used_today()
     budget = rt.settings.ai_daily_token_budget
     budget_text = "unlimited" if budget <= 0 else str(budget)
+    circuit_remaining = rt.ai.circuit_remaining_seconds()
+    circuit_text = (
+        f"OPEN ({circuit_remaining}s)"
+        if circuit_remaining > 0
+        else "CLOSED"
+    )
 
     await update.effective_message.reply_text(
         "ZION AI\n"
@@ -431,6 +437,9 @@ async def ai_status_command(
         f"Enabled: {rt.settings.ai_enabled}\n"
         f"API key: {key_state}\n"
         f"Observe-only moderation: {rt.settings.ai_observe}\n"
+        f"Circuit breaker: {circuit_text}\n"
+        f"Provider failures: {rt.ai._circuit_failures}/"
+        f"{rt.settings.ai_circuit_failures}\n"
         f"Tokens today UTC: {used}/{budget_text}\n"
         f"Knowledge chunks: {len(rt.knowledge.chunks)}"
     )
