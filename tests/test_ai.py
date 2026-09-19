@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 
 from tests.helpers import make_settings
@@ -72,6 +73,87 @@ class AITests(unittest.TestCase):
         self.assertEqual(
             remaining,
             self.settings.ai_daily_token_budget - 150,
+        )
+
+    def test_circuit_breaker_opens_and_persists(self) -> None:
+        (self.root / "knowledge" / "official.md").write_text(
+            "# Guardian\nGuardian flood protection is active.\n",
+            encoding="utf-8",
+        )
+        knowledge = KnowledgeBase(self.settings.knowledge_dir)
+        settings = replace(
+            self.settings,
+            ai_enabled=True,
+            mistral_api_key="fake-key-for-test-only",
+            ai_circuit_failures=2,
+            ai_circuit_seconds=120,
+        )
+        ai = AIService(settings, self.db, knowledge)
+
+        class FailingClient:
+            configured = True
+
+            def __init__(self) -> None:
+                self.calls = 0
+
+            async def answer(self, *, question: str, context: str):
+                self.calls += 1
+                raise RuntimeError("provider unavailable")
+
+        client = FailingClient()
+        ai.client = client
+
+        first = asyncio.run(
+            ai.answer(
+                chat_id=1,
+                user_id=2,
+                question="Guardian flood",
+            )
+        )
+        second = asyncio.run(
+            ai.answer(
+                chat_id=1,
+                user_id=2,
+                question="Guardian flood",
+            )
+        )
+
+        self.assertIn("indisponível", first.text)
+        self.assertIn("indisponível", second.text)
+        self.assertTrue(ai.circuit_open())
+        self.assertEqual(client.calls, 2)
+
+        third = asyncio.run(
+            ai.answer(
+                chat_id=1,
+                user_id=2,
+                question="Guardian flood",
+            )
+        )
+        self.assertIn("proteção automática", third.text)
+        self.assertEqual(client.calls, 2)
+
+        restored = AIService(settings, self.db, knowledge)
+        self.assertTrue(restored.circuit_open())
+
+    def test_circuit_success_resets_failure_counter(self) -> None:
+        settings = replace(
+            self.settings,
+            ai_enabled=True,
+            mistral_api_key="fake-key-for-test-only",
+            ai_circuit_failures=3,
+        )
+        ai = AIService(settings, self.db, self.knowledge)
+        ai._record_provider_failure()
+        self.assertEqual(ai._circuit_failures, 1)
+
+        ai._record_provider_success()
+
+        self.assertEqual(ai._circuit_failures, 0)
+        self.assertFalse(ai.circuit_open())
+        self.assertEqual(
+            self.db.get_setting("ai_circuit_failures"),
+            "0",
         )
 
     def test_sanitize_for_ai_redacts_telegram_url_token(self) -> None:
