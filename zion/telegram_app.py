@@ -2349,17 +2349,17 @@ async def ama_question_command(
         return
 
     rt = runtime(context)
-    if not rt.ama_limiter.allow(update.effective_user.id):
-        await update.effective_message.reply_text(
-            "Limite temporário de perguntas do AMA atingido. "
-            "Tente novamente em instantes."
-        )
-        return
-
     active = rt.db.active_ama(update.effective_chat.id)
     if not active:
         await update.effective_message.reply_text(
             "Não há AMA aberto neste chat."
+        )
+        return
+
+    if not rt.ama_limiter.allow(update.effective_user.id):
+        await update.effective_message.reply_text(
+            "Limite temporário de perguntas do AMA atingido. "
+            "Tente novamente em instantes."
         )
         return
 
