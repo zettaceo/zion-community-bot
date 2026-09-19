@@ -421,6 +421,35 @@ async def rules_command(
     )
 
 
+async def privacy_command(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+) -> None:
+    if not update.effective_message:
+        return
+
+    rt = runtime(context)
+    observe = (
+        "ATIVO"
+        if rt.settings.ai_observe and rt.ai.enabled
+        else "DESATIVADO"
+    )
+
+    await update.effective_message.reply_text(
+        "ZION PRIVACY\n"
+        "• Mensagens comuns não são armazenadas integralmente no banco.\n"
+        "• Metadados operacionais de moderação podem ser registrados.\n"
+        "• /ask, /summary e /translate podem enviar conteúdo sanitizado "
+        "à Mistral quando a IA estiver habilitada.\n"
+        f"• Classificação observe-only de mensagens comuns: {observe}.\n"
+        "• Possíveis seed phrases/chaves privadas são bloqueadas antes "
+        "de chamadas de IA quando detectadas pelo Guardian.\n"
+        f"• Lacunas de /ask têm retenção padrão de "
+        f"{rt.settings.knowledge_gap_retention_days} dias.\n"
+        "Nunca envie seed phrase, chave privada, senha, token ou API key."
+    )
+
+
 async def id_command(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
@@ -596,6 +625,7 @@ async def help_command(
         "ZION COMMANDS\n"
         "/status — estado público do sistema\n"
         "/rules — regras da comunidade\n"
+        "/privacy — uso de IA, dados e retenção\n"
         "/ask <pergunta> — suporte Z-SWAP com Mistral + base oficial\n"
         "/summary <texto> — resumo explícito via Mistral\n"
         "/translate <idioma> <texto> — tradução explícita via Mistral\n"
@@ -2294,6 +2324,7 @@ def build_application(settings: Settings | None = None) -> Application:
         "health": health_command,
         "guardian": guardian_command,
         "rules": rules_command,
+        "privacy": privacy_command,
         "id": id_command,
         "ask": ask_command,
         "summary": summary_command,
