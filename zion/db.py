@@ -654,7 +654,7 @@ class ZionDB:
                 f"SQLite backup already exists: {destination}"
             )
 
-        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         tmp = destination.with_name(
             destination.name + ".tmp-" + uuid.uuid4().hex
         )
@@ -668,6 +668,9 @@ class ZionDB:
                         "Source SQLite integrity verification failed."
                     )
 
+                # Keep the unpublished backup private from its creation.
+                fd = os.open(tmp, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+                os.close(fd)
                 dst = sqlite3.connect(
                     str(tmp),
                     timeout=max(1.0, self.busy_timeout_ms / 1000),
@@ -675,6 +678,8 @@ class ZionDB:
                 )
                 self._conn.backup(dst)
 
+            if dst.execute("PRAGMA quick_check").fetchall() != [("ok",)]:
+                raise RuntimeError("Backup SQLite quick_check failed.")
             row = dst.execute(
                 "PRAGMA integrity_check"
             ).fetchall()
@@ -695,6 +700,13 @@ class ZionDB:
                     "Backup SQLite foreign_key_check failed."
                 )
 
+            has_versions = dst.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' "
+                "AND name='schema_migrations'"
+            ).fetchone()
+            backup_schema_version = int(dst.execute(
+                "SELECT COALESCE(MAX(version), 0) FROM schema_migrations"
+            ).fetchone()[0]) if has_versions else 0
             dst.close()
             dst = None
 
@@ -710,32 +722,24 @@ class ZionDB:
                 ):
                     digest.update(chunk)
 
-            os.replace(tmp, destination)
-            os.chmod(destination, 0o600)
-
+            # Same-directory hard link publishes a complete inode atomically,
+            # and fails if any process has already claimed the final name.
+            os.link(tmp, destination)
+            directory_fd = os.open(
+                destination.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+            )
             try:
-                directory_fd = os.open(
-                    destination.parent,
-                    os.O_RDONLY
-                    | getattr(os, "O_DIRECTORY", 0),
-                )
-                try:
-                    os.fsync(directory_fd)
-                finally:
-                    os.close(directory_fd)
-            except OSError:
-                pass
-
-            with self._lock:
-                source_schema_version = (
-                    self._existing_schema_version_locked()
-                )
+                os.fsync(directory_fd)
+                tmp.unlink()
+                os.fsync(directory_fd)
+            finally:
+                os.close(directory_fd)
 
             return {
                 "path": str(destination),
                 "sha256": digest.hexdigest(),
                 "size_bytes": destination.stat().st_size,
-                "schema_version": source_schema_version,
+                "schema_version": backup_schema_version,
             }
         except Exception:
             if dst is not None:
