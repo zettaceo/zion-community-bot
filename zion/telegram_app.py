@@ -1925,16 +1925,36 @@ async def cancel_recurring_command(
 ) -> None:
     if not await require_admin(update, context):
         return
-    if not update.effective_message or not context.args:
+    if (
+        not update.effective_message
+        or not update.effective_chat
+        or not update.effective_user
+    ):
+        return
+    if not context.args:
+        await update.effective_message.reply_text(
+            "Use: /cancelrecurring <id-ou-prefixo>"
+        )
         return
 
-    success = runtime(context).db.cancel_recurring_message(
-        context.args[0].strip(),
+    schedule_ref = context.args[0].strip()
+    rt = runtime(context)
+    success = rt.db.cancel_recurring_message(schedule_ref)
+    rt.db.record_action(
+        incident_id=None,
+        chat_id=update.effective_chat.id,
+        user_id=None,
+        action_type="recurring_cancel",
+        actor_type="admin",
+        actor_id=str(update.effective_user.id),
+        reason="manual_admin_command",
+        success=success,
+        metadata={"schedule_ref": schedule_ref[:32]},
     )
     await update.effective_message.reply_text(
         "Recorrência cancelada."
         if success
-        else "Recorrência ativa não encontrada."
+        else "Recorrência ativa não encontrada ou prefixo ambíguo."
     )
 
 
@@ -2922,6 +2942,17 @@ async def scheduler_loop(application: Application) -> None:
                     str(item["id"]),
                     success=success,
                 )
+                rt.db.record_action(
+                    incident_id=None,
+                    chat_id=int(item["chat_id"]),
+                    user_id=None,
+                    action_type="scheduled_send",
+                    actor_type="scheduler",
+                    actor_id=None,
+                    reason="scheduled_message_due",
+                    success=success,
+                    metadata={"schedule_id": str(item["id"])},
+                )
 
             recurring_due = (
                 rt.db.due_recurring_messages(limit=20)
@@ -2948,6 +2979,17 @@ async def scheduler_loop(application: Application) -> None:
                 rt.db.advance_recurring_message(
                     str(item["id"]),
                     success=success,
+                )
+                rt.db.record_action(
+                    incident_id=None,
+                    chat_id=int(item["chat_id"]),
+                    user_id=None,
+                    action_type="recurring_send",
+                    actor_type="scheduler",
+                    actor_id=None,
+                    reason="recurring_message_due",
+                    success=success,
+                    metadata={"schedule_id": str(item["id"])},
                 )
 
             await asyncio.sleep(20)
