@@ -3374,7 +3374,11 @@ async def error_handler(
 def build_application(settings: Settings | None = None) -> Application:
     settings = settings or Settings.from_env()
 
-    configure_logging(settings.log_path)
+    configure_logging(
+        settings.log_path,
+        max_bytes=settings.log_max_bytes,
+        backup_count=settings.log_backup_count,
+    )
 
     if not settings.telegram_token:
         raise RuntimeError("TELEGRAM_BOT_TOKEN não configurado.")
