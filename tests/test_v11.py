@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sqlite3
 import tempfile
+import threading
 import time
 import unittest
 from dataclasses import replace
@@ -31,7 +32,7 @@ class V11DatabaseTests(unittest.TestCase):
         self.assertTrue(ok)
         self.assertEqual(result.lower(), "ok")
         self.assertGreater(self.db.file_size_bytes(), 0)
-        self.assertEqual(self.db.schema_version(), 1)
+        self.assertEqual(self.db.schema_version(), 2)
 
     def test_recurring_message_lifecycle(self) -> None:
         schedule_id = self.db.schedule_recurring_message(
@@ -99,6 +100,193 @@ class V11DatabaseTests(unittest.TestCase):
         self.assertEqual(
             self.db.due_recurring_messages(now=999999.0),
             [],
+        )
+
+    def test_atomic_scheduled_claim_allows_only_one_worker(self) -> None:
+        schedule_id = self.db.schedule_message(
+            chat_id=10,
+            send_at=1000.0,
+            text="exactly one claimant",
+            created_by=1,
+        )
+        other = ZionDB(self.settings.db_path)
+        other.initialize()
+
+        barrier = threading.Barrier(2)
+        results: list[int | None] = []
+        errors: list[BaseException] = []
+
+        def claim(db: ZionDB) -> None:
+            try:
+                barrier.wait(timeout=2)
+                results.append(
+                    db.claim_scheduled_message(
+                        schedule_id,
+                        now=1000.0,
+                    )
+                )
+            except BaseException as exc:
+                errors.append(exc)
+
+        first_thread = threading.Thread(
+            target=claim,
+            args=(self.db,),
+        )
+        second_thread = threading.Thread(
+            target=claim,
+            args=(other,),
+        )
+        try:
+            first_thread.start()
+            second_thread.start()
+            first_thread.join(timeout=3)
+            second_thread.join(timeout=3)
+            self.assertFalse(first_thread.is_alive())
+            self.assertFalse(second_thread.is_alive())
+            self.assertEqual(errors, [])
+            self.assertEqual(len(results), 2)
+            self.assertEqual(
+                sum(result is not None for result in results),
+                1,
+            )
+        finally:
+            other.close()
+
+    def test_atomic_recurring_claim_allows_only_one_worker(self) -> None:
+        schedule_id = self.db.schedule_recurring_message(
+            chat_id=10,
+            first_send_at=1000.0,
+            interval_seconds=3600,
+            text="exactly one recurring claimant",
+            created_by=1,
+        )
+        other = ZionDB(self.settings.db_path)
+        other.initialize()
+
+        barrier = threading.Barrier(2)
+        results: list[bool] = []
+        errors: list[BaseException] = []
+
+        def claim(db: ZionDB) -> None:
+            try:
+                barrier.wait(timeout=2)
+                results.append(
+                    db.claim_recurring_message(
+                        schedule_id,
+                        now=1000.0,
+                    )
+                )
+            except BaseException as exc:
+                errors.append(exc)
+
+        first_thread = threading.Thread(
+            target=claim,
+            args=(self.db,),
+        )
+        second_thread = threading.Thread(
+            target=claim,
+            args=(other,),
+        )
+        try:
+            first_thread.start()
+            second_thread.start()
+            first_thread.join(timeout=3)
+            second_thread.join(timeout=3)
+            self.assertFalse(first_thread.is_alive())
+            self.assertFalse(second_thread.is_alive())
+            self.assertEqual(errors, [])
+            self.assertEqual(sorted(results), [False, True])
+        finally:
+            other.close()
+
+    def test_stale_claims_are_quarantined_not_replayed(self) -> None:
+        scheduled_id = self.db.schedule_message(
+            chat_id=10,
+            send_at=1000.0,
+            text="unknown outcome",
+            created_by=1,
+        )
+        recurring_id = self.db.schedule_recurring_message(
+            chat_id=10,
+            first_send_at=1000.0,
+            interval_seconds=3600,
+            text="unknown recurring outcome",
+            created_by=1,
+        )
+
+        self.assertEqual(
+            self.db.claim_scheduled_message(
+                scheduled_id,
+                now=1000.0,
+            ),
+            1,
+        )
+        self.assertTrue(
+            self.db.claim_recurring_message(
+                recurring_id,
+                now=1000.0,
+            )
+        )
+
+        not_stale = self.db.quarantine_stale_delivery_claims(
+            now=1299.0,
+            stale_after_seconds=300,
+        )
+        self.assertEqual(
+            not_stale,
+            {
+                "scheduled_uncertain": 0,
+                "recurring_paused": 0,
+            },
+        )
+
+        quarantined = self.db.quarantine_stale_delivery_claims(
+            now=1301.0,
+            stale_after_seconds=300,
+        )
+        self.assertEqual(
+            quarantined,
+            {
+                "scheduled_uncertain": 1,
+                "recurring_paused": 1,
+            },
+        )
+
+        scheduled = self.db.list_scheduled_messages(limit=1)[0]
+        recurring = self.db.list_recurring_messages(limit=1)[0]
+        self.assertEqual(scheduled["status"], "uncertain")
+        self.assertEqual(
+            scheduled["last_error_type"],
+            "stale_claim_after_crash",
+        )
+        self.assertIsNone(scheduled["claimed_at"])
+        self.assertEqual(recurring["status"], "paused")
+        self.assertEqual(
+            recurring["last_error_type"],
+            "stale_claim_after_crash",
+        )
+        self.assertIsNone(recurring["claimed_at"])
+
+        self.assertEqual(
+            self.db.due_scheduled_messages(now=9999.0),
+            [],
+        )
+        self.assertEqual(
+            self.db.due_recurring_messages(now=9999.0),
+            [],
+        )
+
+        self.assertTrue(
+            self.db.retry_scheduled_message(
+                scheduled_id[:8],
+                now=1400.0,
+            )
+        )
+        self.assertTrue(
+            self.db.resume_recurring_message(
+                recurring_id[:8],
+                now=1400.0,
+            )
         )
 
     def test_scheduled_delivery_retries_then_manual_recovery(self) -> None:
@@ -311,7 +499,7 @@ class V11DatabaseTests(unittest.TestCase):
         migrated = ZionDB(legacy_path)
         try:
             migrated.initialize()
-            self.assertEqual(migrated.schema_version(), 1)
+            self.assertEqual(migrated.schema_version(), 2)
             scheduled_columns = migrated._table_columns_locked(
                 "scheduled_messages"
             )
@@ -323,12 +511,14 @@ class V11DatabaseTests(unittest.TestCase):
                     "attempts",
                     "next_attempt_at",
                     "last_error_type",
+                    "claimed_at",
                 }.issubset(scheduled_columns)
             )
             self.assertTrue(
                 {
                     "consecutive_failures",
                     "last_error_type",
+                    "claimed_at",
                 }.issubset(recurring_columns)
             )
         finally:
