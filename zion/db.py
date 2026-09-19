@@ -1917,39 +1917,39 @@ class ZionDB:
         )
 
         with self._lock:
-            scheduled = self._conn.execute(
-                """
-                UPDATE scheduled_messages
-                SET status='uncertain',
-                    next_attempt_at=NULL,
-                    last_error_type='stale_claim_after_crash',
-                    claimed_at=NULL
-                WHERE status='sending'
-                  AND (
-                    ? IS NULL
-                    OR claimed_at IS NULL
-                    OR claimed_at <= ?
-                  )
-                """,
-                (cutoff, cutoff),
-            ).rowcount
+            with self._transaction_locked(immediate=True):
+                scheduled = self._conn.execute(
+                    """
+                    UPDATE scheduled_messages
+                    SET status='uncertain',
+                        next_attempt_at=NULL,
+                        last_error_type='stale_claim_after_crash',
+                        claimed_at=NULL
+                    WHERE status='sending'
+                      AND (
+                        ? IS NULL
+                        OR claimed_at IS NULL
+                        OR claimed_at <= ?
+                      )
+                    """,
+                    (cutoff, cutoff),
+                ).rowcount
 
-            recurring = self._conn.execute(
-                """
-                UPDATE recurring_messages
-                SET status='paused',
-                    last_error_type='stale_claim_after_crash',
-                    claimed_at=NULL
-                WHERE status='sending'
-                  AND (
-                    ? IS NULL
-                    OR claimed_at IS NULL
-                    OR claimed_at <= ?
-                  )
-                """,
-                (cutoff, cutoff),
-            ).rowcount
-            self._conn.commit()
+                recurring = self._conn.execute(
+                    """
+                    UPDATE recurring_messages
+                    SET status='paused',
+                        last_error_type='stale_claim_after_crash',
+                        claimed_at=NULL
+                    WHERE status='sending'
+                      AND (
+                        ? IS NULL
+                        OR claimed_at IS NULL
+                        OR claimed_at <= ?
+                      )
+                    """,
+                    (cutoff, cutoff),
+                ).rowcount
 
         return {
             "scheduled_uncertain": int(scheduled),
@@ -2272,27 +2272,36 @@ class ZionDB:
         ama_id = uuid.uuid4().hex
         now = time.time()
         with self._lock:
-            existing = self._conn.execute(
-                """
-                SELECT id
-                FROM ama_sessions
-                WHERE chat_id=? AND status='open'
-                LIMIT 1
-                """,
-                (chat_id,),
-            ).fetchone()
-            if existing:
-                raise ValueError("an AMA is already open for this chat")
-            self._conn.execute(
-                """
-                INSERT INTO ama_sessions (
-                    id, chat_id, title, status, created_by, created_at
+            with self._transaction_locked(immediate=True):
+                existing = self._conn.execute(
+                    """
+                    SELECT id
+                    FROM ama_sessions
+                    WHERE chat_id=? AND status='open'
+                    LIMIT 1
+                    """,
+                    (chat_id,),
+                ).fetchone()
+                if existing:
+                    raise ValueError(
+                        "an AMA is already open for this chat"
+                    )
+                self._conn.execute(
+                    """
+                    INSERT INTO ama_sessions (
+                        id, chat_id, title, status,
+                        created_by, created_at
+                    )
+                    VALUES (?, ?, ?, 'open', ?, ?)
+                    """,
+                    (
+                        ama_id,
+                        chat_id,
+                        title[:200],
+                        created_by,
+                        now,
+                    ),
                 )
-                VALUES (?, ?, ?, 'open', ?, ?)
-                """,
-                (ama_id, chat_id, title[:200], created_by, now),
-            )
-            self._conn.commit()
         return ama_id
 
     def active_ama(self, chat_id: int) -> dict[str, Any] | None:
@@ -2359,28 +2368,39 @@ class ZionDB:
         return [dict(row) for row in rows]
 
     def close_ama(self, chat_id: int) -> dict[str, Any] | None:
-        active = self.active_ama(chat_id)
-        if not active:
-            return None
         with self._lock:
-            now = time.time()
-            self._conn.execute(
-                """
-                UPDATE ama_sessions
-                SET status='closed', closed_at=?
-                WHERE id=?
-                """,
-                (now, active["id"]),
-            )
-            self._conn.execute(
-                """
-                UPDATE ama_questions
-                SET status='closed'
-                WHERE ama_id=? AND status='pending'
-                """,
-                (active["id"],),
-            )
-            self._conn.commit()
+            with self._transaction_locked(immediate=True):
+                row = self._conn.execute(
+                    """
+                    SELECT id, chat_id, title, created_by, created_at
+                    FROM ama_sessions
+                    WHERE chat_id=? AND status='open'
+                    ORDER BY created_at DESC
+                    LIMIT 1
+                    """,
+                    (chat_id,),
+                ).fetchone()
+                if not row:
+                    return None
+
+                active = dict(row)
+                now = time.time()
+                self._conn.execute(
+                    """
+                    UPDATE ama_sessions
+                    SET status='closed', closed_at=?
+                    WHERE id=? AND status='open'
+                    """,
+                    (now, active["id"]),
+                )
+                self._conn.execute(
+                    """
+                    UPDATE ama_questions
+                    SET status='closed'
+                    WHERE ama_id=? AND status='pending'
+                    """,
+                    (active["id"],),
+                )
         return active
 
     def prune_ama_questions(self, before: float) -> int:
@@ -2550,11 +2570,11 @@ class ZionDB:
                 "SELECT COUNT(*) AS count FROM scheduled_messages "
                 "WHERE status='uncertain'"
             ),
-            "uncertain_scheduled": (
+            "sending_scheduled": (
                 "SELECT COUNT(*) AS count FROM scheduled_messages "
                 "WHERE status='sending'"
             ),
-            "uncertain_recurring": (
+            "sending_recurring": (
                 "SELECT COUNT(*) AS count FROM recurring_messages "
                 "WHERE status='sending'"
             ),
