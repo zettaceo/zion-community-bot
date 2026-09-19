@@ -25,9 +25,20 @@ class FakeApplication:
 
 
 class V11OperationalAlertTests(unittest.TestCase):
+    @staticmethod
+    def _healthy_settings(root: Path):
+        knowledge = root / "knowledge"
+        knowledge.mkdir(exist_ok=True)
+        (knowledge / "official.md").write_text(
+            "# Community\nOfficial ZION community guidance.\n",
+            encoding="utf-8",
+        )
+        return make_settings(root)
+
     def test_unchanged_alert_is_bounded_then_repeated(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            rt = Runtime(make_settings(Path(tmp)))
+            root = Path(tmp)
+            rt = Runtime(self._healthy_settings(root))
             app = FakeApplication()
 
             try:
@@ -56,8 +67,9 @@ class V11OperationalAlertTests(unittest.TestCase):
 
     def test_database_alert_still_sends_when_persistence_fails(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
             settings = replace(
-                make_settings(Path(tmp)),
+                self._healthy_settings(root),
                 wifi_interface="lo",
                 disk_warn_mb=1,
             )
@@ -88,8 +100,9 @@ class V11OperationalAlertTests(unittest.TestCase):
 
     def test_failed_delivery_alerts_and_recovery(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
             settings = replace(
-                make_settings(Path(tmp)),
+                self._healthy_settings(root),
                 wifi_interface="lo",
                 disk_warn_mb=1,
             )
