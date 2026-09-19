@@ -90,6 +90,8 @@ class Settings:
 
     admin_cache_seconds: int
     report_retention_days: int
+    report_requests_per_minute: int
+    ama_requests_per_minute: int
     knowledge_gap_retention_days: int
 
     raid_max_joins: int
@@ -231,6 +233,16 @@ class Settings:
             ),
             admin_cache_seconds=_int("ADMIN_CACHE_SECONDS", 60, 5),
             report_retention_days=_int("ZION_REPORT_RETENTION_DAYS", 90, 1),
+            report_requests_per_minute=_int(
+                "ZION_REPORT_REQUESTS_PER_MINUTE",
+                3,
+                1,
+            ),
+            ama_requests_per_minute=_int(
+                "ZION_AMA_REQUESTS_PER_MINUTE",
+                5,
+                1,
+            ),
             knowledge_gap_retention_days=_int(
                 "ZION_KNOWLEDGE_GAP_RETENTION_DAYS",
                 30,
