@@ -75,7 +75,7 @@ Admin + health + audit
 - MAINTENANCE
 - SAFE_MODE
 
-v1 actively implements NORMAL and LOCKDOWN and models the complete state set for future transitions.
+The modular line actively implements NORMAL, ELEVATED and LOCKDOWN behavior. ATTACK and the remaining states are modeled for controlled future transitions.
 
 ## Guardian
 
