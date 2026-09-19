@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import hashlib
 import os
+import signal
 import sqlite3
 import stat
+import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -467,6 +470,85 @@ class PersistenceHardeningTests(unittest.TestCase):
             "SELECT COUNT(*) FROM commit_child"
         ).fetchone()[0]
         self.assertEqual(count, 1)
+
+    def test_wal_recovers_committed_data_after_sigkill(self) -> None:
+        self.db.close()
+
+        repo = Path(__file__).resolve().parent.parent
+        code = r"""
+import sys
+import time
+from pathlib import Path
+from zion.db import ZionDB
+
+path = Path(sys.argv[1])
+db = ZionDB(path)
+db.initialize()
+db.record_user_event(
+    chat_id=7,
+    user_id=8,
+    event_type="committed-before-crash",
+    now=1000.0,
+)
+db._conn.execute("BEGIN IMMEDIATE")
+db._conn.execute(
+    """
+    INSERT INTO user_events(
+        id, chat_id, user_id, event_type,
+        created_at, metadata_json
+    )
+    VALUES (
+        'uncommitted-crash-row',
+        7, 8, 'uncommitted-before-crash',
+        1001.0, '{}'
+    )
+    """
+)
+print("READY", flush=True)
+time.sleep(30)
+"""
+        env = os.environ.copy()
+        env["PYTHONPATH"] = str(repo)
+
+        child = subprocess.Popen(
+            [sys.executable, "-c", code, str(self.db_path)],
+            cwd=repo,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            env=env,
+        )
+        try:
+            ready = child.stdout.readline().strip()
+            self.assertEqual(ready, "READY")
+            os.kill(child.pid, signal.SIGKILL)
+            child.wait(timeout=5)
+        finally:
+            if child.poll() is None:
+                child.kill()
+                child.wait(timeout=5)
+
+        self.db = ZionDB(self.db_path)
+        self.db.initialize()
+
+        verification = self.db.verify_integrity(full=True)
+        self.assertTrue(verification["ok"])
+        self.assertEqual(
+            self.db.count_user_events(
+                chat_id=7,
+                event_type="committed-before-crash",
+                since=0,
+            ),
+            1,
+        )
+        self.assertEqual(
+            self.db.count_user_events(
+                chat_id=7,
+                event_type="uncommitted-before-crash",
+                since=0,
+            ),
+            0,
+        )
 
     def test_busy_writer_times_out_then_recovers_cleanly(self) -> None:
         other = ZionDB(
