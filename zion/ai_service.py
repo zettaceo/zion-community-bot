@@ -4,6 +4,7 @@ import asyncio
 import hashlib
 import logging
 import re
+import time
 
 from .config import Settings
 from .db import ZionDB
@@ -56,6 +57,21 @@ class AIService:
     def enabled(self) -> bool:
         return self.client.configured
 
+    def tokens_used_today(self) -> int:
+        now = time.time()
+        utc_day_start = now - (now % 86400)
+        return self.db.ai_tokens_since(utc_day_start)
+
+    def budget_remaining(self) -> int | None:
+        budget = self.settings.ai_daily_token_budget
+        if budget <= 0:
+            return None
+        return max(0, budget - self.tokens_used_today())
+
+    def budget_available(self) -> bool:
+        remaining = self.budget_remaining()
+        return remaining is None or remaining > 0
+
     @staticmethod
     def _hash_text(text: str) -> str:
         return hashlib.sha256(
@@ -103,6 +119,16 @@ class AIService:
         if not self.enabled:
             return AIAnswer(
                 text="A camada de IA Mistral do ZION ainda não está habilitada.",
+                model=self.settings.mistral_model,
+            )
+
+        if not self.budget_available():
+            return AIAnswer(
+                text=(
+                    "O orçamento diário de IA do ZION foi atingido. "
+                    "O Guardian continua ativo; novas chamadas Mistral "
+                    "ficam pausadas até o próximo dia UTC."
+                ),
                 model=self.settings.mistral_model,
             )
 
@@ -161,6 +187,12 @@ class AIService:
                 model=self.settings.mistral_model,
             )
 
+        if not self.budget_available():
+            return AIAnswer(
+                text="Orçamento diário de IA atingido. Tente novamente após a virada UTC.",
+                model=self.settings.mistral_model,
+            )
+
         safe_text = sanitize_for_ai(text)
         try:
             async with self._semaphore:
@@ -205,6 +237,12 @@ class AIService:
         if not self.enabled:
             return AIAnswer(
                 text="A camada de IA Mistral do ZION ainda não está habilitada.",
+                model=self.settings.mistral_model,
+            )
+
+        if not self.budget_available():
+            return AIAnswer(
+                text="Orçamento diário de IA atingido. Tente novamente após a virada UTC.",
                 model=self.settings.mistral_model,
             )
 
@@ -262,6 +300,9 @@ class AIService:
         text: str,
     ) -> AIClassification | None:
         if not self.enabled or not self.settings.ai_observe:
+            return None
+
+        if not self.budget_available():
             return None
 
         try:
