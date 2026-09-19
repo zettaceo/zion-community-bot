@@ -34,6 +34,8 @@ def make_settings(root: Path) -> Settings:
         ai_user_requests_per_minute=4,
         ai_max_concurrency=2,
         ai_daily_token_budget=50000,
+        ai_circuit_failures=3,
+        ai_circuit_seconds=120,
         mistral_api_key="",
         mistral_api_url="https://api.mistral.ai/v1/chat/completions",
         mistral_model="mistral-small-latest",
