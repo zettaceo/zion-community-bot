@@ -67,6 +67,10 @@ class AIClassification:
     requires_human: bool = False
     rationale: str = ""
     language: str = "unknown"
+    model: str = ""
+    input_tokens: int = 0
+    output_tokens: int = 0
+    latency_ms: int = 0
     raw: dict[str, Any] = field(default_factory=dict)
 
 
