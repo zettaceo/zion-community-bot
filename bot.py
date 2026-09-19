@@ -1,9 +1,11 @@
+import json
+import logging
 import os
 import re
 import time
-import logging
 from collections import defaultdict, deque
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 from dotenv import load_dotenv
 from telegram import ChatPermissions, Update
@@ -30,6 +32,16 @@ ALLOWED_DOMAINS = {
 
 FLOOD_MAX_MESSAGES = int(os.getenv("FLOOD_MAX_MESSAGES", "6"))
 FLOOD_WINDOW_SECONDS = int(os.getenv("FLOOD_WINDOW_SECONDS", "10"))
+FLOOD_PURGE_WINDOW_SECONDS = int(
+    os.getenv("FLOOD_PURGE_WINDOW_SECONDS", "300")
+)
+
+STATE_FILE = Path(
+    os.getenv(
+        "ZION_STATE_FILE",
+        Path(__file__).resolve().parent / "zion_state.json",
+    )
+)
 
 FLOOD_MUTE_LEVELS = [
     int(value.strip())
@@ -62,10 +74,12 @@ DOMAIN_REGEX = re.compile(
     re.IGNORECASE,
 )
 
-# (chat_id, user_id) -> deque[(timestamp_monotonic, message_id)]
+# (chat_id, user_id) -> deque[(timestamp_unix, message_id)]
+# Mantemos uma janela maior que a janela de detecção para poder
+# apagar todas as mensagens recentes do autor quando o flood é confirmado.
 message_history = defaultdict(lambda: deque())
 
-# (chat_id, user_id) -> timestamp_monotonic
+# (chat_id, user_id) -> timestamp_unix
 # Enquanto estiver bloqueado localmente, toda nova mensagem é apagada.
 flood_blocked_until = {}
 
@@ -84,7 +98,129 @@ logging.basicConfig(
     ],
 )
 
+# Não registrar as URLs completas das chamadas HTTP do Telegram.
+# A URL da Bot API contém o token do bot.
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("telegram").setLevel(logging.WARNING)
+
 logger = logging.getLogger("zion")
+
+
+def _state_key(key: tuple) -> str:
+    return f"{key[0]}:{key[1]}"
+
+
+def _parse_state_key(value: str) -> tuple:
+    chat_id, user_id = value.split(":", 1)
+    return int(chat_id), int(user_id)
+
+
+def save_guardian_state() -> None:
+    payload = {
+        "message_history": {
+            _state_key(key): list(history)
+            for key, history in message_history.items()
+            if history
+        },
+        "flood_blocked_until": {
+            _state_key(key): blocked_until
+            for key, blocked_until in flood_blocked_until.items()
+        },
+        "flood_strikes": {
+            _state_key(key): list(value)
+            for key, value in flood_strikes.items()
+        },
+    }
+
+    temp_file = STATE_FILE.with_suffix(
+        STATE_FILE.suffix + ".tmp"
+    )
+
+    try:
+        temp_file.write_text(
+            json.dumps(payload, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        os.replace(temp_file, STATE_FILE)
+    except Exception as exc:
+        logger.error(
+            "Falha ao persistir estado do Guardião: %s",
+            exc,
+        )
+
+
+def load_guardian_state() -> None:
+    if not STATE_FILE.exists():
+        return
+
+    try:
+        payload = json.loads(
+            STATE_FILE.read_text(encoding="utf-8")
+        )
+        now = time.time()
+
+        message_history.clear()
+        flood_blocked_until.clear()
+        flood_strikes.clear()
+
+        for raw_key, entries in payload.get(
+            "message_history",
+            {},
+        ).items():
+            key = _parse_state_key(raw_key)
+
+            for timestamp, message_id in entries:
+                timestamp = float(timestamp)
+
+                if (
+                    now - timestamp
+                    <= FLOOD_PURGE_WINDOW_SECONDS
+                ):
+                    message_history[key].append(
+                        (
+                            timestamp,
+                            int(message_id),
+                        )
+                    )
+
+        for raw_key, blocked_until in payload.get(
+            "flood_blocked_until",
+            {},
+        ).items():
+            blocked_until = float(blocked_until)
+
+            if blocked_until > now:
+                flood_blocked_until[
+                    _parse_state_key(raw_key)
+                ] = blocked_until
+
+        for raw_key, value in payload.get(
+            "flood_strikes",
+            {},
+        ).items():
+            strike_count, last_strike = value
+            last_strike = float(last_strike)
+
+            if (
+                now - last_strike
+                <= FLOOD_STRIKE_RESET_SECONDS
+            ):
+                flood_strikes[
+                    _parse_state_key(raw_key)
+                ] = (
+                    int(strike_count),
+                    last_strike,
+                )
+
+        logger.info(
+            "Estado persistente do Guardião carregado."
+        )
+
+    except Exception as exc:
+        logger.error(
+            "Falha ao carregar estado do Guardião: %s",
+            exc,
+        )
 
 
 def user_display_name(user) -> str:
@@ -139,6 +275,8 @@ def next_flood_mute_seconds(key: tuple, now: float) -> tuple[int, int]:
         strike_count,
         now,
     )
+
+    save_guardian_state()
 
     return mute_seconds, strike_count
 
@@ -213,6 +351,7 @@ async def status(
     await update.message.reply_text(
         "ZION STATUS: ONLINE\n"
         "Community Core: ACTIVE\n"
+        "Guardian State: PERSISTENT\n"
         "AI Layer: NOT ENABLED"
     )
 
@@ -452,6 +591,7 @@ async def handle_flood(
     flood_blocked_until[key] = (
         now + mute_seconds
     )
+    save_guardian_state()
 
     message_ids = [
         message_id
@@ -491,6 +631,7 @@ async def handle_flood(
             flood_blocked_until.pop(key, None)
             message_history.pop(key, None)
             admin_cache.pop(key, None)
+            save_guardian_state()
         else:
             # Se o ban falhar por qualquer motivo,
             # mantemos a contenção e tentamos o mute.
@@ -525,6 +666,8 @@ async def handle_flood(
         restricted,
         banned,
     )
+
+    save_guardian_state()
 
     duration_text = format_duration(
         mute_seconds
@@ -589,7 +732,7 @@ async def moderation(
     # ANTI-FLOOD
     # -----------------------------
 
-    now = time.monotonic()
+    now = time.time()
     key = (
         chat_id_value,
         user_id,
@@ -622,6 +765,7 @@ async def moderation(
             key,
             None,
         )
+        save_guardian_state()
 
     history = message_history[key]
 
@@ -629,7 +773,7 @@ async def moderation(
         history
         and (
             now - history[0][0]
-            > FLOOD_WINDOW_SECONDS
+            > FLOOD_PURGE_WINDOW_SECONDS
         )
     ):
         history.popleft()
@@ -640,8 +784,15 @@ async def moderation(
             update.message.message_id,
         )
     )
+    save_guardian_state()
 
-    if len(history) > FLOOD_MAX_MESSAGES:
+    recent_flood_count = sum(
+        1
+        for timestamp, _ in history
+        if now - timestamp <= FLOOD_WINDOW_SECONDS
+    )
+
+    if recent_flood_count >= FLOOD_MAX_MESSAGES:
         await handle_flood(
             update=update,
             context=context,
@@ -703,6 +854,8 @@ def main():
         raise RuntimeError(
             "TELEGRAM_BOT_TOKEN não configurado."
         )
+
+    load_guardian_state()
 
     app = (
         Application.builder()
