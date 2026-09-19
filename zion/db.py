@@ -252,6 +252,8 @@ class ZionDB:
     ):
         self.path = path
         self.readonly = readonly
+        if self.path.is_symlink():
+            raise RuntimeError("ZION database path must not be a symlink.")
         if not readonly:
             self.path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
