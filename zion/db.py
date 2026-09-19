@@ -571,16 +571,23 @@ class ZionDB:
             self._conn.commit()
         return incident_id
 
-    def prune_resolved_user_reports(self, before: float) -> int:
+    def redact_resolved_user_reports(self, before: float) -> int:
+        redacted_evidence = '{"retention_redacted":true}'
         with self._lock:
             cursor = self._conn.execute(
                 """
-                DELETE FROM incidents
+                UPDATE incidents
+                SET evidence_json=?, note=''
                 WHERE category='user_report'
                   AND status IN ('resolved', 'ignored')
                   AND updated_at < ?
+                  AND evidence_json <> ?
                 """,
-                (before,),
+                (
+                    redacted_evidence,
+                    before,
+                    redacted_evidence,
+                ),
             )
             self._conn.commit()
         return int(cursor.rowcount)
