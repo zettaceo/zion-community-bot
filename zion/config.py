@@ -86,6 +86,9 @@ class Settings:
     disk_warn_mb: int
     update_lag_warn_seconds: int
     health_alert_repeat_seconds: int
+    schedule_max_attempts: int
+    schedule_retry_seconds: int
+    recurring_max_failures: int
     ama_retention_days: int
 
     ai_enabled: bool
@@ -209,6 +212,21 @@ class Settings:
                 "ZION_HEALTH_ALERT_REPEAT_SECONDS",
                 21600,
                 3600,
+            ),
+            schedule_max_attempts=_int(
+                "ZION_SCHEDULE_MAX_ATTEMPTS",
+                5,
+                1,
+            ),
+            schedule_retry_seconds=_int(
+                "ZION_SCHEDULE_RETRY_SECONDS",
+                60,
+                10,
+            ),
+            recurring_max_failures=_int(
+                "ZION_RECURRING_MAX_FAILURES",
+                10,
+                1,
             ),
             ama_retention_days=_int(
                 "ZION_AMA_RETENTION_DAYS",
