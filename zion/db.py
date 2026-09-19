@@ -1445,45 +1445,66 @@ class ZionDB:
     def cancel_recurring_message(
         self,
         schedule_id_or_prefix: str,
+        *,
+        chat_id: int | None = None,
     ) -> bool:
         value = schedule_id_or_prefix.strip()
         if not value:
             return False
 
+        chat_clause = "" if chat_id is None else " AND chat_id=?"
         with self._lock:
+            exact_params: list[Any] = [value]
+            if chat_id is not None:
+                exact_params.append(chat_id)
+
             exact = self._conn.execute(
                 """
                 SELECT id
                 FROM recurring_messages
                 WHERE id=? AND status='active'
-                """,
-                (value,),
+                """
+                + chat_clause,
+                tuple(exact_params),
             ).fetchone()
 
             if exact:
                 resolved_id = str(exact["id"])
             else:
+                prefix_params: list[Any] = [value + "%"]
+                if chat_id is not None:
+                    prefix_params.append(chat_id)
                 rows = self._conn.execute(
                     """
                     SELECT id
                     FROM recurring_messages
                     WHERE id LIKE ? AND status='active'
+                    """
+                    + chat_clause
+                    + """
                     ORDER BY created_at DESC
                     LIMIT 2
                     """,
-                    (value + "%",),
+                    tuple(prefix_params),
                 ).fetchall()
                 if len(rows) != 1:
                     return False
                 resolved_id = str(rows[0]["id"])
+
+            update_params: list[Any] = [resolved_id]
+            update_clause = ""
+            if chat_id is not None:
+                update_clause = " AND chat_id=?"
+                update_params.append(chat_id)
 
             cursor = self._conn.execute(
                 """
                 UPDATE recurring_messages
                 SET status='cancelled'
                 WHERE id=? AND status='active'
-                """,
-                (resolved_id,),
+                """
+                + update_clause,
+                tuple(update_params),
             )
             self._conn.commit()
         return cursor.rowcount > 0
