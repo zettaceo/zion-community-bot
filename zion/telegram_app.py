@@ -402,6 +402,61 @@ async def ai_status_command(
     )
 
 
+async def protect_sensitive_command_input(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    text: str,
+) -> bool:
+    if (
+        not update.effective_message
+        or not update.effective_user
+        or not update.effective_chat
+    ):
+        return False
+
+    rt = runtime(context)
+    sensitive = rt.guardian.sensitive_content(text)
+    if not sensitive.detected:
+        return False
+
+    deleted = await delete_message_safe(
+        context,
+        update.effective_chat.id,
+        update.effective_message.message_id,
+    )
+    incident_id = rt.db.create_incident(
+        chat_id=update.effective_chat.id,
+        user_id=update.effective_user.id,
+        category=sensitive.kind,
+        severity=Severity.CRITICAL,
+        source="guardian_command_input",
+        evidence={
+            "message_id": update.effective_message.message_id,
+            "content_not_stored": True,
+        },
+        note=sensitive.reason,
+    )
+    rt.db.record_action(
+        incident_id=incident_id,
+        chat_id=update.effective_chat.id,
+        user_id=update.effective_user.id,
+        action_type="delete",
+        actor_type="guardian",
+        actor_id=None,
+        reason=sensitive.kind,
+        success=deleted,
+    )
+    await context.bot.send_message(
+        chat_id=update.effective_chat.id,
+        text=(
+            "🚨 ZION bloqueou a solicitação porque ela parece conter "
+            "uma seed phrase/chave privada. Esse conteúdo não foi enviado "
+            "à Mistral."
+        ),
+    )
+    return True
+
+
 async def ask_command(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
@@ -423,6 +478,14 @@ async def ask_command(
         return
 
     rt = runtime(context)
+
+    if await protect_sensitive_command_input(
+        update,
+        context,
+        question,
+    ):
+        return
+
     if not rt.ask_limiter.allow(update.effective_user.id):
         await update.effective_message.reply_text(
             "Limite temporário de perguntas atingido. Tente novamente em instantes."
@@ -433,6 +496,118 @@ async def ask_command(
         chat_id=update.effective_chat.id,
         user_id=update.effective_user.id,
         question=question[:6000],
+    )
+    await update.effective_message.reply_text(answer.text[:3900])
+
+
+async def help_command(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+) -> None:
+    if not update.effective_message:
+        return
+
+    await update.effective_message.reply_text(
+        "ZION COMMANDS\n"
+        "/status — estado do sistema\n"
+        "/health — saúde operacional\n"
+        "/rules — regras da comunidade\n"
+        "/ask <pergunta> — suporte Z-SWAP com Mistral + base oficial\n"
+        "/summary <texto> — resumo explícito via Mistral\n"
+        "/translate <idioma> <texto> — tradução explícita via Mistral\n"
+        "/report — responda a uma mensagem para denunciar\n"
+        "/aistatus — estado da camada de IA"
+    )
+
+
+async def summary_command(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+) -> None:
+    if (
+        not update.effective_message
+        or not update.effective_user
+        or not update.effective_chat
+    ):
+        return
+
+    replied = update.effective_message.reply_to_message
+    if replied and (replied.text or replied.caption):
+        source = replied.text or replied.caption or ""
+    else:
+        source = " ".join(context.args).strip()
+
+    if not source:
+        await update.effective_message.reply_text(
+            "Responda a uma mensagem com /summary ou use /summary <texto>."
+        )
+        return
+
+    if await protect_sensitive_command_input(update, context, source):
+        return
+
+    rt = runtime(context)
+    if not rt.ask_limiter.allow(update.effective_user.id):
+        await update.effective_message.reply_text(
+            "Limite temporário de IA atingido. Tente novamente em instantes."
+        )
+        return
+
+    answer = await rt.ai.summarize(
+        chat_id=update.effective_chat.id,
+        user_id=update.effective_user.id,
+        text=source[:12000],
+    )
+    await update.effective_message.reply_text(answer.text[:3900])
+
+
+async def translate_command(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+) -> None:
+    if (
+        not update.effective_message
+        or not update.effective_user
+        or not update.effective_chat
+    ):
+        return
+
+    if not context.args:
+        await update.effective_message.reply_text(
+            "Use /translate en <texto> ou responda a uma mensagem "
+            "com /translate en."
+        )
+        return
+
+    target = context.args[0]
+    replied = update.effective_message.reply_to_message
+
+    if replied and (replied.text or replied.caption):
+        source = replied.text or replied.caption or ""
+    else:
+        source = " ".join(context.args[1:]).strip()
+
+    if not source:
+        await update.effective_message.reply_text(
+            "Nenhum texto encontrado para traduzir."
+        )
+        return
+
+    if await protect_sensitive_command_input(update, context, source):
+        return
+
+    rt = runtime(context)
+    if not rt.ask_limiter.allow(update.effective_user.id):
+        await update.effective_message.reply_text(
+            "Limite temporário de IA atingido. Tente novamente em instantes."
+        )
+        return
+
+    answer = await rt.ai.translate(
+        chat_id=update.effective_chat.id,
+        user_id=update.effective_user.id,
+        text=source[:12000],
+        target_language=target,
     )
     await update.effective_message.reply_text(answer.text[:3900])
 
@@ -1615,6 +1790,9 @@ def build_application(settings: Settings | None = None) -> Application:
         "rules": rules_command,
         "id": id_command,
         "ask": ask_command,
+        "summary": summary_command,
+        "translate": translate_command,
+        "help": help_command,
         "aistatus": ai_status_command,
         "stats": stats_command,
         "gaps": gaps_command,
