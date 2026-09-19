@@ -138,3 +138,20 @@ It exposes aggregate health/counters only; moderation writes remain behind Teleg
 Mistral calls are bounded by per-user request limits, global concurrency and a daily combined token budget. The default is 50,000 prompt+completion tokens per UTC day and can be changed with `ZION_AI_DAILY_TOKEN_BUDGET`; `0` means unlimited.
 
 Observe-only moderation has its own per-user limiter so one member cannot consume the entire AI budget simply by posting repeatedly.
+
+## Mistral circuit breaker
+
+After the configured number of consecutive provider failures, ZION temporarily stops sending new Mistral requests.
+
+Defaults:
+
+- `ZION_AI_CIRCUIT_FAILURES=3`
+- `ZION_AI_CIRCUIT_SECONDS=120`
+
+The breaker state is persisted in SQLite, so restarting the bot does not immediately hammer an unavailable provider again. A successful provider call resets the failure counter.
+
+## Privacy retention
+
+Only explicit `/ask` questions that cannot be answered from approved knowledge are retained as knowledge-gap samples. They are sanitized before storage and expire according to `ZION_KNOWLEDGE_GAP_RETENTION_DAYS` (default: 30 days).
+
+Resolved/ignored user reports are pruned according to `ZION_REPORT_RETENTION_DAYS` (default: 90 days).
