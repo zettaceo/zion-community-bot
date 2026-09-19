@@ -48,6 +48,10 @@ class PersistenceHardeningTests(unittest.TestCase):
             now=1000.0,
         )
 
+        wal = Path(str(self.db_path) + "-wal")
+        self.assertTrue(wal.is_file())
+        self.assertGreater(wal.stat().st_size, 0)
+
         backup = self.root / "backups" / "zion.db"
         metadata = self.db.backup_to(backup)
 
@@ -81,6 +85,42 @@ class PersistenceHardeningTests(unittest.TestCase):
             )
         finally:
             restored.close()
+
+    def test_backup_supports_pre_migration_database(self) -> None:
+        legacy = self.root / "pre-migration.db"
+        conn = sqlite3.connect(legacy)
+        try:
+            conn.execute(
+                """
+                CREATE TABLE legacy_data(
+                    id INTEGER PRIMARY KEY,
+                    value TEXT NOT NULL
+                )
+                """
+            )
+            conn.execute(
+                "INSERT INTO legacy_data(value) VALUES ('preserved')"
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        source = ZionDB(legacy, readonly=True)
+        backup = self.root / "pre-migration-backup.db"
+        try:
+            metadata = source.backup_to(backup)
+        finally:
+            source.close()
+
+        self.assertEqual(metadata["schema_version"], 0)
+        raw = sqlite3.connect(backup)
+        try:
+            value = raw.execute(
+                "SELECT value FROM legacy_data"
+            ).fetchone()[0]
+        finally:
+            raw.close()
+        self.assertEqual(value, "preserved")
 
     def test_backup_refuses_existing_destination(self) -> None:
         backup = self.root / "backup.db"
