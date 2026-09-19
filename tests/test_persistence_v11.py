@@ -419,6 +419,55 @@ class PersistenceHardeningTests(unittest.TestCase):
         self.db = ZionDB(self.db_path)
         self.db.initialize()
 
+    def test_commit_failure_rolls_back_and_connection_recovers(self) -> None:
+        self.db._conn.executescript(
+            """
+            CREATE TABLE commit_parent(
+                id INTEGER PRIMARY KEY
+            );
+            CREATE TABLE commit_child(
+                id INTEGER PRIMARY KEY,
+                parent_id INTEGER NOT NULL,
+                FOREIGN KEY(parent_id)
+                    REFERENCES commit_parent(id)
+                    DEFERRABLE INITIALLY DEFERRED
+            );
+            """
+        )
+
+        with self.assertRaises(sqlite3.IntegrityError):
+            with self.db._lock:
+                with self.db._transaction_locked(immediate=True):
+                    self.db._conn.execute(
+                        """
+                        INSERT INTO commit_child(id, parent_id)
+                        VALUES (1, 999)
+                        """
+                    )
+
+        self.assertFalse(self.db._conn.in_transaction)
+        count = self.db._conn.execute(
+            "SELECT COUNT(*) FROM commit_child"
+        ).fetchone()[0]
+        self.assertEqual(count, 0)
+
+        with self.db._lock:
+            with self.db._transaction_locked(immediate=True):
+                self.db._conn.execute(
+                    "INSERT INTO commit_parent(id) VALUES (999)"
+                )
+                self.db._conn.execute(
+                    """
+                    INSERT INTO commit_child(id, parent_id)
+                    VALUES (2, 999)
+                    """
+                )
+
+        count = self.db._conn.execute(
+            "SELECT COUNT(*) FROM commit_child"
+        ).fetchone()[0]
+        self.assertEqual(count, 1)
+
     def test_busy_writer_times_out_then_recovers_cleanly(self) -> None:
         other = ZionDB(
             self.db_path,
