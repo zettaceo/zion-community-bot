@@ -85,6 +85,7 @@ class Settings:
 
     disk_warn_mb: int
     update_lag_warn_seconds: int
+    health_alert_repeat_seconds: int
     ama_retention_days: int
 
     ai_enabled: bool
@@ -203,6 +204,11 @@ class Settings:
                 "ZION_UPDATE_LAG_WARN_SECONDS",
                 120,
                 10,
+            ),
+            health_alert_repeat_seconds=_int(
+                "ZION_HEALTH_ALERT_REPEAT_SECONDS",
+                21600,
+                3600,
             ),
             ama_retention_days=_int(
                 "ZION_AMA_RETENTION_DAYS",
