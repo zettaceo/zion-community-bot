@@ -20,7 +20,7 @@ from telegram.ext import (
 
 from .ai_service import AIService
 from .config import Settings
-from .db import ZionDB
+from .db import ZION_APPLICATION_ID, ZionDB
 from .guardian import Guardian, normalize_policy_domain
 from .health import HealthService
 from .knowledge import KnowledgeBase
@@ -808,6 +808,9 @@ async def diagnostics_command(
         f"Runtime lock: "
         f"{'HELD' if rt.process_lock.acquired else 'MISSING'}\n"
         f"SQLite schema: v{diag['schema_version']}\n"
+        f"SQLite application_id: "
+        f"{pragmas['application_id']} "
+        f"(ZION={ZION_APPLICATION_ID})\n"
         f"SQLite journal/FK enforcement: "
         f"{pragmas['journal_mode']}/{pragmas['foreign_keys']}\n"
         f"SQLite FK integrity: "
@@ -3245,6 +3248,11 @@ async def operational_alert_cycle(
         issues.append("sqlite_synchronous_not_full")
     if int(pragmas.get("trusted_schema", -1)) not in {0, -1}:
         issues.append("sqlite_trusted_schema_on")
+    if int(pragmas.get("application_id", 0)) not in {
+        ZION_APPLICATION_ID,
+        0,
+    }:
+        issues.append("sqlite_application_id_mismatch")
     if community.get("failed_scheduled", 0) > 0:
         issues.append("scheduled_delivery_failed")
     if community.get("uncertain_scheduled", 0) > 0:
