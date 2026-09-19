@@ -518,16 +518,22 @@ async def rules_command(
 
     await update.effective_message.reply_text(
         "⚡ Z-SWAP COMMUNITY RULES\n\n"
+        "PT-BR\n"
         "1. Respeite os membros da comunidade.\n"
         "2. Sem spam ou flood.\n"
         "3. Sem golpes, phishing ou impersonação.\n"
         "4. Links dependem da política vigente.\n"
-        "5. Nunca envie seed phrase ou chave privada.\n"
+        "5. Nunca envie seed phrase, chave privada ou credenciais.\n"
         "6. Administradores nunca pedirão sua seed phrase.\n"
         "7. Críticas, dúvidas e discordâncias são permitidas.\n"
-        "8. Decisões ambíguas de moderação não são delegadas à IA.\n\n"
-        "A camada de IA pode observar e orientar; punições automáticas "
-        "dependem de regras determinísticas."
+        "8. Casos ambíguos não são punidos automaticamente pela IA.\n\n"
+        "EN\n"
+        "Be respectful. No spam, flooding, scams, phishing or impersonation. "
+        "Links follow the active policy. Never share wallet secrets or "
+        "credentials. Criticism and disagreement are allowed. Ambiguous "
+        "moderation decisions are not delegated to AI.\n\n"
+        "AI may interpret or flag; irreversible automatic moderation "
+        "requires deterministic policy."
     )
 
 
@@ -540,23 +546,28 @@ async def privacy_command(
 
     rt = runtime(context)
     observe = (
-        "ATIVO"
+        "ATIVO / ON"
         if rt.settings.ai_observe and rt.ai.enabled
-        else "DESATIVADO"
+        else "DESATIVADO / OFF"
     )
 
     await update.effective_message.reply_text(
-        "ZION PRIVACY\n"
+        "ZION PRIVACY / PRIVACIDADE\n"
         "• Mensagens comuns não são armazenadas integralmente no banco.\n"
+        "• Ordinary message bodies are not stored in full.\n"
         "• Metadados operacionais de moderação podem ser registrados.\n"
         "• /ask, /summary e /translate podem enviar conteúdo sanitizado "
         "à Mistral quando a IA estiver habilitada.\n"
-        f"• Classificação observe-only de mensagens comuns: {observe}.\n"
-        "• Possíveis seed phrases/chaves privadas são bloqueadas antes "
-        "de chamadas de IA quando detectadas pelo Guardian.\n"
-        f"• Lacunas de /ask têm retenção padrão de "
+        f"• Observe-only de mensagens comuns: {observe}.\n"
+        "• Possíveis segredos de carteira são bloqueados antes de chamadas "
+        "de IA quando detectados pelo Guardian.\n"
+        f"• Lacunas de /ask: retenção de "
         f"{rt.settings.knowledge_gap_retention_days} dias.\n"
-        "Nunca envie seed phrase, chave privada, senha, token ou API key."
+        f"• Perguntas de AMA encerrado: retenção de até "
+        f"{rt.settings.ama_retention_days} dias.\n"
+        "• /ama armazena explicitamente a pergunta para organizar a sessão.\n"
+        "Nunca envie / Never send seed phrase, private key, password, "
+        "token or API key."
     )
 
 
