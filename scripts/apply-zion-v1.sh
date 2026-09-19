@@ -169,7 +169,7 @@ import shutil
 from pathlib import Path
 
 from zion.config import Settings
-from zion.db import ZionDB
+from zion.db import ZION_APPLICATION_ID, ZionDB
 
 settings = Settings.from_env()
 dest = Path(os.environ["DEST"])
@@ -249,6 +249,12 @@ try:
         raise RuntimeError(
             f"SQLite synchronous não está FULL: "
             f"{pragmas['synchronous']}"
+        )
+    if int(pragmas["trusted_schema"]) != 0:
+        raise RuntimeError("SQLite trusted_schema não está OFF")
+    if int(pragmas["application_id"]) != ZION_APPLICATION_ID:
+        raise RuntimeError(
+            "SQLite application_id não corresponde ao ZION"
         )
 
     print(
