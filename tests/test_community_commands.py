@@ -6,6 +6,7 @@ import unittest
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from tests.helpers import make_settings
 from zion.telegram_app import (
@@ -13,6 +14,7 @@ from zion.telegram_app import (
     ama_open_command,
     ama_question_command,
     report_command,
+    stats_command,
 )
 
 
@@ -81,6 +83,29 @@ class CommunityCommandRateLimitTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.runtime.close()
         self.temp.cleanup()
+
+    def test_stats_command_does_not_open_write_transaction(self) -> None:
+        update = make_update(user_id=1)
+        db = self.runtime.db
+        with (
+            patch.object(
+                db,
+                "transaction",
+                side_effect=AssertionError("/stats must not reserve a writer"),
+            ) as transaction,
+            patch.object(db, "stats", wraps=db.stats) as stats,
+            patch.object(
+                db, "community_stats", wraps=db.community_stats
+            ) as community,
+        ):
+            asyncio.run(stats_command(update, FakeContext(self.runtime, [])))
+
+        transaction.assert_not_called()
+        stats.assert_called_once_with()
+        community.assert_called_once_with()
+        self.assertEqual(len(update.effective_message.replies), 1)
+        self.assertIn("ZION STATS\n", update.effective_message.replies[0])
+        self.assertIn("Pending scheduled: 0", update.effective_message.replies[0])
 
     def test_report_rate_limit_prevents_incident_spam(self) -> None:
         target = SimpleNamespace(

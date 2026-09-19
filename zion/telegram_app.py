@@ -1135,9 +1135,8 @@ async def stats_command(
         return
 
     rt = runtime(context)
-    with rt.db.transaction():
-        stats = rt.db.stats()
-        community = rt.db.community_stats()
+    stats = rt.db.stats()
+    community = rt.db.community_stats()
     await update.effective_message.reply_text(
         "ZION STATS\n"
         f"Users: {stats.get('users', 0)}\n"

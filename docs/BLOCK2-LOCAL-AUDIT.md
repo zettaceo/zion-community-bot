@@ -202,7 +202,7 @@ erro como sucesso de durabilidade.
 
 | Sequência | Decisão final |
 | --- | --- |
-| Incidente + ação local consecutiva; warn + strike + incidente + ação | Uma transaction nos handlers; falha de ação reverte escritas anteriores |
+| Incidente + ação local consecutiva; warn + strike + incidente + ação | Uma transaction agrupa as escritas SQLite relacionadas; falha de persistência da ação reverte as escritas locais anteriores, não efeitos Telegram |
 | Estado + expiração + ação; expiração automática | Uma transaction, inclusive leitura do estado anterior no comando state; nenhuma confirmação ao usuário antes do commit |
 | Flood: mensagens + strike + containment | Uma transaction síncrona no Guardian; falha de containment preserva mensagens anteriores e não deixa strike parcial |
 | AMA open/close e perguntas | Locks/transactions existentes preservados; audit action do comando participa da mesma transação; falha do segundo update/ação reverte |
@@ -211,12 +211,16 @@ erro como sucesso de durabilidade.
 | Migrações SQL | DDL e markers/defaults em uma transação, markers verificados sob lock; replay idempotente |
 | Importação JSON legada | BEGIN IMMEDIATE já existente cobre mensagens/contenções/strikes/marker; testes de migração existentes preservados |
 | Backup e metadados | Snapshot via API; metadata retirada da cópia; publicação atômica; filesystem não é transação SQL |
-| Incidente antes de ação externa/alertas | Mantém evidência de intenção e resultado posterior; I/O Telegram não é reversível por SQLite. Incidente sem ação não é sucesso falso |
+| Ação externa e persistência local | A ordem depende do fluxo: mute, ban, unban e alguns deletes/moderações podem chamar Telegram antes de persistir incident + action. Falha entre esses eventos pode deixar o efeito externo sem registro local completo; é risco residual conhecido |
 
 Nenhuma transaction introduzida contém `await`, comprovado por teste estrutural.
 A maior parte do diff em Guardian/telegram_app é indentação das sequências dentro
-dessas transações, sem reformatação geral. Entrega Telegram e commit local não
-formam uma transação distribuída; o mecanismo de quarentena continua necessário.
+dessas transações, sem reformatação geral. A atomicidade garantida cobre operações
+puramente SQLite relacionadas. Telegram e SQLite não formam uma transação
+distribuída: a transação local não torna atômico nem reverte um efeito externo.
+Não há promessa de exactly-once entre Telegram e SQLite. O scheduler mantém
+claim/quarentena porque um resultado externo desconhecido não pode ser inferido
+com segurança a partir do estado local.
 
 ## H. Retenção, backup de deploy e arquivos alterados
 
