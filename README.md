@@ -22,6 +22,7 @@ Criticism and disagreement are allowed.
 - Network resilience: DNS readiness gate + USB Wi-Fi Guardian
 - Tests: stdlib unittest
 - Secret handling: environment variables + log redaction
+- Optional admin dashboard: read-only localhost HTTP
 
 See [ZION-MASTER-PLAN.md](ZION-MASTER-PLAN.md).
 
@@ -78,13 +79,18 @@ Member/basic:
 - `/id`
 - `/ask <question>`
 - `/aistatus`
+- `/summary`
+- `/translate`
 - `/report` as a reply
 
 Admin:
 
 - `/stats`
+- `/gaps`
+- `/resolvegap <hash>`
 - `/incidents [limit]`
 - `/user` as a reply or with numeric ID
+- `/state [STATE]`
 - `/warn [reason]` as a reply
 - `/mute 10m` as a reply
 - `/ban` as a reply
@@ -104,3 +110,17 @@ Admin:
 - Approved support facts: `knowledge/`
 
 Runtime files and secrets are intentionally excluded from Git.
+
+## Optional local dashboard
+
+The dashboard is intentionally bound to localhost only and is read-only.
+
+After review:
+
+```bash
+bash scripts/apply-dashboard.sh
+```
+
+Open `http://127.0.0.1:8765/` on the ZION machine.
+
+It exposes aggregate health/counters only; moderation writes remain behind Telegram admin authorization.
