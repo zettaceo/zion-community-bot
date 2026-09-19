@@ -824,6 +824,7 @@ async def ai_status_command(
         f"Circuit breaker: {circuit_text}\n"
         f"Provider failures: {rt.ai.circuit_failures}/"
         f"{rt.settings.ai_circuit_failures}\n"
+        f"Accounting: {'OK' if rt.ai.accounting_healthy else 'FAIL-CLOSED'}\n"
         f"Tokens today UTC: {used}/{budget_text}\n"
         f"Knowledge chunks: {len(rt.knowledge.chunks)}"
     )
@@ -3106,6 +3107,8 @@ async def operational_alert_cycle(
 
     if not snapshot.db_ok:
         issues.append("database_or_integrity")
+    if not rt.ai.accounting_healthy:
+        issues.append("ai_accounting_fail_closed")
     for config_issue in diagnostics.get("configuration_issues", []):
         issues.append(f"config:{config_issue}")
     if pragmas["journal_mode"] not in {"wal", "unknown"}:
