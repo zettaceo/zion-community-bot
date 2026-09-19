@@ -208,3 +208,60 @@ Idempotency keys expire and are pruned by housekeeping. Default retention:
 ```text
 ZION_IDEMPOTENCY_RETENTION_DAYS=30
 ```
+
+
+## SQLite persistence hardening
+
+ZION v1.1 treats SQLite as critical runtime state.
+
+Runtime invariants:
+
+```text
+journal_mode=WAL
+synchronous=FULL
+foreign_keys=ON
+trusted_schema=OFF
+busy_timeout=5000ms
+wal_autocheckpoint=1000 pages
+journal_size_limit=16777216 bytes
+application_id=0x5A494F4E ("ZION")
+```
+
+A new database receives the ZION application ID before schema creation. A recognizable legacy ZION database with application ID zero can be adopted during migration. A non-empty SQLite database that does not match a known ZION schema is rejected before ZION creates any tables in it.
+
+The runtime performs `quick_check + foreign_key_check` during startup and refuses to operate when either fails. Operator diagnostics repeat lightweight integrity checks on a cache interval. Deployment and backup gates use the full `integrity_check`.
+
+Schema migrations are versioned and a database with a schema newer than the running ZION build is rejected before mutation. Each migration version is committed atomically.
+
+Multi-write persistence paths use explicit transactions. If an SQL statement or the final COMMIT fails, the transaction is rolled back before the connection is reused.
+
+### Verified backup
+
+The controlled deploy uses the SQLite backup API while production is still running. The candidate code verifies the source database, writes a consistent snapshot, runs full integrity and foreign-key checks on the snapshot, applies mode 0600, and records its SHA-256 before production can be stopped.
+
+Backups can be checked without modifying them:
+
+```bash
+.venv/bin/python scripts/verify-sqlite-backup.py /path/to/zion.db --sha256 <expected-sha256>
+```
+
+The verifier checks SHA-256 when supplied, full SQLite integrity, foreign-key integrity and schema compatibility.
+
+### Bounded persistence growth
+
+Defaults:
+
+```text
+ZION_AI_EVENT_RETENTION_DAYS=90
+ZION_COMPLETED_JOB_RETENTION_DAYS=30
+ZION_DB_WARN_MB=512
+ZION_WAL_WARN_MB=128
+```
+
+Hourly housekeeping prunes expired idempotency keys, bounded user events and knowledge gaps, old AI metadata, expired containments, closed AMA question/session data and completed one-shot jobs.
+
+One-shot jobs in `uncertain` state are deliberately **not** auto-pruned. They represent an unknown external delivery outcome and require operator resolution.
+
+Incidents/actions are not silently deleted by this housekeeping policy because they are the audit ledger. Database and WAL growth thresholds surface through `/diagnostics` and operational alerts instead of silently destroying audit history.
+
+ZION does not run automatic `VACUUM` in production. A passive WAL checkpoint is used; if a reader prevents checkpoint progress, WAL growth is surfaced as an alert rather than forcing a blocking maintenance operation.
