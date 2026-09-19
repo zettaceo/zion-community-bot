@@ -1,0 +1,425 @@
+from __future__ import annotations
+
+import hashlib
+import os
+import sqlite3
+import stat
+import tempfile
+import threading
+import time
+import unittest
+from pathlib import Path
+
+from zion.db import SUPPORTED_SCHEMA_VERSION, ZionDB
+
+
+class PersistenceHardeningTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temp = tempfile.TemporaryDirectory()
+        self.root = Path(self.temp.name)
+        self.db_path = self.root / "zion.db"
+        self.db = ZionDB(self.db_path)
+        self.db.initialize()
+
+    def tearDown(self) -> None:
+        self.db.close()
+        self.temp.cleanup()
+
+    def test_full_integrity_and_foreign_keys_are_clean(self) -> None:
+        verification = self.db.verify_integrity(full=True)
+        self.assertTrue(verification["ok"])
+        self.assertTrue(verification["database_ok"])
+        self.assertTrue(verification["foreign_keys_ok"])
+        self.assertEqual(
+            verification["database_messages"],
+            ["ok"],
+        )
+        self.assertEqual(
+            verification["foreign_key_violations"],
+            [],
+        )
+
+    def test_backup_captures_committed_wal_state_and_is_private(self) -> None:
+        self.db.record_user_event(
+            chat_id=10,
+            user_id=20,
+            event_type="backup-test",
+            metadata={"value": "committed"},
+            now=1000.0,
+        )
+
+        backup = self.root / "backups" / "zion.db"
+        metadata = self.db.backup_to(backup)
+
+        self.assertTrue(backup.is_file())
+        self.assertEqual(
+            stat.S_IMODE(backup.stat().st_mode),
+            0o600,
+        )
+        self.assertEqual(
+            metadata["schema_version"],
+            SUPPORTED_SCHEMA_VERSION,
+        )
+        self.assertEqual(
+            metadata["size_bytes"],
+            backup.stat().st_size,
+        )
+
+        digest = hashlib.sha256(backup.read_bytes()).hexdigest()
+        self.assertEqual(metadata["sha256"], digest)
+
+        restored = ZionDB(backup, readonly=True)
+        try:
+            self.assertTrue(restored.verify_integrity(full=True)["ok"])
+            self.assertEqual(
+                restored.count_user_events(
+                    chat_id=10,
+                    event_type="backup-test",
+                    since=0,
+                ),
+                1,
+            )
+        finally:
+            restored.close()
+
+    def test_backup_refuses_existing_destination(self) -> None:
+        backup = self.root / "backup.db"
+        backup.write_bytes(b"do-not-overwrite")
+
+        with self.assertRaises(FileExistsError):
+            self.db.backup_to(backup)
+
+        self.assertEqual(
+            backup.read_bytes(),
+            b"do-not-overwrite",
+        )
+
+    def test_backup_refuses_symlink_destination(self) -> None:
+        target = self.root / "target.db"
+        target.write_bytes(b"target")
+        link = self.root / "backup.db"
+        link.symlink_to(target)
+
+        with self.assertRaises(RuntimeError):
+            self.db.backup_to(link)
+
+        self.assertEqual(target.read_bytes(), b"target")
+
+    def test_future_schema_is_rejected_before_mutation(self) -> None:
+        future_path = self.root / "future.db"
+        conn = sqlite3.connect(future_path)
+        try:
+            conn.execute(
+                """
+                CREATE TABLE schema_migrations (
+                    version INTEGER PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    applied_at REAL NOT NULL
+                )
+                """
+            )
+            conn.execute(
+                """
+                INSERT INTO schema_migrations(version, name, applied_at)
+                VALUES (?, 'future', 1)
+                """,
+                (SUPPORTED_SCHEMA_VERSION + 1,),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        future = ZionDB(future_path)
+        try:
+            with self.assertRaises(RuntimeError):
+                future.initialize()
+
+            row = future._conn.execute(
+                """
+                SELECT COUNT(*) AS count
+                FROM sqlite_master
+                WHERE type='table' AND name='users'
+                """
+            ).fetchone()
+            self.assertEqual(int(row["count"]), 0)
+        finally:
+            future.close()
+
+    def test_interrupted_migration_rolls_back_column_and_marker(self) -> None:
+        self.db.close()
+
+        legacy_path = self.root / "migration-failure.db"
+        conn = sqlite3.connect(legacy_path)
+        try:
+            conn.executescript(
+                """
+                CREATE TABLE scheduled_messages (
+                    id TEXT PRIMARY KEY,
+                    chat_id INTEGER NOT NULL,
+                    send_at REAL NOT NULL,
+                    text TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'pending',
+                    created_by INTEGER,
+                    created_at REAL NOT NULL,
+                    sent_at REAL
+                );
+                CREATE TABLE recurring_messages (
+                    id TEXT PRIMARY KEY,
+                    chat_id INTEGER NOT NULL,
+                    interval_seconds INTEGER NOT NULL,
+                    next_send_at REAL NOT NULL,
+                    text TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'active',
+                    created_by INTEGER,
+                    created_at REAL NOT NULL,
+                    last_sent_at REAL
+                );
+                """
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        migrated = ZionDB(legacy_path)
+        original = migrated._ensure_column_locked
+        calls = 0
+
+        def fail_second_column(
+            table: str,
+            column: str,
+            definition: str,
+        ) -> None:
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise RuntimeError("forced migration failure")
+            original(table, column, definition)
+
+        migrated._ensure_column_locked = fail_second_column
+        try:
+            with self.assertRaises(RuntimeError):
+                migrated.initialize()
+
+            columns = migrated._table_columns_locked(
+                "scheduled_messages"
+            )
+            self.assertNotIn("attempts", columns)
+
+            row = migrated._conn.execute(
+                """
+                SELECT COALESCE(MAX(version), 0) AS version
+                FROM schema_migrations
+                """
+            ).fetchone()
+            self.assertEqual(int(row["version"]), 0)
+        finally:
+            migrated.close()
+
+        self.db = ZionDB(self.db_path)
+        self.db.initialize()
+
+    def test_busy_writer_times_out_then_recovers_cleanly(self) -> None:
+        other = ZionDB(
+            self.db_path,
+            busy_timeout_ms=50,
+        )
+        try:
+            self.db._conn.execute("BEGIN IMMEDIATE")
+            started = time.monotonic()
+
+            with self.assertRaises(sqlite3.OperationalError):
+                other.record_user_event(
+                    chat_id=1,
+                    user_id=2,
+                    event_type="blocked",
+                )
+
+            elapsed = time.monotonic() - started
+            self.assertGreaterEqual(elapsed, 0.03)
+            self.assertLess(elapsed, 1.0)
+
+            self.db._conn.rollback()
+
+            other.record_user_event(
+                chat_id=1,
+                user_id=2,
+                event_type="recovered",
+            )
+            self.assertEqual(
+                other.count_user_events(
+                    chat_id=1,
+                    event_type="recovered",
+                    since=0,
+                ),
+                1,
+            )
+        finally:
+            if self.db._conn.in_transaction:
+                self.db._conn.rollback()
+            other.close()
+
+    def test_simulated_disk_full_does_not_poison_connection(self) -> None:
+        page_count = int(
+            self.db._conn.execute("PRAGMA page_count").fetchone()[0]
+        )
+        self.db._conn.execute(
+            f"PRAGMA max_page_count={page_count}"
+        )
+
+        with self.assertRaises(sqlite3.OperationalError):
+            self.db.schedule_message(
+                chat_id=1,
+                send_at=1000.0,
+                text="x" * (2 * 1024 * 1024),
+                created_by=1,
+            )
+
+        self.assertFalse(self.db._conn.in_transaction)
+
+        self.db._conn.execute("PRAGMA max_page_count=2147483646")
+        schedule_id = self.db.schedule_message(
+            chat_id=1,
+            send_at=1000.0,
+            text="connection recovered",
+            created_by=1,
+        )
+        self.assertTrue(schedule_id)
+
+    def test_concurrent_ama_open_allows_one_session(self) -> None:
+        other = ZionDB(self.db_path)
+        other.initialize()
+
+        barrier = threading.Barrier(2)
+        created: list[str] = []
+        errors: list[BaseException] = []
+
+        def open_ama(db: ZionDB, title: str) -> None:
+            try:
+                barrier.wait(timeout=2)
+                created.append(
+                    db.create_ama(
+                        chat_id=100,
+                        title=title,
+                        created_by=1,
+                    )
+                )
+            except BaseException as exc:
+                errors.append(exc)
+
+        first = threading.Thread(
+            target=open_ama,
+            args=(self.db, "first"),
+        )
+        second = threading.Thread(
+            target=open_ama,
+            args=(other, "second"),
+        )
+        try:
+            first.start()
+            second.start()
+            first.join(timeout=3)
+            second.join(timeout=3)
+
+            self.assertFalse(first.is_alive())
+            self.assertFalse(second.is_alive())
+            self.assertEqual(len(created), 1)
+            self.assertEqual(len(errors), 1)
+            self.assertIsInstance(errors[0], ValueError)
+            self.assertEqual(
+                self.db.community_stats()["open_amas"],
+                1,
+            )
+        finally:
+            other.close()
+
+    def test_close_ama_rolls_back_if_question_update_fails(self) -> None:
+        ama_id = self.db.create_ama(
+            chat_id=200,
+            title="rollback test",
+            created_by=1,
+        )
+        self.db.add_ama_question(
+            ama_id=ama_id,
+            chat_id=200,
+            user_id=2,
+            question="question",
+        )
+
+        self.db._conn.execute(
+            """
+            CREATE TRIGGER force_ama_question_failure
+            BEFORE UPDATE ON ama_questions
+            BEGIN
+                SELECT RAISE(ABORT, 'forced close failure');
+            END
+            """
+        )
+
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.db.close_ama(200)
+
+        active = self.db.active_ama(200)
+        self.assertIsNotNone(active)
+        self.assertEqual(active["id"], ama_id)
+
+        questions = self.db.list_ama_questions(ama_id)
+        self.assertEqual(questions[0]["status"], "pending")
+
+    def test_failed_fk_write_does_not_poison_connection(self) -> None:
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.db.add_ama_question(
+                ama_id="missing",
+                chat_id=1,
+                user_id=2,
+                question="must fail",
+            )
+
+        self.assertFalse(self.db._conn.in_transaction)
+        self.db.record_user_event(
+            chat_id=1,
+            user_id=2,
+            event_type="after-fk-failure",
+        )
+        self.assertEqual(
+            self.db.count_user_events(
+                chat_id=1,
+                event_type="after-fk-failure",
+                since=0,
+            ),
+            1,
+        )
+
+    def test_scheduler_status_counters_are_distinct(self) -> None:
+        first = self.db.schedule_message(
+            chat_id=1,
+            send_at=1000.0,
+            text="uncertain",
+            created_by=1,
+        )
+        second = self.db.schedule_message(
+            chat_id=1,
+            send_at=1000.0,
+            text="sending",
+            created_by=1,
+        )
+
+        self.assertEqual(
+            self.db.claim_scheduled_message(first, now=1000.0),
+            1,
+        )
+        self.db.quarantine_stale_delivery_claims(
+            now=2000.0,
+            stale_after_seconds=300,
+        )
+        self.assertEqual(
+            self.db.claim_scheduled_message(second, now=1000.0),
+            1,
+        )
+
+        stats = self.db.community_stats()
+        self.assertEqual(stats["uncertain_scheduled"], 1)
+        self.assertEqual(stats["sending_scheduled"], 1)
+
+
+if __name__ == "__main__":
+    unittest.main()
