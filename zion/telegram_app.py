@@ -2199,23 +2199,40 @@ async def jobs_command(
     scheduled = rt.db.list_scheduled_messages(limit=8)
     recurring = rt.db.list_recurring_messages(limit=8)
 
+    now = time.time()
     lines = ["ZION DELIVERY JOBS", "", "ONE-SHOT"]
     if not scheduled:
         lines.append("none")
     for item in scheduled:
+        claimed_at = item.get("claimed_at")
+        claim_age = (
+            f"{max(0, int(now - float(claimed_at)))}s"
+            if claimed_at is not None
+            else "-"
+        )
+        error = str(item.get("last_error_type") or "-")
         lines.append(
             f"{str(item['id'])[:8]} | {item['status']} | "
-            f"chat={item['chat_id']} | attempts={item['attempts']}"
+            f"chat={item['chat_id']} | attempts={item['attempts']} | "
+            f"claim_age={claim_age} | error={error[:40]}"
         )
 
     lines.extend(["", "RECURRING"])
     if not recurring:
         lines.append("none")
     for item in recurring:
+        claimed_at = item.get("claimed_at")
+        claim_age = (
+            f"{max(0, int(now - float(claimed_at)))}s"
+            if claimed_at is not None
+            else "-"
+        )
+        error = str(item.get("last_error_type") or "-")
         lines.append(
             f"{str(item['id'])[:8]} | {item['status']} | "
             f"chat={item['chat_id']} | "
-            f"failures={item['consecutive_failures']}"
+            f"failures={item['consecutive_failures']} | "
+            f"claim_age={claim_age} | error={error[:40]}"
         )
 
     await update.effective_message.reply_text(
@@ -2254,9 +2271,16 @@ async def retry_scheduled_command(
         metadata={"schedule_ref": reference[:32]},
     )
     await update.effective_message.reply_text(
-        "Agendamento reenfileirado."
+        (
+            "Agendamento reenfileirado. Se o estado anterior era UNCERTAIN, "
+            "esta é uma reexecução explícita e pode duplicar uma entrega "
+            "cujo resultado não pôde ser confirmado."
+        )
         if success
-        else "Agendamento falho não encontrado ou prefixo ambíguo."
+        else (
+            "Agendamento FAILED/UNCERTAIN não encontrado "
+            "ou prefixo ambíguo."
+        )
     )
 
 
@@ -2291,7 +2315,11 @@ async def resume_recurring_command(
         metadata={"schedule_ref": reference[:32]},
     )
     await update.effective_message.reply_text(
-        "Recorrência retomada."
+        (
+            "Recorrência retomada. Se a pausa veio de um resultado "
+            "desconhecido após crash, a ocorrência incerta é pulada e "
+            "o próximo ciclo futuro é preservado."
+        )
         if success
         else "Recorrência pausada não encontrada ou prefixo ambíguo."
     )
