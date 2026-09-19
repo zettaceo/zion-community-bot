@@ -2783,6 +2783,38 @@ async def _enforce_flood(
         logger.warning("Falha ao publicar aviso de flood: %s", exc)
 
 
+async def command_idempotency_guard_handler(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+) -> None:
+    update_id = getattr(update, "update_id", None)
+    if update_id is None:
+        return
+
+    rt = runtime(context)
+    key = f"telegram_command:{int(update_id)}"
+    try:
+        claimed = rt.db.claim_idempotency_key(
+            key,
+            ttl_seconds=(
+                rt.settings.idempotency_retention_days * 86400
+            ),
+        )
+    except Exception as exc:
+        logger.error(
+            "Falha no gate de idempotência do comando: %s",
+            type(exc).__name__,
+        )
+        raise ApplicationHandlerStop from exc
+
+    if not claimed:
+        logger.warning(
+            "Comando Telegram duplicado suprimido | update_id=%s",
+            update_id,
+        )
+        raise ApplicationHandlerStop
+
+
 async def command_guard_handler(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
@@ -3391,6 +3423,7 @@ async def scheduler_loop(application: Application) -> None:
                         * 86400
                     )
                 )
+                idempotency_deleted = rt.db.prune_idempotency_keys(now)
                 ama_questions_deleted = rt.db.prune_ama_questions(
                     now - (rt.settings.ama_retention_days * 86400)
                 )
@@ -3398,16 +3431,19 @@ async def scheduler_loop(application: Application) -> None:
                     gaps_removed
                     or reports_redacted
                     or user_events_deleted
+                    or idempotency_deleted
                     or ama_questions_deleted
                 ):
                     logger.info(
                         "Housekeeping | knowledge_gaps_deleted=%s | "
                         "resolved_reports_redacted=%s | "
                         "user_events_deleted=%s | "
+                        "idempotency_deleted=%s | "
                         "ama_questions_deleted=%s",
                         gaps_removed,
                         reports_redacted,
                         user_events_deleted,
+                        idempotency_deleted,
                         ama_questions_deleted,
                     )
                 try:
@@ -3701,6 +3737,16 @@ def build_application(settings: Settings | None = None) -> Application:
         "amaclose": ama_close_command,
         "reloadkb": reload_knowledge_command,
     }
+
+    # Group -2 persists Telegram update IDs before any command side effect.
+    # Re-delivered command updates are at-most-once across restarts.
+    app.add_handler(
+        MessageHandler(
+            filters.COMMAND,
+            command_idempotency_guard_handler,
+        ),
+        group=-2,
+    )
 
     # Group -1 runs before command handlers. This closes the
     # command-flood bypass while still allowing valid commands in group 0.
