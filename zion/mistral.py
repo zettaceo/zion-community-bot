@@ -46,8 +46,15 @@ def _extract_content(message: dict[str, Any]) -> str:
 
 def _parse_json_object(text: str) -> dict[str, Any]:
     stripped = text.strip()
-    stripped = re.sub(r"^\`\`\`(?:json)?\\s*", "", stripped, flags=re.I)
-    stripped = re.sub(r"\\s*\`\`\`$", "", stripped)
+
+    if stripped.startswith(chr(96) * 3):
+        lines = stripped.splitlines()
+        if lines:
+            lines = lines[1:]
+        if lines and lines[-1].strip() == chr(96) * 3:
+            lines = lines[:-1]
+        stripped = "\n".join(lines).strip()
+
     try:
         value = json.loads(stripped)
         return value if isinstance(value, dict) else {}
