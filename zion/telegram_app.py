@@ -1957,14 +1957,71 @@ async def schedule_command(
     if not text:
         return
 
-    schedule_id = runtime(context).db.schedule_message(
+    rt = runtime(context)
+    schedule_id = rt.db.schedule_message(
         chat_id=update.effective_chat.id,
         send_at=send_at,
         text=text[:3500],
         created_by=update.effective_user.id,
     )
+    rt.db.record_action(
+        incident_id=None,
+        chat_id=update.effective_chat.id,
+        user_id=None,
+        action_type="scheduled_create",
+        actor_type="admin",
+        actor_id=str(update.effective_user.id),
+        reason="manual_admin_command",
+        success=True,
+        metadata={
+            "schedule_id": schedule_id,
+            "send_at": send_at,
+        },
+    )
     await update.effective_message.reply_text(
         f"📅 Mensagem agendada: {schedule_id[:8]} para {when.isoformat()}."
+    )
+
+
+async def cancel_scheduled_command(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+) -> None:
+    if not await require_admin(update, context):
+        return
+    if (
+        not update.effective_message
+        or not update.effective_chat
+        or not update.effective_user
+    ):
+        return
+    if not context.args:
+        await update.effective_message.reply_text(
+            "Use: /cancelscheduled <id-ou-prefixo>"
+        )
+        return
+
+    reference = context.args[0].strip()
+    rt = runtime(context)
+    success = rt.db.cancel_scheduled_message(
+        reference,
+        chat_id=update.effective_chat.id,
+    )
+    rt.db.record_action(
+        incident_id=None,
+        chat_id=update.effective_chat.id,
+        user_id=None,
+        action_type="scheduled_cancel",
+        actor_type="admin",
+        actor_id=str(update.effective_user.id),
+        reason="manual_admin_command",
+        success=success,
+        metadata={"schedule_ref": reference[:32]},
+    )
+    await update.effective_message.reply_text(
+        "Agendamento cancelado."
+        if success
+        else "Agendamento não encontrado, já enviado ou prefixo ambíguo."
     )
 
 
@@ -3451,6 +3508,7 @@ def build_application(settings: Settings | None = None) -> Application:
         "announce": announce_command,
         "poll": poll_command,
         "schedule": schedule_command,
+        "cancelscheduled": cancel_scheduled_command,
         "recurring": recurring_command,
         "cancelrecurring": cancel_recurring_command,
         "jobs": jobs_command,
