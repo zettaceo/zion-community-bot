@@ -92,3 +92,20 @@ ZION does not persist ordinary community message bodies.
 A narrow exception exists for explicit support questions that have no approved knowledge match: a sanitized sample is stored as a knowledge gap so administrators can improve the official knowledge base.
 
 These samples have bounded retention and are automatically pruned.
+
+## Privilege separation
+
+Telegram group administrator status grants only chat-local moderator capabilities.
+
+Global ZION controls require explicit operator allowlisting through `ZION_ADMIN_USER_IDS`.
+
+Operator-only surfaces include:
+- global operating state and lockdown;
+- domain allow/block policy;
+- global incident review;
+- Mistral configuration telemetry and budget;
+- knowledge-gap operations;
+- knowledge-base reload;
+- global statistics and operator brief.
+
+This limits the blast radius if ZION is ever added to another group.
