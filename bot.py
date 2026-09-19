@@ -40,7 +40,13 @@ DOMAIN_REGEX = re.compile(
     re.IGNORECASE,
 )
 
+# Guarda, por usuário e grupo, as mensagens recentes no formato:
+# (timestamp_monotonic, message_id)
 message_history = defaultdict(lambda: deque())
+
+# Guarda até quando um usuário fica em cooldown após flood:
+# (chat_id, user_id) -> timestamp_monotonic
+flood_blocked_until = {}
 
 logging.basicConfig(
     format="%(asctime)s | %(levelname)s | %(message)s",
@@ -52,6 +58,16 @@ logging.basicConfig(
 )
 
 logger = logging.getLogger("zion")
+
+
+def user_display_name(user) -> str:
+    if user.username:
+        return f"@{user.username}"
+
+    if user.first_name:
+        return user.first_name
+
+    return f"usuário {user.id}"
 
 
 async def is_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
@@ -166,35 +182,121 @@ def domain_allowed(domain: str) -> bool:
     return False
 
 
+async def delete_message_safe(
+    context: ContextTypes.DEFAULT_TYPE,
+    chat_id: int,
+    message_id: int,
+) -> bool:
+    try:
+        await context.bot.delete_message(
+            chat_id=chat_id,
+            message_id=message_id,
+        )
+        return True
+
+    except Exception as exc:
+        logger.debug(
+            "Mensagem %s não pôde ser apagada: %s",
+            message_id,
+            exc,
+        )
+        return False
+
+
 async def delete_and_warn(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
     reason: str,
 ):
-    if not update.message:
+    if not update.message or not update.effective_user:
         return
 
     user = update.effective_user
+    display_name = user_display_name(user)
+
+    deleted = await delete_message_safe(
+        context=context,
+        chat_id=update.effective_chat.id,
+        message_id=update.message.message_id,
+    )
+
+    logger.warning(
+        "Mensagem removida=%s | user=%s | id=%s | motivo=%s",
+        deleted,
+        display_name,
+        user.id,
+        reason,
+    )
 
     try:
-        await update.message.delete()
-
-        logger.warning(
-            "Mensagem removida | user=%s | id=%s | motivo=%s",
-            user.username or user.first_name,
-            user.id,
-            reason,
-        )
-
-        warning = await context.bot.send_message(
+        await context.bot.send_message(
             chat_id=update.effective_chat.id,
-            text=f"⚠️ @{user.username or user.first_name}: {reason}",
+            text=f"⚠️ {display_name}: {reason}",
         )
-
-        # Depois podemos apagar automaticamente esses avisos.
 
     except Exception as exc:
-        logger.error("Falha ao remover mensagem: %s", exc)
+        logger.error("Falha ao enviar aviso: %s", exc)
+
+
+async def handle_flood(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    history: deque,
+    key: tuple,
+    now: float,
+):
+    user = update.effective_user
+    chat_id_value = update.effective_chat.id
+    display_name = user_display_name(user)
+
+    message_ids = [
+        message_id
+        for _, message_id in history
+    ]
+
+    deleted_count = 0
+
+    for message_id in message_ids:
+        if await delete_message_safe(
+            context=context,
+            chat_id=chat_id_value,
+            message_id=message_id,
+        ):
+            deleted_count += 1
+
+    history.clear()
+
+    flood_blocked_until[key] = (
+        now + FLOOD_WINDOW_SECONDS
+    )
+
+    logger.warning(
+        "FLOOD | user=%s | user_id=%s | chat=%s | "
+        "mensagens_na_janela=%s | removidas=%s | cooldown=%ss",
+        display_name,
+        user.id,
+        chat_id_value,
+        len(message_ids),
+        deleted_count,
+        FLOOD_WINDOW_SECONDS,
+    )
+
+    try:
+        await context.bot.send_message(
+            chat_id=chat_id_value,
+            text=(
+                f"⚠️ {display_name}: flood detectado.\n"
+                f"{deleted_count} mensagens removidas.\n"
+                f"Aguarde {FLOOD_WINDOW_SECONDS} segundos "
+                "antes de continuar."
+            ),
+        )
+
+    except Exception as exc:
+        logger.error(
+            "Falha ao enviar aviso de flood: %s",
+            exc,
+        )
 
 
 async def moderation(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -215,21 +317,49 @@ async def moderation(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # -----------------------------
 
     now = time.monotonic()
-
     key = (chat_id_value, user_id)
+
+    blocked_until = flood_blocked_until.get(key, 0)
+
+    if now < blocked_until:
+        await delete_message_safe(
+            context=context,
+            chat_id=chat_id_value,
+            message_id=update.message.message_id,
+        )
+
+        logger.info(
+            "Mensagem removida durante cooldown | user_id=%s | chat=%s",
+            user_id,
+            chat_id_value,
+        )
+        return
+
+    if blocked_until:
+        flood_blocked_until.pop(key, None)
 
     history = message_history[key]
 
-    while history and now - history[0] > FLOOD_WINDOW_SECONDS:
+    while (
+        history
+        and now - history[0][0] > FLOOD_WINDOW_SECONDS
+    ):
         history.popleft()
 
-    history.append(now)
+    history.append(
+        (
+            now,
+            update.message.message_id,
+        )
+    )
 
     if len(history) > FLOOD_MAX_MESSAGES:
-        await delete_and_warn(
-            update,
-            context,
-            "flood detectado. Aguarde alguns segundos antes de continuar."
+        await handle_flood(
+            update=update,
+            context=context,
+            history=history,
+            key=key,
+            now=now,
         )
         return
 
