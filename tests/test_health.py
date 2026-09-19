@@ -7,7 +7,7 @@ from dataclasses import replace
 from pathlib import Path
 
 from tests.helpers import make_settings
-from zion.db import ZionDB
+from zion.db import ZION_APPLICATION_ID, ZionDB
 from zion.health import HealthService
 
 
@@ -72,6 +72,10 @@ class HealthTests(unittest.TestCase):
         self.assertEqual(
             diagnostics["sqlite_pragmas"]["trusted_schema"],
             0,
+        )
+        self.assertEqual(
+            diagnostics["sqlite_pragmas"]["application_id"],
+            ZION_APPLICATION_ID,
         )
         self.assertGreaterEqual(
             diagnostics["sqlite_pragmas"]["busy_timeout_ms"],
