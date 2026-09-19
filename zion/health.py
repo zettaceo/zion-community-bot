@@ -164,6 +164,7 @@ class HealthService:
                 "synchronous": -1,
                 "wal_autocheckpoint": -1,
                 "journal_size_limit": -1,
+                "trusted_schema": -1,
             }
 
         try:
