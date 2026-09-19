@@ -60,7 +60,15 @@ class V11DatabaseTests(unittest.TestCase):
             len(self.db.due_recurring_messages(now=4600.0)),
             1,
         )
+        self.assertEqual(
+            self.db.community_stats()["active_recurring"],
+            1,
+        )
         self.assertTrue(self.db.cancel_recurring_message(schedule_id))
+        self.assertEqual(
+            self.db.community_stats()["active_recurring"],
+            0,
+        )
         self.assertEqual(
             self.db.due_recurring_messages(now=999999.0),
             [],
@@ -75,6 +83,7 @@ class V11DatabaseTests(unittest.TestCase):
         active = self.db.active_ama(10)
         self.assertIsNotNone(active)
         self.assertEqual(active["id"], ama_id)
+        self.assertEqual(self.db.community_stats()["open_amas"], 1)
 
         question_id = self.db.add_ama_question(
             ama_id=ama_id,
@@ -85,10 +94,15 @@ class V11DatabaseTests(unittest.TestCase):
         questions = self.db.list_ama_questions(ama_id)
         self.assertEqual(len(questions), 1)
         self.assertEqual(questions[0]["id"], question_id)
+        self.assertEqual(
+            self.db.community_stats()["pending_ama_questions"],
+            1,
+        )
 
         closed = self.db.close_ama(10)
         self.assertIsNotNone(closed)
         self.assertIsNone(self.db.active_ama(10))
+        self.assertEqual(self.db.community_stats()["open_amas"], 0)
 
         removed = self.db.prune_ama_questions(time.time() + 1)
         self.assertEqual(removed, 1)
