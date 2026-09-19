@@ -144,6 +144,18 @@ CREATE TABLE IF NOT EXISTS ai_events (
 CREATE INDEX IF NOT EXISTS idx_ai_events_created
 ON ai_events(created_at DESC);
 
+CREATE TABLE IF NOT EXISTS knowledge_gaps (
+    question_hash TEXT PRIMARY KEY,
+    sample_text TEXT NOT NULL,
+    seen_count INTEGER NOT NULL DEFAULT 1,
+    status TEXT NOT NULL DEFAULT 'open',
+    first_seen REAL NOT NULL,
+    last_seen REAL NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_knowledge_gaps_open
+ON knowledge_gaps(status, seen_count DESC, last_seen DESC);
+
 CREATE TABLE IF NOT EXISTS scheduled_messages (
     id TEXT PRIMARY KEY,
     chat_id INTEGER NOT NULL,
@@ -655,6 +667,77 @@ class ZionDB:
             ).fetchone()
         return str(row["disposition"]) if row else None
 
+    def record_knowledge_gap(
+        self,
+        *,
+        question_hash: str,
+        sample_text: str,
+    ) -> None:
+        now = time.time()
+        with self._lock:
+            self._conn.execute(
+                """
+                INSERT INTO knowledge_gaps (
+                    question_hash, sample_text, seen_count,
+                    status, first_seen, last_seen
+                )
+                VALUES (?, ?, 1, 'open', ?, ?)
+                ON CONFLICT(question_hash) DO UPDATE SET
+                    sample_text=excluded.sample_text,
+                    seen_count=knowledge_gaps.seen_count + 1,
+                    last_seen=excluded.last_seen,
+                    status=CASE
+                        WHEN knowledge_gaps.status='ignored' THEN 'ignored'
+                        ELSE 'open'
+                    END
+                """,
+                (
+                    question_hash,
+                    sample_text[:500],
+                    now,
+                    now,
+                ),
+            )
+            self._conn.commit()
+
+    def list_knowledge_gaps(
+        self,
+        limit: int = 10,
+    ) -> list[dict[str, Any]]:
+        safe_limit = max(1, min(int(limit), 50))
+        with self._lock:
+            rows = self._conn.execute(
+                """
+                SELECT question_hash, sample_text, seen_count,
+                       status, first_seen, last_seen
+                FROM knowledge_gaps
+                WHERE status='open'
+                ORDER BY seen_count DESC, last_seen DESC
+                LIMIT ?
+                """,
+                (safe_limit,),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def set_knowledge_gap_status(
+        self,
+        question_hash: str,
+        status: str,
+    ) -> bool:
+        if status not in {"open", "resolved", "ignored"}:
+            raise ValueError("invalid knowledge gap status")
+        with self._lock:
+            cursor = self._conn.execute(
+                """
+                UPDATE knowledge_gaps
+                SET status=?, last_seen=?
+                WHERE question_hash=?
+                """,
+                (status, time.time(), question_hash),
+            )
+            self._conn.commit()
+        return cursor.rowcount > 0
+
     def schedule_message(
         self,
         *,
@@ -783,6 +866,7 @@ class ZionDB:
             "incidents",
             "actions",
             "ai_events",
+            "knowledge_gaps",
         )
         result: dict[str, int] = {}
         with self._lock:
