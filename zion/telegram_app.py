@@ -2238,18 +2238,19 @@ async def scheduler_loop(application: Application) -> None:
                         * 86400
                     )
                 )
-                reports_removed = rt.db.prune_resolved_user_reports(
+                reports_redacted = rt.db.redact_resolved_user_reports(
                     now
                     - (
                         rt.settings.report_retention_days
                         * 86400
                     )
                 )
-                if gaps_removed or reports_removed:
+                if gaps_removed or reports_redacted:
                     logger.info(
-                        "Housekeeping | knowledge_gaps=%s | resolved_reports=%s",
+                        "Housekeeping | knowledge_gaps_deleted=%s | "
+                        "resolved_reports_redacted=%s",
                         gaps_removed,
-                        reports_removed,
+                        reports_redacted,
                     )
                 last_housekeeping = now
 
