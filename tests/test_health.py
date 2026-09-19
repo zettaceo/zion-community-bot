@@ -51,6 +51,23 @@ class HealthTests(unittest.TestCase):
             diagnostics["sqlite_pragmas"]["foreign_keys"],
             1,
         )
+        self.assertTrue(diagnostics["sqlite_foreign_keys_ok"])
+        self.assertEqual(
+            diagnostics["sqlite_foreign_key_violations"],
+            [],
+        )
+        self.assertEqual(
+            diagnostics["sqlite_pragmas"]["synchronous"],
+            2,
+        )
+        self.assertEqual(
+            diagnostics["sqlite_pragmas"]["wal_autocheckpoint"],
+            1000,
+        )
+        self.assertEqual(
+            diagnostics["sqlite_pragmas"]["journal_size_limit"],
+            16777216,
+        )
         self.assertGreaterEqual(
             diagnostics["sqlite_pragmas"]["busy_timeout_ms"],
             5000,
