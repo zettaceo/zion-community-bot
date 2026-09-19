@@ -150,3 +150,10 @@ ZION_AMA_RETENTION_DAYS=30
 Use `scripts/remote-access-preflight.sh` for a read-only host check after physical access is available.
 
 Follow `docs/REMOTE-ACCESS.md` for Tailscale + SSH setup and `docs/DEPLOYMENT-MODEL.md` for the deployment trust boundary.
+
+
+## Operational alert cadence
+
+Unchanged active operational conditions are not sent on every hourly health cycle. ZION records the alert signature and last-send time, then repeats an unchanged active alert only after `ZION_HEALTH_ALERT_REPEAT_SECONDS` (default: 21600 seconds / 6 hours).
+
+A changed issue set is alerted immediately. When all tracked issues clear, explicit operators receive one recovery notification.
