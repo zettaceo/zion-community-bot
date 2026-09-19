@@ -15,10 +15,10 @@ fi
 
 cd "$ROOT"
 
-echo "[1/5] Compilando Python..."
+echo "[1/6] Compilando Python..."
 "$PYTHON" -m compileall -q bot.py zion tests
 
-echo "[2/5] Testando imports..."
+echo "[2/6] Testando imports..."
 "$PYTHON" - <<'PY'
 import httpx
 import telegram
@@ -29,19 +29,22 @@ from zion.telegram_app import build_application
 print("imports: OK")
 PY
 
-echo "[3/5] Rodando unit tests..."
+echo "[3/6] Rodando unit tests..."
 "$PYTHON" -m unittest discover -s tests -v
 
-echo "[4/5] Validando shell scripts..."
+echo "[4/6] Validando shell scripts..."
 for script in scripts/*.sh; do
   /usr/bin/bash -n "$script"
 done
 
-echo "[5/5] Verificando arquivos sensíveis versionados..."
+echo "[5/6] Verificando arquivos sensíveis versionados..."
 if git ls-files | grep -E '(^|/)(\.env|zion\.db|zion\.db-wal|zion\.db-shm)$' >/dev/null; then
   echo "ERRO: arquivo sensível/runtime está versionado." >&2
   git ls-files | grep -E '(^|/)(\.env|zion\.db|zion\.db-wal|zion\.db-shm)$' >&2 || true
   exit 1
 fi
+
+echo "[6/6] Executando secret scan..."
+"$PYTHON" scripts/secret_scan.py
 
 echo "ZION VALIDATION: OK"
