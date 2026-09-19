@@ -1525,9 +1525,15 @@ async def error_handler(
     update: object,
     context: ContextTypes.DEFAULT_TYPE,
 ) -> None:
-    logger.exception(
-        "Erro não tratado no ZION.",
-        exc_info=context.error,
+    error = context.error
+    if error is None:
+        logger.error("Erro não tratado no ZION sem exceção associada.")
+        return
+
+    logger.error(
+        "Erro não tratado no ZION: %s",
+        type(error).__name__,
+        exc_info=(type(error), error, error.__traceback__),
     )
 
 
