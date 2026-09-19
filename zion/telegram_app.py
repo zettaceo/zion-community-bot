@@ -413,6 +413,10 @@ async def ai_status_command(
 
     rt = runtime(context)
     key_state = "configured" if rt.settings.mistral_api_key else "missing"
+    used = rt.ai.tokens_used_today()
+    budget = rt.settings.ai_daily_token_budget
+    budget_text = "unlimited" if budget <= 0 else str(budget)
+
     await update.effective_message.reply_text(
         "ZION AI\n"
         "Provider: Mistral AI\n"
@@ -420,6 +424,7 @@ async def ai_status_command(
         f"Enabled: {rt.settings.ai_enabled}\n"
         f"API key: {key_state}\n"
         f"Observe-only moderation: {rt.settings.ai_observe}\n"
+        f"Tokens today UTC: {used}/{budget_text}\n"
         f"Knowledge chunks: {len(rt.knowledge.chunks)}"
     )
 
