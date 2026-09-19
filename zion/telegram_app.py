@@ -1911,6 +1911,80 @@ async def command_guard_handler(
         await _enforce_flood(update, context, flood)
         raise ApplicationHandlerStop
 
+    text = message.text or message.caption or ""
+
+    sensitive = rt.guardian.sensitive_content(text)
+    if sensitive.detected:
+        deleted = await delete_message_safe(
+            context,
+            chat.id,
+            message.message_id,
+        )
+        incident_id = rt.db.create_incident(
+            chat_id=chat.id,
+            user_id=user.id,
+            category=sensitive.kind,
+            severity=Severity.CRITICAL,
+            source="guardian_command_preflight",
+            evidence={
+                "message_id": message.message_id,
+                "content_not_stored": True,
+            },
+            note=sensitive.reason,
+        )
+        rt.db.record_action(
+            incident_id=incident_id,
+            chat_id=chat.id,
+            user_id=user.id,
+            action_type="delete",
+            actor_type="guardian",
+            actor_id=None,
+            reason=sensitive.kind,
+            success=deleted,
+        )
+        try:
+            await context.bot.send_message(
+                chat_id=chat.id,
+                text=(
+                    "🚨 ZION bloqueou um comando que aparentava conter "
+                    "segredo de carteira. O conteúdo não foi processado."
+                ),
+            )
+        except Exception:
+            pass
+        raise ApplicationHandlerStop
+
+    links = rt.guardian.evaluate_links(text)
+    if links.should_delete:
+        deleted = await delete_message_safe(
+            context,
+            chat.id,
+            message.message_id,
+        )
+        incident_id = rt.db.create_incident(
+            chat_id=chat.id,
+            user_id=user.id,
+            category="unauthorized_link",
+            severity=Severity.LOW,
+            source="guardian_command_preflight",
+            evidence={
+                "domains": links.unauthorized_domains,
+                "message_id": message.message_id,
+            },
+        )
+        rt.db.record_action(
+            incident_id=incident_id,
+            chat_id=chat.id,
+            user_id=user.id,
+            action_type="delete",
+            actor_type="guardian",
+            actor_id=None,
+            reason="unauthorized_link",
+            success=deleted,
+            metadata={"domains": links.unauthorized_domains},
+        )
+        raise ApplicationHandlerStop
+
 
 async def moderation_handler(
     update: Update,
