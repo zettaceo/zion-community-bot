@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
+import re
 
 from .config import Settings
 from .db import ZionDB
@@ -12,6 +13,30 @@ from .models import AIAnswer, AIClassification
 
 
 logger = logging.getLogger("zion.ai")
+
+
+AI_CREDENTIAL_REGEX = re.compile(
+    r"(?i)\\b("
+    r"api[_ -]?key|access[_ -]?key|client[_ -]?secret|"
+    r"token|password|senha|secret|segredo"
+    r")\\b\\s*[:=\\-]\\s*([^\\s,;]{6,})"
+)
+
+TELEGRAM_TOKEN_REGEX = re.compile(
+    r"(?<![A-Za-z0-9_])\\d{6,}:[A-Za-z0-9_-]{20,}"
+)
+
+
+def sanitize_for_ai(text: str) -> str:
+    sanitized = TELEGRAM_TOKEN_REGEX.sub(
+        "[REDACTED_TELEGRAM_TOKEN]",
+        text or "",
+    )
+    sanitized = AI_CREDENTIAL_REGEX.sub(
+        lambda match: f"{match.group(1)}=[REDACTED]",
+        sanitized,
+    )
+    return sanitized
 
 
 class AIService:
@@ -44,7 +69,8 @@ class AIService:
         user_id: int | None,
         question: str,
     ) -> AIAnswer:
-        context = self.knowledge.render_context(question)
+        safe_question = sanitize_for_ai(question)
+        context = self.knowledge.render_context(safe_question)
 
         if not self.enabled:
             return AIAnswer(
@@ -55,7 +81,7 @@ class AIService:
         try:
             async with self._semaphore:
                 answer = await self.client.answer(
-                    question=question,
+                    question=safe_question,
                     context=context,
                 )
 
@@ -70,7 +96,7 @@ class AIService:
                 output_tokens=answer.output_tokens,
                 input_hash=self._hash_text(question),
                 metadata={
-                    "knowledge_hits": len(self.knowledge.search(question)),
+                    "knowledge_hits": len(self.knowledge.search(safe_question)),
                 },
             )
             return answer
@@ -106,7 +132,7 @@ class AIService:
 
         try:
             async with self._semaphore:
-                result = await self.client.classify(text)
+                result = await self.client.classify(sanitize_for_ai(text))
 
             self.db.record_ai_event(
                 chat_id=chat_id,
