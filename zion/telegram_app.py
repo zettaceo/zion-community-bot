@@ -24,7 +24,10 @@ from .db import ZionDB
 from .guardian import Guardian, normalize_policy_domain
 from .health import HealthService
 from .knowledge import KnowledgeBase
-from .logging_safe import configure_logging
+from .logging_safe import (
+    configure_logging,
+    contains_high_confidence_credential,
+)
 from .migrate import migrate_legacy_guardian_state
 from .models import FloodDecision, OperatingState, Severity
 
@@ -337,6 +340,80 @@ async def delete_message_safe(
             exc,
         )
         return False
+
+
+async def protect_credential_exposure(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    text: str,
+    *,
+    source: str,
+    notice_text: str,
+    source_message_id: int | None = None,
+    source_user_id: int | None = None,
+) -> bool:
+    if (
+        not update.effective_message
+        or not update.effective_user
+        or not update.effective_chat
+        or not contains_high_confidence_credential(text)
+    ):
+        return False
+
+    rt = runtime(context)
+    message_id_to_delete = (
+        source_message_id
+        if source_message_id is not None
+        else update.effective_message.message_id
+    )
+    user_id = (
+        source_user_id
+        if source_user_id is not None
+        else update.effective_user.id
+    )
+
+    deleted = await delete_message_safe(
+        context,
+        update.effective_chat.id,
+        message_id_to_delete,
+    )
+    incident_id = rt.db.create_incident(
+        chat_id=update.effective_chat.id,
+        user_id=user_id,
+        category="possible_credential_exposure",
+        severity=Severity.CRITICAL,
+        source=source,
+        evidence={
+            "message_id": message_id_to_delete,
+            "content_not_stored": True,
+        },
+        note=(
+            "Possível credencial de alta confiança detectada; "
+            "o conteúdo sensível não foi persistido."
+        ),
+    )
+    rt.db.record_action(
+        incident_id=incident_id,
+        chat_id=update.effective_chat.id,
+        user_id=user_id,
+        action_type="delete",
+        actor_type="guardian",
+        actor_id=None,
+        reason="possible_credential_exposure",
+        success=deleted,
+    )
+
+    try:
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text=notice_text,
+        )
+    except Exception as exc:
+        logger.warning(
+            "Falha ao enviar aviso de possível credencial: %s",
+            exc,
+        )
+    return True
 
 
 async def protect_wallet_secret(
@@ -719,6 +796,20 @@ async def protect_sensitive_command_input(
     source_message_id: int | None = None,
     source_user_id: int | None = None,
 ) -> bool:
+    if await protect_credential_exposure(
+        update,
+        context,
+        text,
+        source="guardian_ai_input",
+        notice_text=(
+            "🚨 ZION bloqueou a solicitação porque ela parece conter "
+            "uma credencial. Esse conteúdo não foi enviado à Mistral."
+        ),
+        source_message_id=source_message_id,
+        source_user_id=source_user_id,
+    ):
+        return True
+
     return await protect_wallet_secret(
         update,
         context,
