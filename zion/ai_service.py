@@ -69,6 +69,7 @@ class AIService:
         self._semaphore = asyncio.Semaphore(settings.ai_max_concurrency)
         self._budget_lock = threading.Lock()
         self._reserved_tokens = 0
+        self._accounting_healthy = True
         self._circuit_failures = self._load_int_setting(
             "ai_circuit_failures",
             0,
@@ -117,6 +118,53 @@ class AIService:
             return default
 
     @property
+    def accounting_healthy(self) -> bool:
+        return self._accounting_healthy
+
+    def _safe_set_setting(self, key: str, value: str) -> bool:
+        try:
+            self.db.set_setting(key, value)
+            return True
+        except Exception as exc:
+            logger.warning(
+                "Falha ao persistir estado interno da IA | key=%s | error=%s",
+                key,
+                type(exc).__name__,
+            )
+            return False
+
+    def _record_ai_event(self, **kwargs) -> bool:
+        try:
+            self.db.record_ai_event(**kwargs)
+            return True
+        except Exception as exc:
+            self._accounting_healthy = False
+            logger.error(
+                "AI accounting FAIL-CLOSED | event não persistido | error=%s",
+                type(exc).__name__,
+            )
+            return False
+
+    def _record_knowledge_gap(
+        self,
+        *,
+        question_hash: str,
+        sample_text: str,
+    ) -> bool:
+        try:
+            self.db.record_knowledge_gap(
+                question_hash=question_hash,
+                sample_text=sample_text,
+            )
+            return True
+        except Exception as exc:
+            logger.warning(
+                "Falha ao registrar knowledge gap | error=%s",
+                type(exc).__name__,
+            )
+            return False
+
+    @property
     def circuit_failures(self) -> int:
         return self._circuit_failures
 
@@ -142,8 +190,8 @@ class AIService:
     def _reset_circuit(self) -> None:
         self._circuit_failures = 0
         self._circuit_open_until = 0.0
-        self.db.set_setting("ai_circuit_failures", "0")
-        self.db.set_setting("ai_circuit_open_until", "0")
+        self._safe_set_setting("ai_circuit_failures", "0")
+        self._safe_set_setting("ai_circuit_open_until", "0")
 
     def _record_provider_success(self) -> None:
         if self._circuit_failures or self._circuit_open_until:
@@ -151,7 +199,7 @@ class AIService:
 
     def _record_provider_failure(self) -> None:
         self._circuit_failures += 1
-        self.db.set_setting(
+        self._safe_set_setting(
             "ai_circuit_failures",
             str(self._circuit_failures),
         )
@@ -162,7 +210,7 @@ class AIService:
         self._circuit_open_until = (
             time.time() + self.settings.ai_circuit_seconds
         )
-        self.db.set_setting(
+        self._safe_set_setting(
             "ai_circuit_open_until",
             str(self._circuit_open_until),
         )
@@ -222,17 +270,37 @@ class AIService:
     def tokens_used_today(self) -> int:
         now = time.time()
         utc_day_start = now - (now % 86400)
-        return self.db.ai_tokens_since(utc_day_start)
+        try:
+            return self.db.ai_tokens_since(utc_day_start)
+        except Exception as exc:
+            self._accounting_healthy = False
+            logger.error(
+                "AI accounting FAIL-CLOSED | leitura de tokens falhou | error=%s",
+                type(exc).__name__,
+            )
+            return 0
 
     def budget_remaining(self) -> int | None:
+        if not self._accounting_healthy:
+            return 0
+
         budget = self.settings.ai_daily_token_budget
         if budget <= 0:
             return None
-        return max(0, budget - self.tokens_used_today())
+
+        used = self.tokens_used_today()
+        if not self._accounting_healthy:
+            return 0
+        return max(0, budget - used)
 
     def budget_available(self) -> bool:
+        if not self._accounting_healthy:
+            return False
         remaining = self.budget_remaining()
-        return remaining is None or remaining > 0
+        return (
+            self._accounting_healthy
+            and (remaining is None or remaining > 0)
+        )
 
     @staticmethod
     def _hash_text(text: str) -> str:
@@ -262,11 +330,11 @@ class AIService:
         question_hash = self._hash_text(safe_question)
 
         if not context.strip():
-            self.db.record_knowledge_gap(
+            self._record_knowledge_gap(
                 question_hash=question_hash,
                 sample_text=safe_question,
             )
-            self.db.record_ai_event(
+            self._record_ai_event(
                 chat_id=chat_id,
                 user_id=user_id,
                 purpose="support_answer",
@@ -345,7 +413,7 @@ class AIService:
                     + "\n- ".join(source_labels)
                 )
 
-            self.db.record_ai_event(
+            self._record_ai_event(
                 chat_id=chat_id,
                 user_id=user_id,
                 purpose="support_answer",
@@ -367,7 +435,7 @@ class AIService:
         except Exception as exc:
             self._record_provider_failure()
             logger.warning("Falha na resposta Mistral: %s", exc)
-            self.db.record_ai_event(
+            self._record_ai_event(
                 chat_id=chat_id,
                 user_id=user_id,
                 purpose="support_answer",
@@ -437,7 +505,7 @@ class AIService:
 
             self._record_provider_success()
 
-            self.db.record_ai_event(
+            self._record_ai_event(
                 chat_id=chat_id,
                 user_id=user_id,
                 purpose="summarize",
@@ -452,7 +520,7 @@ class AIService:
         except Exception as exc:
             self._record_provider_failure()
             logger.warning("Falha no resumo Mistral: %s", exc)
-            self.db.record_ai_event(
+            self._record_ai_event(
                 chat_id=chat_id,
                 user_id=user_id,
                 purpose="summarize",
@@ -529,7 +597,7 @@ class AIService:
 
             self._record_provider_success()
 
-            self.db.record_ai_event(
+            self._record_ai_event(
                 chat_id=chat_id,
                 user_id=user_id,
                 purpose="translate",
@@ -545,7 +613,7 @@ class AIService:
         except Exception as exc:
             self._record_provider_failure()
             logger.warning("Falha na tradução Mistral: %s", exc)
-            self.db.record_ai_event(
+            self._record_ai_event(
                 chat_id=chat_id,
                 user_id=user_id,
                 purpose="translate",
@@ -598,7 +666,7 @@ class AIService:
 
             self._record_provider_success()
 
-            self.db.record_ai_event(
+            self._record_ai_event(
                 chat_id=chat_id,
                 user_id=user_id,
                 purpose="moderation_observe",
@@ -617,7 +685,7 @@ class AIService:
         except Exception as exc:
             self._record_provider_failure()
             logger.warning("Falha no classificador Mistral: %s", exc)
-            self.db.record_ai_event(
+            self._record_ai_event(
                 chat_id=chat_id,
                 user_id=user_id,
                 purpose="moderation_observe",
