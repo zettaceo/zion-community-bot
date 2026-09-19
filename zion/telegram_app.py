@@ -3470,8 +3470,33 @@ async def scheduler_loop(application: Application) -> None:
                     )
                 )
                 idempotency_deleted = rt.db.prune_idempotency_keys(now)
-                ama_questions_deleted = rt.db.prune_ama_questions(
+                ama_cutoff = (
                     now - (rt.settings.ama_retention_days * 86400)
+                )
+                ama_questions_deleted = rt.db.prune_ama_questions(
+                    ama_cutoff
+                )
+                ama_sessions_deleted = rt.db.prune_closed_ama_sessions(
+                    ama_cutoff
+                )
+                ai_events_deleted = rt.db.prune_ai_events(
+                    now
+                    - (
+                        rt.settings.ai_event_retention_days
+                        * 86400
+                    )
+                )
+                scheduled_deleted = (
+                    rt.db.prune_completed_scheduled_messages(
+                        now
+                        - (
+                            rt.settings.completed_job_retention_days
+                            * 86400
+                        )
+                    )
+                )
+                containments_deleted = (
+                    rt.db.prune_expired_containments(now)
                 )
                 if (
                     gaps_removed
@@ -3479,18 +3504,30 @@ async def scheduler_loop(application: Application) -> None:
                     or user_events_deleted
                     or idempotency_deleted
                     or ama_questions_deleted
+                    or ama_sessions_deleted
+                    or ai_events_deleted
+                    or scheduled_deleted
+                    or containments_deleted
                 ):
                     logger.info(
                         "Housekeeping | knowledge_gaps_deleted=%s | "
                         "resolved_reports_redacted=%s | "
                         "user_events_deleted=%s | "
                         "idempotency_deleted=%s | "
-                        "ama_questions_deleted=%s",
+                        "ama_questions_deleted=%s | "
+                        "ama_sessions_deleted=%s | "
+                        "ai_events_deleted=%s | "
+                        "scheduled_deleted=%s | "
+                        "containments_deleted=%s",
                         gaps_removed,
                         reports_redacted,
                         user_events_deleted,
                         idempotency_deleted,
                         ama_questions_deleted,
+                        ama_sessions_deleted,
+                        ai_events_deleted,
+                        scheduled_deleted,
+                        containments_deleted,
                     )
                 try:
                     checkpoint = rt.db.checkpoint_wal()
