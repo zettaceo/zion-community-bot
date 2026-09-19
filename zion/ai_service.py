@@ -148,6 +148,112 @@ class AIService:
                 model=self.settings.mistral_model,
             )
 
+    async def summarize(
+        self,
+        *,
+        chat_id: int | None,
+        user_id: int | None,
+        text: str,
+    ) -> AIAnswer:
+        if not self.enabled:
+            return AIAnswer(
+                text="A camada de IA Mistral do ZION ainda não está habilitada.",
+                model=self.settings.mistral_model,
+            )
+
+        safe_text = sanitize_for_ai(text)
+        try:
+            async with self._semaphore:
+                answer = await self.client.summarize(safe_text)
+
+            self.db.record_ai_event(
+                chat_id=chat_id,
+                user_id=user_id,
+                purpose="summarize",
+                model=answer.model,
+                success=True,
+                latency_ms=answer.latency_ms,
+                input_tokens=answer.input_tokens,
+                output_tokens=answer.output_tokens,
+                input_hash=self._hash_text(safe_text),
+            )
+            return answer
+        except Exception as exc:
+            logger.warning("Falha no resumo Mistral: %s", exc)
+            self.db.record_ai_event(
+                chat_id=chat_id,
+                user_id=user_id,
+                purpose="summarize",
+                model=self.settings.mistral_model,
+                success=False,
+                input_hash=self._hash_text(safe_text),
+                metadata={"error_type": type(exc).__name__},
+            )
+            return AIAnswer(
+                text="Não foi possível gerar o resumo agora.",
+                model=self.settings.mistral_model,
+            )
+
+    async def translate(
+        self,
+        *,
+        chat_id: int | None,
+        user_id: int | None,
+        text: str,
+        target_language: str,
+    ) -> AIAnswer:
+        if not self.enabled:
+            return AIAnswer(
+                text="A camada de IA Mistral do ZION ainda não está habilitada.",
+                model=self.settings.mistral_model,
+            )
+
+        safe_text = sanitize_for_ai(text)
+        safe_target = re.sub(
+            r"[^A-Za-zÀ-ÿ -]",
+            "",
+            target_language,
+        )[:40] or "English"
+
+        try:
+            async with self._semaphore:
+                answer = await self.client.translate(
+                    text=safe_text,
+                    target_language=safe_target,
+                )
+
+            self.db.record_ai_event(
+                chat_id=chat_id,
+                user_id=user_id,
+                purpose="translate",
+                model=answer.model,
+                success=True,
+                latency_ms=answer.latency_ms,
+                input_tokens=answer.input_tokens,
+                output_tokens=answer.output_tokens,
+                input_hash=self._hash_text(safe_text),
+                metadata={"target_language": safe_target},
+            )
+            return answer
+        except Exception as exc:
+            logger.warning("Falha na tradução Mistral: %s", exc)
+            self.db.record_ai_event(
+                chat_id=chat_id,
+                user_id=user_id,
+                purpose="translate",
+                model=self.settings.mistral_model,
+                success=False,
+                input_hash=self._hash_text(safe_text),
+                metadata={
+                    "target_language": safe_target,
+                    "error_type": type(exc).__name__,
+                },
+            )
+            return AIAnswer(
+                text="Não foi possível traduzir agora.",
+                model=self.settings.mistral_model,
+            )
+
     async def classify(
         self,
         *,
