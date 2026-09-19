@@ -1171,14 +1171,17 @@ class ZionDB:
         ama_id = uuid.uuid4().hex
         now = time.time()
         with self._lock:
-            self._conn.execute(
+            existing = self._conn.execute(
                 """
-                UPDATE ama_sessions
-                SET status='closed', closed_at=?
+                SELECT id
+                FROM ama_sessions
                 WHERE chat_id=? AND status='open'
+                LIMIT 1
                 """,
-                (now, chat_id),
-            )
+                (chat_id,),
+            ).fetchone()
+            if existing:
+                raise ValueError("an AMA is already open for this chat")
             self._conn.execute(
                 """
                 INSERT INTO ama_sessions (
