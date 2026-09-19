@@ -120,7 +120,7 @@ env_path = Path(os.environ["PROD_ENV"])
 load_dotenv(env_path, override=True)
 
 from zion.config import Settings
-from zion.db import ZionDB
+from zion.db import ZION_APPLICATION_ID, ZionDB
 
 settings = Settings.from_env()
 source = settings.db_path
@@ -189,12 +189,18 @@ try:
         raise RuntimeError(
             f"candidate synchronous={pragmas['synchronous']}"
         )
+    if int(pragmas["trusted_schema"]) != 0:
+        raise RuntimeError("candidate trusted_schema is not OFF")
+    if int(pragmas["application_id"]) != ZION_APPLICATION_ID:
+        raise RuntimeError("candidate application_id is not ZION")
 
     print(f"candidate_schema_version={db.schema_version()}")
     print("candidate_integrity=OK")
     print("candidate_foreign_keys=OK")
     print(f"candidate_journal_mode={pragmas['journal_mode']}")
     print(f"candidate_synchronous={pragmas['synchronous']}")
+    print(f"candidate_trusted_schema={pragmas['trusted_schema']}")
+    print(f"candidate_application_id={pragmas['application_id']}")
     print(f"candidate_db_size_bytes={db.file_size_bytes()}")
 finally:
     db.close()
