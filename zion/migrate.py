@@ -100,19 +100,20 @@ def migrate_legacy_guardian_state(db: ZionDB, state_file: Path) -> None:
             strike_count, last_strike = value
             count = max(0, int(strike_count))
             last = float(last_strike)
-            ttl = max(
-                60,
-                int(3600 - max(0.0, now - last)),
-            )
-            strikes.append(
-                (
-                    int(chat_raw),
-                    int(user_raw),
-                    count,
-                    last,
-                    ttl,
+
+            # Legacy strikes were valid for one hour from their original
+            # occurrence. Preserve that absolute expiry instead of applying
+            # a "remaining TTL" to the old occurrence timestamp.
+            if count > 0 and last + 3600 > now:
+                strikes.append(
+                    (
+                        int(chat_raw),
+                        int(user_raw),
+                        count,
+                        last,
+                        3600,
+                    )
                 )
-            )
     except Exception as exc:
         logger.warning(
             "Estado legado inválido; nenhuma alteração aplicada | error=%s",
