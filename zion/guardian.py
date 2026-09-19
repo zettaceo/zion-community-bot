@@ -234,8 +234,18 @@ class Guardian:
             message_ids=message_ids,
         )
 
-    def evaluate_links(self, text: str) -> LinkDecision:
+    def evaluate_links(
+        self,
+        text: str,
+        extra_domains: list[str] | tuple[str, ...] | None = None,
+    ) -> LinkDecision:
         domains = extract_domains(text)
+
+        for raw_domain in extra_domains or ():
+            normalized = normalize_policy_domain(raw_domain)
+            if normalized and normalized not in domains:
+                domains.append(normalized)
+
         if not domains:
             return LinkDecision()
 
