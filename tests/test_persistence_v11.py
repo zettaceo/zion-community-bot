@@ -105,6 +105,57 @@ class PersistenceHardeningTests(unittest.TestCase):
 
         self.assertEqual(target.read_bytes(), b"target")
 
+    def test_corrupt_database_is_detected_and_not_backed_up(self) -> None:
+        corrupt = self.root / "corrupt.db"
+        corrupt.write_bytes(
+            b"this is intentionally not a sqlite database" * 16
+        )
+        backup = self.root / "corrupt-backup.db"
+
+        broken = ZionDB(corrupt, readonly=True)
+        try:
+            verification = broken.verify_integrity(full=True)
+            self.assertFalse(verification["ok"])
+            with self.assertRaises(RuntimeError):
+                broken.backup_to(backup)
+            self.assertFalse(backup.exists())
+        finally:
+            broken.close()
+
+    def test_foreign_key_corruption_is_detected(self) -> None:
+        self.db.close()
+
+        raw = sqlite3.connect(self.db_path)
+        try:
+            raw.execute("PRAGMA foreign_keys=OFF")
+            raw.execute(
+                """
+                INSERT INTO ama_questions(
+                    id, ama_id, chat_id, user_id,
+                    question, status, created_at
+                )
+                VALUES (
+                    'broken-question', 'missing-session',
+                    1, 2, 'orphan', 'pending', 1
+                )
+                """
+            )
+            raw.commit()
+        finally:
+            raw.close()
+
+        self.db = ZionDB(self.db_path)
+        self.db.initialize()
+        verification = self.db.verify_integrity(full=True)
+
+        self.assertFalse(verification["ok"])
+        self.assertTrue(verification["database_ok"])
+        self.assertFalse(verification["foreign_keys_ok"])
+        self.assertGreater(
+            len(verification["foreign_key_violations"]),
+            0,
+        )
+
     def test_future_schema_is_rejected_before_mutation(self) -> None:
         future_path = self.root / "future.db"
         conn = sqlite3.connect(future_path)
@@ -386,6 +437,115 @@ class PersistenceHardeningTests(unittest.TestCase):
                 event_type="after-fk-failure",
                 since=0,
             ),
+            1,
+        )
+
+    def test_retention_prunes_ephemeral_data_not_uncertain_jobs(self) -> None:
+        old = 1000.0
+        cutoff = 2000.0
+
+        self.db.record_ai_event(
+            chat_id=1,
+            user_id=2,
+            purpose="old-ai",
+            model="test",
+            success=True,
+        )
+        self.db._conn.execute(
+            "UPDATE ai_events SET created_at=? WHERE purpose='old-ai'",
+            (old,),
+        )
+
+        sent_id = self.db.schedule_message(
+            chat_id=1,
+            send_at=old,
+            text="sent",
+            created_by=1,
+        )
+        self.assertEqual(
+            self.db.claim_scheduled_message(sent_id, now=old),
+            1,
+        )
+        self.assertEqual(
+            self.db.mark_scheduled_message(
+                sent_id,
+                success=True,
+                max_attempts=1,
+                retry_seconds=60,
+                now=old,
+            ),
+            "sent",
+        )
+
+        uncertain_id = self.db.schedule_message(
+            chat_id=1,
+            send_at=old,
+            text="uncertain",
+            created_by=1,
+        )
+        self.assertEqual(
+            self.db.claim_scheduled_message(
+                uncertain_id,
+                now=old,
+            ),
+            1,
+        )
+        self.db.quarantine_stale_delivery_claims(
+            now=cutoff,
+            stale_after_seconds=1,
+        )
+
+        self.db.set_containment(
+            chat_id=1,
+            user_id=2,
+            blocked_until=old,
+            reason="expired",
+            now=old - 10,
+        )
+
+        self.assertEqual(self.db.prune_ai_events(cutoff), 1)
+        self.assertEqual(
+            self.db.prune_completed_scheduled_messages(cutoff),
+            1,
+        )
+        self.assertEqual(
+            self.db.prune_expired_containments(cutoff),
+            1,
+        )
+
+        scheduled = self.db.list_scheduled_messages(limit=10)
+        self.assertEqual(len(scheduled), 1)
+        self.assertEqual(scheduled[0]["id"], uncertain_id)
+        self.assertEqual(scheduled[0]["status"], "uncertain")
+
+    def test_closed_ama_session_prunes_only_after_questions(self) -> None:
+        ama_id = self.db.create_ama(
+            chat_id=10,
+            title="retention",
+            created_by=1,
+        )
+        self.db.add_ama_question(
+            ama_id=ama_id,
+            chat_id=10,
+            user_id=2,
+            question="temporary",
+        )
+        self.db.close_ama(10)
+        self.db._conn.execute(
+            "UPDATE ama_sessions SET closed_at=1000 WHERE id=?",
+            (ama_id,),
+        )
+
+        self.assertEqual(
+            self.db.prune_closed_ama_sessions(2000.0),
+            0,
+        )
+        self.assertEqual(
+            self.db.prune_ama_questions(2000.0),
+            1,
+        )
+        self.assertEqual(
+            self.db.prune_closed_ama_sessions(2000.0),
             1,
         )
 
