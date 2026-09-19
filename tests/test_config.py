@@ -8,10 +8,32 @@ from pathlib import Path
 from unittest.mock import patch
 
 from tests.helpers import make_settings
-from zion.config import Settings
+from zion.config import Settings, _bool, _int_set
 
 
 class SettingsTests(unittest.TestCase):
+    def test_invalid_boolean_fails_fast(self) -> None:
+        with patch.dict(
+            os.environ,
+            {"ZION_TEST_BOOL": "tru"},
+            clear=False,
+        ):
+            with self.assertRaises(ValueError):
+                _bool("ZION_TEST_BOOL")
+
+    def test_operator_id_set_ignores_non_positive_values(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "ZION_TEST_IDS": "-100123,0,7782078379,garbage",
+            },
+            clear=False,
+        ):
+            self.assertEqual(
+                _int_set("ZION_TEST_IDS"),
+                frozenset({7782078379}),
+            )
+
     def test_configuration_issues_are_empty_for_healthy_settings(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
