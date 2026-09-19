@@ -674,11 +674,16 @@ class ZionDB:
             except OSError:
                 pass
 
+            with self._lock:
+                source_schema_version = (
+                    self._existing_schema_version_locked()
+                )
+
             return {
                 "path": str(destination),
                 "sha256": digest.hexdigest(),
                 "size_bytes": destination.stat().st_size,
-                "schema_version": self.schema_version(),
+                "schema_version": source_schema_version,
             }
         except Exception:
             if dst is not None:
