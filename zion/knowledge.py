@@ -106,6 +106,18 @@ class KnowledgeBase:
         scored.sort(key=lambda item: item[0], reverse=True)
         return [chunk for _, chunk in scored[: max(1, limit)]]
 
+    def source_labels(
+        self,
+        query: str,
+        limit: int = 4,
+    ) -> list[str]:
+        labels: list[str] = []
+        for chunk in self.search(query, limit):
+            label = f"{chunk.source} — {chunk.heading}"
+            if label not in labels:
+                labels.append(label)
+        return labels
+
     def render_context(
         self,
         query: str,
