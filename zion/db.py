@@ -473,26 +473,38 @@ class ZionDB:
         for version, name, columns in migrations:
             if version in applied:
                 continue
-            for table, column, definition in columns:
-                self._ensure_column_locked(
-                    table,
-                    column,
-                    definition,
+            with self._transaction_locked(immediate=True):
+                for table, column, definition in columns:
+                    self._ensure_column_locked(
+                        table,
+                        column,
+                        definition,
+                    )
+                self._conn.execute(
+                    """
+                    INSERT INTO schema_migrations(
+                        version, name, applied_at
+                    )
+                    VALUES (?, ?, ?)
+                    """,
+                    (version, name, time.time()),
                 )
+
+        with self._transaction_locked(immediate=True):
             self._conn.execute(
                 """
-                INSERT INTO schema_migrations(version, name, applied_at)
-                VALUES (?, ?, ?)
-                """,
-                (version, name, time.time()),
+                CREATE INDEX IF NOT EXISTS idx_scheduled_retry
+                ON scheduled_messages(status, next_attempt_at)
+                """
             )
 
-        self._conn.execute(
-            """
-            CREATE INDEX IF NOT EXISTS idx_scheduled_retry
-            ON scheduled_messages(status, next_attempt_at)
-            """
-        )
+        final_version = self._existing_schema_version_locked()
+        if final_version != SUPPORTED_SCHEMA_VERSION:
+            raise RuntimeError(
+                "Unexpected schema version after migrations: "
+                f"db=v{final_version} "
+                f"supported=v{SUPPORTED_SCHEMA_VERSION}"
+            )
 
     def schema_version(self) -> int:
         with self._lock:
@@ -523,6 +535,160 @@ class ZionDB:
         except sqlite3.Error as exc:
             return False, type(exc).__name__
 
+    def full_integrity_check(
+        self,
+    ) -> tuple[bool, list[str]]:
+        try:
+            with self._lock:
+                rows = self._conn.execute(
+                    "PRAGMA integrity_check"
+                ).fetchall()
+            messages = [str(row[0]) for row in rows] or ["no_result"]
+            return (
+                len(messages) == 1
+                and messages[0].lower() == "ok",
+                messages,
+            )
+        except sqlite3.Error as exc:
+            return False, [type(exc).__name__]
+
+    def foreign_key_check(
+        self,
+    ) -> tuple[bool, list[str]]:
+        try:
+            with self._lock:
+                rows = self._conn.execute(
+                    "PRAGMA foreign_key_check"
+                ).fetchall()
+            violations = [
+                ":".join(str(value) for value in row)
+                for row in rows
+            ]
+            return not violations, violations
+        except sqlite3.Error as exc:
+            return False, [type(exc).__name__]
+
+    def verify_integrity(
+        self,
+        *,
+        full: bool = False,
+    ) -> dict[str, Any]:
+        if full:
+            database_ok, database_messages = (
+                self.full_integrity_check()
+            )
+        else:
+            quick_ok, quick_result = self.integrity_check()
+            database_ok = quick_ok
+            database_messages = [quick_result]
+
+        foreign_keys_ok, violations = self.foreign_key_check()
+        return {
+            "ok": database_ok and foreign_keys_ok,
+            "database_ok": database_ok,
+            "database_messages": database_messages,
+            "foreign_keys_ok": foreign_keys_ok,
+            "foreign_key_violations": violations,
+        }
+
+    def backup_to(self, destination: Path) -> dict[str, Any]:
+        destination = destination.expanduser()
+        if destination.is_symlink():
+            raise RuntimeError(
+                "SQLite backup destination must not be a symlink."
+            )
+        if destination.exists():
+            raise FileExistsError(
+                f"SQLite backup already exists: {destination}"
+            )
+
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        tmp = destination.with_name(
+            destination.name + ".tmp-" + uuid.uuid4().hex
+        )
+        dst: sqlite3.Connection | None = None
+
+        try:
+            with self._lock:
+                source_integrity = self.verify_integrity(full=True)
+                if not source_integrity["ok"]:
+                    raise RuntimeError(
+                        "Source SQLite integrity verification failed."
+                    )
+
+                dst = sqlite3.connect(
+                    str(tmp),
+                    timeout=max(1.0, self.busy_timeout_ms / 1000),
+                    isolation_level=None,
+                )
+                self._conn.backup(dst)
+
+            row = dst.execute(
+                "PRAGMA integrity_check"
+            ).fetchall()
+            database_messages = [str(item[0]) for item in row]
+            if not (
+                len(database_messages) == 1
+                and database_messages[0].lower() == "ok"
+            ):
+                raise RuntimeError(
+                    "Backup SQLite integrity_check failed."
+                )
+
+            fk_rows = dst.execute(
+                "PRAGMA foreign_key_check"
+            ).fetchall()
+            if fk_rows:
+                raise RuntimeError(
+                    "Backup SQLite foreign_key_check failed."
+                )
+
+            dst.close()
+            dst = None
+
+            os.chmod(tmp, 0o600)
+            with tmp.open("rb") as handle:
+                os.fsync(handle.fileno())
+
+            digest = hashlib.sha256()
+            with tmp.open("rb") as handle:
+                for chunk in iter(
+                    lambda: handle.read(1024 * 1024),
+                    b"",
+                ):
+                    digest.update(chunk)
+
+            os.replace(tmp, destination)
+            os.chmod(destination, 0o600)
+
+            try:
+                directory_fd = os.open(
+                    destination.parent,
+                    os.O_RDONLY
+                    | getattr(os, "O_DIRECTORY", 0),
+                )
+                try:
+                    os.fsync(directory_fd)
+                finally:
+                    os.close(directory_fd)
+            except OSError:
+                pass
+
+            return {
+                "path": str(destination),
+                "sha256": digest.hexdigest(),
+                "size_bytes": destination.stat().st_size,
+                "schema_version": self.schema_version(),
+            }
+        except Exception:
+            if dst is not None:
+                dst.close()
+            try:
+                tmp.unlink()
+            except FileNotFoundError:
+                pass
+            raise
+
     def runtime_pragmas(self) -> dict[str, int | str]:
         with self._lock:
             journal_row = self._conn.execute(
@@ -533,6 +699,15 @@ class ZionDB:
             ).fetchone()
             timeout_row = self._conn.execute(
                 "PRAGMA busy_timeout"
+            ).fetchone()
+            synchronous_row = self._conn.execute(
+                "PRAGMA synchronous"
+            ).fetchone()
+            checkpoint_row = self._conn.execute(
+                "PRAGMA wal_autocheckpoint"
+            ).fetchone()
+            journal_limit_row = self._conn.execute(
+                "PRAGMA journal_size_limit"
             ).fetchone()
 
         return {
@@ -550,6 +725,21 @@ class ZionDB:
                 int(timeout_row[0])
                 if timeout_row
                 else 0
+            ),
+            "synchronous": (
+                int(synchronous_row[0])
+                if synchronous_row
+                else -1
+            ),
+            "wal_autocheckpoint": (
+                int(checkpoint_row[0])
+                if checkpoint_row
+                else -1
+            ),
+            "journal_size_limit": (
+                int(journal_limit_row[0])
+                if journal_limit_row
+                else -1
             ),
         }
 
