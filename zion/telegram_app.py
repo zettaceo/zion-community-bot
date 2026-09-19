@@ -805,6 +805,7 @@ async def diagnostics_command(
         f"SQLite FK integrity: "
         f"{'OK' if diag['sqlite_foreign_keys_ok'] else 'FAIL'}\n"
         f"SQLite synchronous: {pragmas['synchronous']} (FULL=2)\n"
+        f"SQLite trusted_schema: {pragmas['trusted_schema']} (OFF=0)\n"
         f"SQLite WAL autocheckpoint: "
         f"{pragmas['wal_autocheckpoint']} pages\n"
         f"SQLite journal size limit: "
@@ -3234,6 +3235,8 @@ async def operational_alert_cycle(
         issues.append("sqlite_foreign_keys_off")
     if int(pragmas.get("synchronous", -1)) not in {2, -1}:
         issues.append("sqlite_synchronous_not_full")
+    if int(pragmas.get("trusted_schema", -1)) not in {0, -1}:
+        issues.append("sqlite_trusted_schema_on")
     if community.get("failed_scheduled", 0) > 0:
         issues.append("scheduled_delivery_failed")
     if community.get("uncertain_scheduled", 0) > 0:
