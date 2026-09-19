@@ -4,6 +4,7 @@ import os
 import unittest
 from unittest.mock import patch
 
+from zion.ai_service import sanitize_for_ai
 from zion.logging_safe import redact_secrets
 
 
@@ -23,6 +24,16 @@ class SecurityTests(unittest.TestCase):
             "Authorization: Bearer fake-secret-value-123"
         )
         self.assertNotIn("fake-secret-value-123", result)
+
+    def test_ai_input_credential_redacted(self) -> None:
+        result = sanitize_for_ai(
+            "api_key=super-secret-user-key-123456"
+        )
+        self.assertNotIn(
+            "super-secret-user-key-123456",
+            result,
+        )
+        self.assertIn("[REDACTED]", result)
 
     def test_environment_secret_redacted(self) -> None:
         with patch.dict(
