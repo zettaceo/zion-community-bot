@@ -1900,21 +1900,40 @@ async def _enforce_flood(
     if flood.should_ban and success:
         action_text = "banido por reincidência objetiva de flood."
     elif flood.should_ban:
-        # Se o ban falhar, aplicamos contenção/mute como fallback.
+        # Se o ban falhar, aplicamos contenção/mute como fallback
+        # e registramos a segunda ação separadamente no ledger.
         rt.db.set_containment(
             chat.id,
             user.id,
             time.time() + flood.mute_seconds,
             "flood_ban_fallback",
         )
-        await mute_user_safe(
+        fallback_success = await mute_user_safe(
             context,
             chat.id,
             user.id,
             flood.mute_seconds,
         )
+        rt.db.record_action(
+            incident_id=incident_id,
+            chat_id=chat.id,
+            user_id=user.id,
+            action_type="mute",
+            actor_type="guardian",
+            actor_id=None,
+            reason="flood_ban_fallback",
+            success=fallback_success,
+            metadata={
+                "duration_seconds": flood.mute_seconds,
+            },
+        )
         action_text = (
-            "ban automático falhou; contenção preventiva aplicada."
+            "ban automático falhou; "
+            + (
+                "mute/contenção de fallback aplicado."
+                if fallback_success
+                else "contenção local mantida; mute de fallback falhou."
+            )
         )
     else:
         action_text = (
