@@ -73,6 +73,10 @@ class Settings:
     admin_cache_seconds: int
     report_retention_days: int
 
+    raid_max_joins: int
+    raid_window_seconds: int
+    raid_elevated_seconds: int
+
     ai_enabled: bool
     ai_observe: bool
     ai_min_observe_chars: int
@@ -153,6 +157,9 @@ class Settings:
             ),
             admin_cache_seconds=_int("ADMIN_CACHE_SECONDS", 60, 5),
             report_retention_days=_int("ZION_REPORT_RETENTION_DAYS", 90, 1),
+            raid_max_joins=_int("ZION_RAID_MAX_JOINS", 8, 2),
+            raid_window_seconds=_int("ZION_RAID_WINDOW_SECONDS", 60, 10),
+            raid_elevated_seconds=_int("ZION_RAID_ELEVATED_SECONDS", 900, 60),
             ai_enabled=_bool("ZION_AI_ENABLED", False),
             ai_observe=_bool("ZION_AI_OBSERVE", False),
             ai_min_observe_chars=_int("ZION_AI_MIN_OBSERVE_CHARS", 16, 1),
