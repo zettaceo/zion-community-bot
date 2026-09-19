@@ -192,8 +192,6 @@ CREATE TABLE IF NOT EXISTS scheduled_messages (
 CREATE INDEX IF NOT EXISTS idx_scheduled_pending
 ON scheduled_messages(status, send_at);
 
-CREATE INDEX IF NOT EXISTS idx_scheduled_retry
-ON scheduled_messages(status, next_attempt_at);
 
 CREATE TABLE IF NOT EXISTS recurring_messages (
     id TEXT PRIMARY KEY,
