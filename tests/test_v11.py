@@ -153,6 +153,30 @@ class V11DatabaseTests(unittest.TestCase):
         )
         self.assertEqual(state, "sent")
 
+    def test_scheduled_cancellation_is_chat_scoped(self) -> None:
+        schedule_id = self.db.schedule_message(
+            chat_id=10,
+            send_at=2000.0,
+            text="cancel me",
+            created_by=1,
+        )
+        self.assertFalse(
+            self.db.cancel_scheduled_message(
+                schedule_id[:8],
+                chat_id=999,
+            )
+        )
+        self.assertTrue(
+            self.db.cancel_scheduled_message(
+                schedule_id[:8],
+                chat_id=10,
+            )
+        )
+        self.assertEqual(
+            self.db.due_scheduled_messages(now=9999.0),
+            [],
+        )
+
     def test_recurring_delivery_pauses_and_can_resume(self) -> None:
         schedule_id = self.db.schedule_recurring_message(
             chat_id=10,
