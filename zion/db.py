@@ -16,6 +16,7 @@ from .models import OperatingState, Severity
 
 SUPPORTED_SCHEMA_VERSION = 2
 DEFAULT_BUSY_TIMEOUT_MS = 5000
+ZION_APPLICATION_ID = 0x5A494F4E  # ASCII "ZION"
 
 SCHEMA = """
 PRAGMA journal_mode=WAL;
@@ -328,6 +329,8 @@ class ZionDB:
                 "Cannot initialize schema through a read-only ZionDB."
             )
         with self._lock:
+            self._validate_or_adopt_application_id_locked()
+
             existing_version = self._existing_schema_version_locked()
             if existing_version > SUPPORTED_SCHEMA_VERSION:
                 raise RuntimeError(
@@ -342,6 +345,56 @@ class ZionDB:
         if self.get_setting("operating_state") is None:
             self.set_setting("operating_state", OperatingState.NORMAL.value)
         self._secure_runtime_permissions()
+
+    def _application_id_locked(self) -> int:
+        row = self._conn.execute(
+            "PRAGMA application_id"
+        ).fetchone()
+        return int(row[0]) if row else 0
+
+    def _validate_or_adopt_application_id_locked(self) -> None:
+        application_id = self._application_id_locked()
+        if application_id == ZION_APPLICATION_ID:
+            return
+        if application_id != 0:
+            raise RuntimeError(
+                "SQLite file belongs to another application: "
+                f"application_id={application_id}"
+            )
+
+        rows = self._conn.execute(
+            """
+            SELECT name
+            FROM sqlite_master
+            WHERE type='table'
+              AND name NOT LIKE 'sqlite_%'
+            """
+        ).fetchall()
+        tables = {str(row["name"]) for row in rows}
+
+        if not tables:
+            self._conn.execute(
+                f"PRAGMA application_id={ZION_APPLICATION_ID}"
+            )
+            return
+
+        legacy_signatures = (
+            {"incidents", "actions", "settings"},
+            {"scheduled_messages", "recurring_messages"},
+            {"users", "strikes", "containments", "recent_messages"},
+        )
+        if not any(
+            signature.issubset(tables)
+            for signature in legacy_signatures
+        ):
+            raise RuntimeError(
+                "Refusing to initialize an unidentified non-empty "
+                "SQLite database."
+            )
+
+        self._conn.execute(
+            f"PRAGMA application_id={ZION_APPLICATION_ID}"
+        )
 
     def _existing_schema_version_locked(self) -> int:
         row = self._conn.execute(
@@ -716,6 +769,9 @@ class ZionDB:
             trusted_schema_row = self._conn.execute(
                 "PRAGMA trusted_schema"
             ).fetchone()
+            application_id_row = self._conn.execute(
+                "PRAGMA application_id"
+            ).fetchone()
 
         return {
             "journal_mode": (
@@ -752,6 +808,11 @@ class ZionDB:
                 int(trusted_schema_row[0])
                 if trusted_schema_row
                 else -1
+            ),
+            "application_id": (
+                int(application_id_row[0])
+                if application_id_row
+                else 0
             ),
         }
 
