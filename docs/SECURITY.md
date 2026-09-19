@@ -78,3 +78,17 @@ Mistral use is protected by:
 - a daily token budget.
 
 Exhausting AI resources does not disable deterministic moderation.
+
+## Provider failure isolation
+
+Consecutive Mistral failures open a persistent circuit breaker. While open, new AI calls are rejected locally instead of repeatedly contacting an unhealthy provider.
+
+Provider failure cannot disable deterministic moderation.
+
+## Bounded support-query retention
+
+ZION does not persist ordinary community message bodies.
+
+A narrow exception exists for explicit support questions that have no approved knowledge match: a sanitized sample is stored as a knowledge gap so administrators can improve the official knowledge base.
+
+These samples have bounded retention and are automatically pruned.
