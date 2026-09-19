@@ -8,7 +8,11 @@ from pathlib import Path
 from unittest.mock import patch
 
 from zion.ai_service import sanitize_for_ai
-from zion.logging_safe import configure_logging, redact_secrets
+from zion.logging_safe import (
+    configure_logging,
+    contains_high_confidence_credential,
+    redact_secrets,
+)
 
 
 class SecurityTests(unittest.TestCase):
@@ -53,6 +57,27 @@ class SecurityTests(unittest.TestCase):
         result = sanitize_for_ai(text)
         self.assertNotIn("alpha beta gamma", result)
         self.assertIn("[REDACTED_WALLET_SECRET]", result)
+
+    def test_labeled_api_key_is_high_confidence_credential(self) -> None:
+        self.assertTrue(
+            contains_high_confidence_credential(
+                "API key: example-secret-value-123456"
+            )
+        )
+
+    def test_crypto_token_parameter_is_not_treated_as_credential(self) -> None:
+        self.assertFalse(
+            contains_high_confidence_credential(
+                "token=USDC"
+            )
+        )
+
+    def test_bearer_is_high_confidence_credential(self) -> None:
+        self.assertTrue(
+            contains_high_confidence_credential(
+                "Authorization: Bearer example-secret-value-123"
+            )
+        )
 
     def test_environment_secret_redacted(self) -> None:
         with patch.dict(
