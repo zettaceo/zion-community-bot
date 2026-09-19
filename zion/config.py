@@ -106,6 +106,8 @@ class Settings:
     user_event_retention_days: int
     idempotency_retention_days: int
     knowledge_gap_retention_days: int
+    ai_event_retention_days: int
+    completed_job_retention_days: int
 
     raid_max_joins: int
     raid_window_seconds: int
@@ -271,6 +273,16 @@ class Settings:
             ),
             knowledge_gap_retention_days=_int(
                 "ZION_KNOWLEDGE_GAP_RETENTION_DAYS",
+                30,
+                1,
+            ),
+            ai_event_retention_days=_int(
+                "ZION_AI_EVENT_RETENTION_DAYS",
+                90,
+                1,
+            ),
+            completed_job_retention_days=_int(
+                "ZION_COMPLETED_JOB_RETENTION_DAYS",
                 30,
                 1,
             ),
