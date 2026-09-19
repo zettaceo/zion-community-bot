@@ -10,13 +10,13 @@ STATE_DIR="/home/zetta/.local/state/zion-community-bot"
 
 cd "$ROOT"
 
-echo "[1/12] Conferindo ambiente virtual..."
+echo "[1/13] Conferindo ambiente virtual..."
 if [[ ! -x "$PYTHON" ]]; then
   echo "ERRO: $PYTHON não existe." >&2
   exit 1
 fi
 
-echo "[2/12] Conferindo worktree e commit..."
+echo "[2/13] Conferindo worktree e commit..."
 if ! git diff --quiet || ! git diff --cached --quiet; then
   echo "ERRO: existem alterações rastreadas não commitadas." >&2
   exit 1
@@ -31,25 +31,107 @@ if [[ -n "${ZION_EXPECTED_COMMIT:-}" ]] \
   exit 1
 fi
 
-echo "[3/12] Conferindo dependências sem alterar o ambiente..."
-"$PYTHON" - <<'PY'
-import httpx
-import telegram
-from dotenv import load_dotenv
-print("dependencies: OK")
-PY
+echo "[3/13] Conferindo compatibilidade do runtime..."
+"$PYTHON" "$ROOT/scripts/check-runtime.py"
 
-echo "[4/12] Validando código, testes, shell e segredos..."
+echo "[4/13] Validando código, testes, shell e segredos..."
 bash "$ROOT/scripts/validate.sh"
 
-echo "[5/12] Conferindo arquivo systemd autoritativo..."
+echo "[5/13] Conferindo arquivo systemd autoritativo..."
 if [[ ! -f "$SERVICE_SRC" ]]; then
   echo "ERRO: $SERVICE_SRC não existe." >&2
   exit 1
 fi
 /usr/bin/systemd-analyze verify "$SERVICE_SRC"
 
-echo "[6/12] Preparando diretório privado de estado compartilhado..."
+echo "[6/13] Validando configuração e conhecimento ANTES do stop..."
+"$PYTHON" - <<'PY'
+import stat
+from pathlib import Path
+
+from zion.config import Settings
+from zion.knowledge import KnowledgeBase
+from zion.mistral import MistralClient
+
+settings = Settings.from_env()
+env_path = settings.root_dir / ".env"
+
+if not env_path.is_file() or env_path.is_symlink():
+    raise RuntimeError(".env ausente ou symlink")
+
+mode = stat.S_IMODE(env_path.stat().st_mode)
+if mode & 0o077:
+    raise RuntimeError(
+        f".env possui permissões excessivas: {oct(mode)}"
+    )
+
+if not settings.telegram_token:
+    raise RuntimeError("TELEGRAM_BOT_TOKEN ausente")
+
+issues = settings.configuration_issues()
+if issues:
+    raise RuntimeError(
+        "configuration issues: " + ",".join(issues)
+    )
+
+if settings.ai_enabled and not MistralClient(settings).configured:
+    raise RuntimeError(
+        "IA habilitada sem configuração Mistral oficial completa"
+    )
+
+knowledge = KnowledgeBase(settings.knowledge_dir)
+if not knowledge.chunks:
+    raise RuntimeError("knowledge base vazia")
+if knowledge.load_errors:
+    raise RuntimeError(
+        "knowledge load errors: " + ",".join(knowledge.load_errors)
+    )
+
+root = settings.root_dir.resolve()
+state = (
+    Path.home()
+    / ".local"
+    / "state"
+    / "zion-community-bot"
+).resolve()
+
+def under(path: Path, parent: Path) -> bool:
+    try:
+        path.resolve(strict=False).relative_to(parent)
+        return True
+    except ValueError:
+        return False
+
+if not (
+    under(settings.db_path, root)
+    or under(settings.db_path, state)
+):
+    raise RuntimeError(
+        "ZION_DB_PATH fora das áreas graváveis do sandbox systemd"
+    )
+
+if not (
+    under(settings.log_path, root)
+    or under(settings.log_path, state)
+):
+    raise RuntimeError(
+        "ZION_LOG_PATH fora das áreas graváveis do sandbox systemd"
+    )
+
+if not under(settings.runtime_lock_path, state):
+    raise RuntimeError(
+        "ZION_RUNTIME_LOCK_PATH fora do state dir compartilhado"
+    )
+
+print(
+    "config readiness: OK | "
+    f"operators={len(settings.admin_user_ids)} | "
+    f"knowledge_chunks={len(knowledge.chunks)} | "
+    f"ai_enabled={settings.ai_enabled}"
+)
+PY
+
+echo "[7/13] Preparando diretório privado de estado compartilhado..."
 sudo /usr/bin/install \
   -d \
   -o zetta \
@@ -57,7 +139,7 @@ sudo /usr/bin/install \
   -m 0700 \
   "$STATE_DIR"
 
-echo "[7/12] Criando e verificando backup local antes de parar ZION..."
+echo "[8/13] Criando e verificando backup antes de parar ZION..."
 mkdir -p "$BACKUP_DIR"
 chmod 700 "$BACKUP_DIR"
 
@@ -67,52 +149,87 @@ mkdir -p "$DEST"
 chmod 700 "$DEST"
 
 printf '%s\n' "$CURRENT_HEAD" > "$DEST/git-head.txt"
-chmod 600 "$DEST/git-head.txt"
-
-if [[ -f "$ROOT/.env" ]]; then
-  cp -a "$ROOT/.env" "$DEST/.env"
-  chmod 600 "$DEST/.env"
-fi
-
-if [[ -f "$ROOT/zion_state.json" ]]; then
-  cp -a "$ROOT/zion_state.json" "$DEST/zion_state.json"
-  chmod 600 "$DEST/zion_state.json"
-fi
+git status --short --branch > "$DEST/git-status.txt"
+stat -c 'mode=%a owner=%U group=%G' "$ROOT/.env" > "$DEST/env-metadata.txt"
+sha256sum "$ROOT/.env" > "$DEST/env.sha256"
+chmod 600 \
+  "$DEST/git-head.txt" \
+  "$DEST/git-status.txt" \
+  "$DEST/env-metadata.txt" \
+  "$DEST/env.sha256"
 
 if [[ -f "$SERVICE_DST" ]]; then
   cp -a "$SERVICE_DST" "$DEST/zion.service.installed"
   chmod 600 "$DEST/zion.service.installed"
 fi
 
-if [[ -f "$ROOT/zion.db" ]]; then
-  "$PYTHON" - <<PY
+DEST="$DEST" "$PYTHON" - <<'PY'
 import os
+import shutil
 import sqlite3
 from pathlib import Path
 
-source = Path("$ROOT/zion.db")
-target = Path("$DEST/zion.db")
+from zion.config import Settings
 
-src = sqlite3.connect(str(source))
-dst = sqlite3.connect(str(target))
-try:
-    src.backup(dst)
-    row = dst.execute("PRAGMA quick_check").fetchone()
-    result = str(row[0]) if row else "no_result"
-    if result.lower() != "ok":
-        raise RuntimeError(
-            f"backup SQLite quick_check failed: {result}"
+settings = Settings.from_env()
+dest = Path(os.environ["DEST"])
+
+if settings.legacy_state_path.is_file():
+    target = dest / "zion_state.json"
+    shutil.copy2(settings.legacy_state_path, target)
+    os.chmod(target, 0o600)
+
+source = settings.db_path
+if source.is_file():
+    target = dest / "zion.db"
+    src = sqlite3.connect(
+        source.resolve().as_uri() + "?mode=ro",
+        uri=True,
+        timeout=5,
+    )
+    dst = sqlite3.connect(str(target))
+    try:
+        source_check = src.execute(
+            "PRAGMA quick_check"
+        ).fetchone()
+        source_result = (
+            str(source_check[0])
+            if source_check
+            else "no_result"
         )
-finally:
-    dst.close()
-    src.close()
+        if source_result.lower() != "ok":
+            raise RuntimeError(
+                f"source SQLite quick_check failed: {source_result}"
+            )
 
-os.chmod(target, 0o600)
-print(f"sqlite backup: OK ({target})")
+        src.backup(dst)
+
+        backup_check = dst.execute(
+            "PRAGMA quick_check"
+        ).fetchone()
+        backup_result = (
+            str(backup_check[0])
+            if backup_check
+            else "no_result"
+        )
+        if backup_result.lower() != "ok":
+            raise RuntimeError(
+                f"backup SQLite quick_check failed: {backup_result}"
+            )
+    finally:
+        dst.close()
+        src.close()
+
+    os.chmod(target, 0o600)
+    print(
+        f"sqlite backup: OK | source={source_result} | "
+        f"backup={backup_result}"
+    )
+else:
+    print("sqlite backup: source database not present yet")
 PY
-fi
 
-echo "[8/12] Parando ZION somente após validação e backup..."
+echo "[9/13] Parando ZION somente após todos os gates e backup..."
 sudo /usr/bin/systemctl stop zion.service
 
 if /usr/bin/systemctl is-active --quiet zion.service; then
@@ -120,7 +237,7 @@ if /usr/bin/systemctl is-active --quiet zion.service; then
   exit 1
 fi
 
-echo "[9/12] Inicializando/migrando banco local..."
+echo "[10/13] Inicializando/migrando banco local..."
 "$PYTHON" - <<'PY'
 from zion.config import Settings
 from zion.db import ZionDB
@@ -130,14 +247,20 @@ settings = Settings.from_env()
 db = ZionDB(settings.db_path)
 try:
     db.initialize()
-    migrate_legacy_guardian_state(db, settings.legacy_state_path)
+    migrate_legacy_guardian_state(
+        db,
+        settings.legacy_state_path,
+    )
+
     if not db.ping():
         raise RuntimeError("database ping failed")
+
     integrity_ok, integrity_result = db.integrity_check()
     if not integrity_ok:
         raise RuntimeError(
             f"SQLite quick_check failed: {integrity_result}"
         )
+
     pragmas = db.runtime_pragmas()
     if pragmas["journal_mode"] != "wal":
         raise RuntimeError(
@@ -145,6 +268,7 @@ try:
         )
     if int(pragmas["foreign_keys"]) != 1:
         raise RuntimeError("SQLite foreign_keys está desativado")
+
     print(
         f"database: OK ({settings.db_path}) | "
         f"schema=v{db.schema_version()} | "
@@ -154,7 +278,7 @@ finally:
     db.close()
 PY
 
-echo "[10/12] Instalando unit autoritativa..."
+echo "[11/13] Instalando unit autoritativa..."
 sudo /usr/bin/install \
   -o root \
   -g root \
@@ -165,7 +289,7 @@ sudo /usr/bin/install \
 sudo /usr/bin/systemctl daemon-reload
 sudo /usr/bin/systemctl enable zion.service >/dev/null
 
-echo "[11/12] Iniciando ZION..."
+echo "[12/13] Iniciando ZION..."
 sudo /usr/bin/systemctl start zion.service
 
 for _ in $(seq 1 20); do
@@ -175,7 +299,7 @@ for _ in $(seq 1 20); do
   sleep 1
 done
 
-echo "[12/12] Estado final..."
+echo "[13/13] Estado final..."
 sudo /usr/bin/systemctl status zion.service --no-pager --full
 echo
 /usr/bin/systemctl show zion.service \
@@ -194,4 +318,5 @@ echo
 echo "Deploy modular concluído."
 echo "Commit implantado: $CURRENT_HEAD"
 echo "Backup pré-deploy verificado: $DEST"
+echo "A .env NÃO foi duplicada no backup; somente metadados/hash foram salvos."
 echo "Teste /status e, como operador, /health, /diagnostics, /jobs e /aistatus."
