@@ -48,3 +48,10 @@ AMA question text is stored temporarily to organize the session. Questions from 
 ZION may temporarily enter ELEVATED mode when it detects a mass join or a distributed message burst. ELEVATED mode tightens deterministic flood controls. A distributed-burst signal alone does not mute or ban an individual.
 
 ZION operators can inspect deeper diagnostics, while public status intentionally exposes less operational detail.
+
+
+# Credential Exposure
+
+ZION may remove a message that appears to expose a high-confidence credential such as a Telegram bot token, Bearer authorization value, labeled API key/password or a secret already configured in its own local environment. This protection also applies to administrators.
+
+If a real credential is ever posted, it should be revoked or rotated immediately.
