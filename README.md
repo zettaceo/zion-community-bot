@@ -107,6 +107,13 @@ Admin:
 - `/allowdomain example.com`
 - `/blockdomain example.com`
 - `/schedule <ISO8601-with-timezone> <message>`
+- `/recurring <interval> <ISO8601-with-timezone> <message>`
+- `/cancelrecurring <id>`
+- `/amaopen <tema>`
+- `/ama <pergunta>`
+- `/amalist`
+- `/amaclose`
+- `/diagnostics`
 - `/reloadkb`
 
 ## Source of truth
@@ -164,3 +171,22 @@ ZION distinguishes two privilege levels:
 - **ZION operator**: user ID explicitly listed in `ZION_ADMIN_USER_IDS`. Required for global/system controls and telemetry such as state/lockdown, domain policy, incidents, Mistral status/budget, knowledge gaps and knowledge reload.
 
 This prevents an administrator from an unrelated group from changing global ZION policy.
+
+
+## ZION v1.1 development
+
+The v1.1 branch extends the modular baseline without granting AI punitive authority.
+
+New development surfaces include:
+- bilingual PT-BR/EN onboarding and help;
+- recurring announcements;
+- AMA question collection with bounded retention;
+- section-level knowledge source labels;
+- stronger prompt-injection boundaries;
+- Unicode/IDNA link normalization;
+- distributed chat-burst detection that only raises temporary ELEVATED mode;
+- SQLite quick-check, DB size, Telegram update-lag and AI latency diagnostics;
+- deduplicated operational alerts to explicit ZION operators;
+- private Tailscale + SSH remote-access runbook.
+
+Production remains on the explicitly deployed stable commit until a separate review and cutover is approved.
