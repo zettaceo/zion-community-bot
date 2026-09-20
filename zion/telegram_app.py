@@ -146,6 +146,7 @@ class Runtime:
             self.update_lags: deque[float] = deque(maxlen=100)
             self.health_alert_signature: str | None = None
             self.health_alert_last_sent_at = 0.0
+            self.health_alert_persistence_dirty = False
             self.housekeeping_last_error: str | None = None
             self.wal_checkpoint_last_error: str | None = None
             self.state_maintenance_last_error: str | None = None
@@ -4000,11 +4001,13 @@ async def operational_alert_cycle(
     last_sent_at = rt.health_alert_last_sent_at
     persistence_read_ok = True
 
-    # Persistent dedup state hydrates a fresh Runtime once. After that,
-    # in-memory state is authoritative for this single locked process.
-    # This preserves a confirmed Telegram delivery even when a later
-    # SQLite dedup write failed, preventing premature duplicate alerts.
-    if previous is None:
+    # Normally persisted dedup state is authoritative so restarts and
+    # the configured repeat interval keep their historical semantics.
+    # If a dedup write failed after a confirmed Telegram delivery, the
+    # live single-process state becomes authoritative until persistence
+    # succeeds again; otherwise a stale DB value could cause premature
+    # duplicate notifications.
+    if not rt.health_alert_persistence_dirty:
         try:
             persisted = rt.db.get_setting("health_alert_signature")
             if persisted is not None:
@@ -4017,6 +4020,7 @@ async def operational_alert_cycle(
             last_sent_at = float(raw_last_sent)
         except Exception as exc:
             persistence_read_ok = False
+            rt.health_alert_persistence_dirty = True
             logger.warning(
                 "Health alert persistence indisponível: %s",
                 type(exc).__name__,
@@ -4090,7 +4094,9 @@ async def operational_alert_cycle(
         try:
             rt.db.set_setting("health_alert_signature", "OK")
             rt.db.set_setting("health_alert_last_sent_at", "0")
+            rt.health_alert_persistence_dirty = False
         except Exception as exc:
+            rt.health_alert_persistence_dirty = True
             logger.warning(
                 "Recuperação entregue, mas persistência do dedup falhou: %s",
                 type(exc).__name__,
@@ -4186,7 +4192,9 @@ async def operational_alert_cycle(
     try:
         rt.db.set_setting("health_alert_signature", signature)
         rt.db.set_setting("health_alert_last_sent_at", str(now))
+        rt.health_alert_persistence_dirty = False
     except Exception as exc:
+        rt.health_alert_persistence_dirty = True
         logger.warning(
             "Alerta entregue, mas persistência do dedup falhou: %s",
             type(exc).__name__,
