@@ -96,7 +96,11 @@ def normalize_link_target(value: str) -> tuple[str | None, str | None]:
     if not scheme:
         raw = "https://" + raw
 
-    return _normalize_domain(raw), None
+    domain = _normalize_domain(raw)
+    if scheme in ALLOWED_LINK_SCHEMES and not domain:
+        return None, f"invalid-{scheme}"
+
+    return domain, None
 
 
 def _normalize_domain(raw_url: str) -> str | None:
