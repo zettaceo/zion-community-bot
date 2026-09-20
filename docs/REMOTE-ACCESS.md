@@ -38,9 +38,11 @@ Remote access and bot deployment are separate changes. Applying SSH/Tailscale co
 7. Never close the bootstrap session until a second independent session succeeds.
 8. Root SSH login, password auth, keyboard-interactive auth, agent forwarding, TCP forwarding, X11 forwarding and tunnels stay disabled.
 9. SSH hardening does not replace Tailnet policy or host firewall policy.
-10. Do not install a privileged GitHub Actions self-hosted runner on the production host.
-11. Do not change the USB Wi-Fi topology or reboot the Acer as part of remote-access setup.
-12. `.env`, SQLite runtime files and host backups remain outside GitHub.
+10. This design uses ordinary OpenSSH over Tailscale. Do not enable Tailscale SSH, Funnel or Serve as part of this block unless they receive a separate review.
+11. Review every entry in `authorized_keys`; no unknown or stale key is acceptable.
+12. Do not install a privileged GitHub Actions self-hosted runner on the production host.
+13. Do not change the USB Wi-Fi topology or reboot the Acer as part of remote-access setup.
+14. `.env`, SQLite runtime files and host backups remain outside GitHub.
 
 ## Phase 0 — physical-console prerequisites
 
@@ -87,6 +89,8 @@ chmod 600 ~/.ssh/authorized_keys
 ```
 
 Append the **public** Android key once. Do not replace existing authorized keys blindly.
+
+Inventory every existing line in `authorized_keys`. Each retained key must have a known owner/device and current operational reason. Remove an unknown/stale key only from a physical console or while a second proven session remains available.
 
 Verify ownership:
 
@@ -224,6 +228,7 @@ Before any remote deployment, manually verify:
 - no cloud/VPN forwarding exposes SSH publicly;
 - intended devices/users are the only Tailnet principals allowed to reach the Acer;
 - device approval/key-expiry policy is acceptable;
+- Tailscale SSH, Funnel and Serve are not enabled unless separately reviewed;
 - host firewall rules do not unintentionally expose SSH on an untrusted interface.
 
 If firewall rules are tightened, do it while two SSH sessions are available and test a third session before closing either existing connection.
