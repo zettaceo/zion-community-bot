@@ -75,6 +75,14 @@ else
   fail "candidate local Git boundary validation failed"
 fi
 
+if [[ -x "$SYSTEM_PYTHON" ]] \
+  && "$SYSTEM_PYTHON" -I "$SCRIPT_ROOT/scripts/check-python-release-env.py" \
+    >/dev/null; then
+  pass "release Python environment is clean"
+else
+  fail "release shell contains forbidden PYTHON* environment variables"
+fi
+
 if [[ ! -d "$ROOT/.git" && ! -f "$ROOT/.git" ]]; then
   fail "production Git worktree not found at $ROOT"
 else
