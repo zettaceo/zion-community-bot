@@ -7,6 +7,9 @@ SERVICE_SRC="$ROOT/systemd/zion.service"
 SERVICE_DST="/etc/systemd/system/zion.service"
 BACKUP_DIR="$ROOT/backups"
 STATE_DIR="/home/zetta/.local/state/zion-community-bot"
+EXPECTED_COMMIT="${ZION_EXPECTED_COMMIT:-}"
+APPROVED_REF="${ZION_APPROVED_REF:-origin/zion-v1}"
+PREVIOUS_COMMIT="${ZION_PREVIOUS_COMMIT:-}"
 
 cd "$ROOT"
 
@@ -25,10 +28,30 @@ fi
 CURRENT_HEAD="$(git rev-parse HEAD)"
 echo "HEAD=$CURRENT_HEAD"
 
-if [[ -n "${ZION_EXPECTED_COMMIT:-}" ]] \
-  && [[ "$CURRENT_HEAD" != "$ZION_EXPECTED_COMMIT" ]]; then
+if [[ ! "$EXPECTED_COMMIT" =~ ^[0-9a-fA-F]{40}$ ]]; then
+  echo "ERRO: ZION_EXPECTED_COMMIT é obrigatório e deve ser SHA completo." >&2
+  exit 1
+fi
+if [[ "$CURRENT_HEAD" != "$EXPECTED_COMMIT" ]]; then
   echo "ERRO: HEAD diferente de ZION_EXPECTED_COMMIT." >&2
   exit 1
+fi
+
+APPROVED_SHA="$(git rev-parse "$APPROVED_REF^{commit}" 2>/dev/null || true)"
+if [[ "$APPROVED_SHA" != "$EXPECTED_COMMIT" ]]; then
+  echo "ERRO: $APPROVED_REF não aponta para ZION_EXPECTED_COMMIT." >&2
+  exit 1
+fi
+
+if [[ -n "$PREVIOUS_COMMIT" ]]; then
+  if [[ ! "$PREVIOUS_COMMIT" =~ ^[0-9a-fA-F]{40}$ ]]; then
+    echo "ERRO: ZION_PREVIOUS_COMMIT inválido." >&2
+    exit 1
+  fi
+  if ! git cat-file -e "$PREVIOUS_COMMIT^{commit}" 2>/dev/null; then
+    echo "ERRO: ZION_PREVIOUS_COMMIT não existe localmente." >&2
+    exit 1
+  fi
 fi
 
 echo "[3/13] Conferindo compatibilidade do runtime..."
@@ -149,14 +172,24 @@ mkdir -p "$DEST"
 chmod 700 "$DEST"
 
 printf '%s\n' "$CURRENT_HEAD" > "$DEST/git-head.txt"
+printf '%s\n' "$APPROVED_REF" > "$DEST/approved-ref.txt"
+printf '%s\n' "$APPROVED_SHA" > "$DEST/approved-sha.txt"
+if [[ -n "$PREVIOUS_COMMIT" ]]; then
+  printf '%s\n' "$PREVIOUS_COMMIT" > "$DEST/rollback-head.txt"
+fi
 git status --short --branch > "$DEST/git-status.txt"
 stat -c 'mode=%a owner=%U group=%G' "$ROOT/.env" > "$DEST/env-metadata.txt"
 sha256sum "$ROOT/.env" > "$DEST/env.sha256"
 chmod 600 \
   "$DEST/git-head.txt" \
+  "$DEST/approved-ref.txt" \
+  "$DEST/approved-sha.txt" \
   "$DEST/git-status.txt" \
   "$DEST/env-metadata.txt" \
   "$DEST/env.sha256"
+if [[ -f "$DEST/rollback-head.txt" ]]; then
+  chmod 600 "$DEST/rollback-head.txt"
+fi
 
 if [[ -f "$SERVICE_DST" ]]; then
   cp -a "$SERVICE_DST" "$DEST/zion.service.installed"
