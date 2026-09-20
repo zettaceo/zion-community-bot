@@ -14,6 +14,7 @@ EXPECTED_REPO="zettaceo/zion-community-bot"
 RUNTIME_BASE="/home/zetta/.local/share/zion-community-bot/runtimes"
 PYTHON="$RUNTIME_BASE/$EXPECTED/bin/python"
 EXPECTED_USER="zetta"
+SAFE_GIT_SSH_COMMAND="/usr/bin/ssh -F /dev/null -o BatchMode=yes -o StrictHostKeyChecking=yes -o ProxyCommand=none -o ProxyJump=none -o PermitLocalCommand=no"
 
 if [[ ! "$EXPECTED" =~ ^[0-9a-fA-F]{40}$ ]]; then
   echo "ERRO: ZION_DEPLOY_COMMIT deve ser um SHA completo de 40 caracteres." >&2
@@ -54,9 +55,9 @@ case "$origin_url" in
 esac
 
 if command -v timeout >/dev/null 2>&1; then
-  remote_line="$(timeout 20 env GIT_TERMINAL_PROMPT=0 /usr/bin/git -C "$ROOT" ls-remote --exit-code origin "refs/heads/$REMOTE_BRANCH" 2>/dev/null | head -n1 || true)"
+  remote_line="$(timeout 20 env GIT_TERMINAL_PROMPT=0 /usr/bin/git -c "core.sshCommand=$SAFE_GIT_SSH_COMMAND" -c ssh.variant=ssh -C "$ROOT" ls-remote --exit-code origin "refs/heads/$REMOTE_BRANCH" 2>/dev/null | head -n1 || true)"
 else
-  remote_line="$(env GIT_TERMINAL_PROMPT=0 /usr/bin/git -C "$ROOT" ls-remote --exit-code origin "refs/heads/$REMOTE_BRANCH" 2>/dev/null | head -n1 || true)"
+  remote_line="$(env GIT_TERMINAL_PROMPT=0 /usr/bin/git -c "core.sshCommand=$SAFE_GIT_SSH_COMMAND" -c ssh.variant=ssh -C "$ROOT" ls-remote --exit-code origin "refs/heads/$REMOTE_BRANCH" 2>/dev/null | head -n1 || true)"
 fi
 remote_sha="${remote_line%%[[:space:]]*}"
 if [[ "$remote_sha" != "$EXPECTED" ]]; then
