@@ -1,52 +1,229 @@
 #!/usr/bin/env bash
-set -u
+set -uo pipefail
+
+REPORT_ONLY=false
+if [[ "${1:-}" == "--report-only" ]]; then
+  REPORT_ONLY=true
+elif [[ -n "${1:-}" ]]; then
+  echo "usage: $0 [--report-only]" >&2
+  exit 64
+fi
+
+EXPECTED_USER="${ZION_REMOTE_USER:-zetta}"
+SSH_DIR="${ZION_SSH_DIR:-$HOME/.ssh}"
+AUTHORIZED_KEYS="${ZION_AUTHORIZED_KEYS:-$SSH_DIR/authorized_keys}"
+SSHD_DROPIN="${ZION_SSHD_DROPIN:-/etc/ssh/sshd_config.d/99-zion-remote.conf}"
+
+failures=0
+warnings=0
+
+pass() {
+  printf 'PASS: %s\n' "$1"
+}
+
+warn() {
+  warnings=$((warnings + 1))
+  printf 'WARN: %s\n' "$1"
+}
+
+fail() {
+  failures=$((failures + 1))
+  printf 'FAIL: %s\n' "$1"
+}
+
+mode_of() {
+  stat -c '%a' "$1" 2>/dev/null || printf 'unknown'
+}
+
+owner_of() {
+  stat -c '%U' "$1" 2>/dev/null || printf 'unknown'
+}
+
+is_regular_single_link() {
+  [[ -f "$1" && ! -L "$1" ]] || return 1
+  [[ "$(stat -c '%h' "$1" 2>/dev/null || printf '0')" == "1" ]]
+}
 
 echo "ZION REMOTE ACCESS PREFLIGHT"
 echo "============================"
-
+echo "mode=$([[ "$REPORT_ONLY" == true ]] && echo report-only || echo strict)"
 echo
-echo "[1] Tailscale"
-if command -v tailscale >/dev/null 2>&1; then
-  echo "tailscale: installed"
-  tailscale ip -4 2>/dev/null | sed 's/^/tailscale_ipv4: /' || true
+
+echo "[1/7] Tailscale"
+if ! command -v tailscale >/dev/null 2>&1; then
+  fail "tailscale not installed"
 else
-  echo "tailscale: NOT_INSTALLED"
+  tailscale_ip="$(tailscale ip -4 2>/dev/null | head -n1 || true)"
+  if [[ -z "$tailscale_ip" ]]; then
+    fail "Tailscale has no active IPv4 address"
+  elif python3 - "$tailscale_ip" <<'PY' >/dev/null 2>&1
+import ipaddress
+import sys
+address = ipaddress.ip_address(sys.argv[1])
+network = ipaddress.ip_network("100.64.0.0/10")
+raise SystemExit(0 if address in network else 1)
+PY
+  then
+    pass "Tailscale IPv4 is active in CGNAT range"
+  else
+    fail "reported Tailscale IPv4 is outside 100.64.0.0/10"
+  fi
+
+  if [[ -d /sys/class/net/tailscale0 ]]; then
+    pass "tailscale0 interface present"
+  else
+    warn "tailscale0 interface not visible"
+  fi
 fi
 
 echo
-echo "[2] OpenSSH server"
-if command -v sshd >/dev/null 2>&1; then
-  echo "sshd: installed"
+echo "[2/7] OpenSSH server"
+if ! command -v sshd >/dev/null 2>&1; then
+  fail "sshd not installed"
+else
+  pass "sshd installed"
+
   if command -v systemctl >/dev/null 2>&1; then
-    systemctl is-active ssh.service 2>/dev/null || \
-      systemctl is-active sshd.service 2>/dev/null || true
+    if systemctl is-active --quiet ssh.service 2>/dev/null       || systemctl is-active --quiet sshd.service 2>/dev/null; then
+      pass "SSH service active"
+    else
+      fail "SSH service not active"
+    fi
+  else
+    warn "systemctl unavailable; SSH service state not verified"
+  fi
+fi
+
+echo
+echo "[3/7] SSH key directory"
+if [[ ! -d "$SSH_DIR" || -L "$SSH_DIR" ]]; then
+  fail "$SSH_DIR missing or symlinked"
+else
+  ssh_mode="$(mode_of "$SSH_DIR")"
+  ssh_owner="$(owner_of "$SSH_DIR")"
+  if [[ "$ssh_mode" == "700" ]]; then
+    pass "$SSH_DIR mode=700"
+  else
+    fail "$SSH_DIR mode=$ssh_mode (expected 700)"
+  fi
+  if [[ "$ssh_owner" == "$EXPECTED_USER" ]]; then
+    pass "$SSH_DIR owner=$EXPECTED_USER"
+  else
+    fail "$SSH_DIR owner=$ssh_owner (expected $EXPECTED_USER)"
+  fi
+fi
+
+if ! is_regular_single_link "$AUTHORIZED_KEYS"; then
+  fail "$AUTHORIZED_KEYS missing, symlinked or hard-linked"
+else
+  key_mode="$(mode_of "$AUTHORIZED_KEYS")"
+  key_owner="$(owner_of "$AUTHORIZED_KEYS")"
+  if [[ "$key_mode" == "600" ]]; then
+    pass "authorized_keys mode=600"
+  else
+    fail "authorized_keys mode=$key_mode (expected 600)"
+  fi
+  if [[ "$key_owner" == "$EXPECTED_USER" ]]; then
+    pass "authorized_keys owner=$EXPECTED_USER"
+  else
+    fail "authorized_keys owner=$key_owner (expected $EXPECTED_USER)"
+  fi
+  if grep -Eq '^[[:space:]]*(ssh-ed25519|sk-ssh-ed25519@openssh.com|ecdsa-sha2-nistp(256|384|521)|sk-ecdsa-sha2-nistp256@openssh.com|ssh-rsa)[[:space:]]+' "$AUTHORIZED_KEYS"; then
+    pass "authorized_keys contains at least one public key"
+  else
+    fail "authorized_keys contains no recognized public key"
+  fi
+fi
+
+echo
+echo "[4/7] ZION sshd hardening"
+if [[ ! -f "$SSHD_DROPIN" || -L "$SSHD_DROPIN" ]]; then
+  fail "$SSHD_DROPIN not installed as a regular file"
+else
+  pass "ZION sshd drop-in installed"
+fi
+
+if command -v sshd >/dev/null 2>&1; then
+  effective="$(sshd -T 2>/dev/null || true)"
+  if [[ -z "$effective" ]]; then
+    warn "effective sshd configuration could not be read without elevation"
+  else
+    declare -a required=(
+      "passwordauthentication no"
+      "kbdinteractiveauthentication no"
+      "permitrootlogin no"
+      "pubkeyauthentication yes"
+      "authenticationmethods publickey"
+      "permitemptypasswords no"
+      "allowtcpforwarding no"
+      "allowagentforwarding no"
+      "x11forwarding no"
+      "gatewayports no"
+      "permittunnel no"
+      "permituserenvironment no"
+    )
+    for item in "${required[@]}"; do
+      if grep -Fqx "$item" <<<"$effective"; then
+        pass "sshd $item"
+      else
+        fail "effective sshd missing: $item"
+      fi
+    done
+
+    if grep -Eq "^allowusers( .*)? $EXPECTED_USER( |$)|^allowusers $EXPECTED_USER$" <<<"$effective"; then
+      pass "sshd AllowUsers includes $EXPECTED_USER"
+    else
+      warn "effective AllowUsers could not be proven for $EXPECTED_USER"
+    fi
+  fi
+fi
+
+echo
+echo "[5/7] SSH host identity"
+host_pub="/etc/ssh/ssh_host_ed25519_key.pub"
+if [[ -r "$host_pub" ]] && command -v ssh-keygen >/dev/null 2>&1; then
+  fingerprint="$(ssh-keygen -lf "$host_pub" 2>/dev/null | awk '{print $2}' || true)"
+  if [[ -n "$fingerprint" ]]; then
+    pass "ED25519 host fingerprint available for out-of-band verification: $fingerprint"
+  else
+    warn "could not calculate ED25519 host fingerprint"
   fi
 else
-  echo "sshd: NOT_INSTALLED"
+  warn "ED25519 host public key/fingerprint unavailable"
 fi
 
 echo
-echo "[3] SSH permissions"
-if [ -d "$HOME/.ssh" ]; then
-  stat -c '%a %n' "$HOME/.ssh" 2>/dev/null || true
+echo "[6/7] Listening surface"
+if command -v ss >/dev/null 2>&1; then
+  listeners="$(ss -ltn 2>/dev/null | awk 'NR>1 {print $4}' | grep -E '(^|:)22$' || true)"
+  if [[ -z "$listeners" ]]; then
+    fail "no TCP/22 listener detected"
+  else
+    pass "TCP/22 listener detected"
+    if grep -Eq '(^0\.0\.0\.0:22$|^\*:22$|^\[::\]:22$|^:::22$)' <<<"$listeners"; then
+      warn "sshd listens on wildcard addresses; firewall/router policy must restrict exposure"
+    fi
+  fi
 else
-  echo "$HOME/.ssh: NOT_FOUND"
-fi
-if [ -f "$HOME/.ssh/authorized_keys" ]; then
-  stat -c '%a %n' "$HOME/.ssh/authorized_keys" 2>/dev/null || true
-else
-  echo "authorized_keys: NOT_FOUND"
+  warn "ss command unavailable; listener scope not verified"
 fi
 
 echo
-echo "[4] ZION service"
-if command -v systemctl >/dev/null 2>&1; then
-  systemctl show zion.service \
-    -p ActiveState \
-    -p SubState \
-    -p MainPID \
-    -p NRestarts 2>/dev/null || true
-fi
+echo "[7/7] Non-verifiable external controls"
+warn "router/NAT TCP/22 forwarding cannot be proven from this host"
+warn "Tailnet ACL/device-approval policy must be verified in Tailscale administration"
+warn "a second independent SSH session must be tested before closing the bootstrap session"
 
 echo
+echo "Summary: failures=$failures warnings=$warnings"
 echo "No configuration was changed."
+
+if [[ "$REPORT_ONLY" == true ]]; then
+  exit 0
+fi
+
+if (( failures > 0 )); then
+  exit 2
+fi
+
+exit 0
