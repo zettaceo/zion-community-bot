@@ -35,7 +35,14 @@ jobs:
           cache-dependency-path: requirements.lock
 
       - name: Install dependencies
-        run: pip install -r requirements.lock
+        run: >-
+          python -m pip --isolated install
+          --disable-pip-version-check
+          --no-input
+          --no-deps
+          --only-binary=:all:
+          --index-url https://pypi.org/simple
+          -r requirements.lock
 
       - name: Validate
         run: bash scripts/validate.sh
