@@ -267,6 +267,21 @@ def telegram_entity_domains(message: Any) -> list[str]:
     return domains
 
 
+def link_incident_severity(
+    unauthorized_domains: list[str],
+    unsupported_schemes: list[str],
+) -> Severity:
+    if unsupported_schemes:
+        return Severity.MEDIUM
+    if any(
+        label.startswith("xn--")
+        for domain in unauthorized_domains
+        for label in domain.split(".")
+    ):
+        return Severity.MEDIUM
+    return Severity.LOW
+
+
 def parse_duration(value: str) -> int | None:
     raw = (value or "").strip().lower()
     if not raw:
@@ -3213,7 +3228,10 @@ async def command_guard_handler(
                 chat_id=chat.id,
                 user_id=user.id,
                 category="unauthorized_link",
-                severity=Severity.LOW,
+                severity=link_incident_severity(
+                    links.unauthorized_domains,
+                    links.unsupported_schemes,
+                ),
                 source="guardian_command_preflight",
                 evidence={
                     "domains": links.unauthorized_domains,
@@ -3392,7 +3410,10 @@ async def moderation_handler(
                 chat_id=chat.id,
                 user_id=user.id,
                 category="unauthorized_link",
-                severity=Severity.LOW,
+                severity=link_incident_severity(
+                    links.unauthorized_domains,
+                    links.unsupported_schemes,
+                ),
                 source="guardian",
                 evidence={
                     "domains": links.unauthorized_domains,
