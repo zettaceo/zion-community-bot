@@ -77,6 +77,22 @@ class MistralBoundaryTests(unittest.TestCase):
                     "completion_tokens": 2,
                 }
             )
+        with self.assertRaises(RuntimeError):
+            _validated_usage_tokens(
+                {"prompt_tokens": 7}
+            )
+        with self.assertRaises(RuntimeError):
+            _validated_usage_tokens(
+                {"completion_tokens": 3}
+            )
+
+        input_tokens, output_tokens = _validated_usage_tokens(
+            {
+                "prompt_tokens": 7,
+                "total_tokens": 12,
+            }
+        )
+        self.assertEqual(input_tokens + output_tokens, 12)
 
     def test_grounded_answer_separates_context_from_untrusted_question(self):
         with tempfile.TemporaryDirectory() as tmp:
