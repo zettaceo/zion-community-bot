@@ -306,6 +306,37 @@ class ModerationPipelineTests(unittest.TestCase):
             self.context.bot.deleted,
         )
 
+    def test_admin_hidden_entity_credential_is_still_protected(self) -> None:
+        hidden_entity = SimpleNamespace(
+            type="text_link",
+            url=(
+                "https://trusted.example/path?"
+                "api_key=example-secret-value-123456"
+            ),
+        )
+        update = fake_update(
+            user_id=1,
+            text="documentação",
+            message_id=82,
+            update_id=5082,
+        )
+        update.effective_message.entities = [hidden_entity]
+        update.effective_message.caption_entities = []
+        update.effective_message.parse_entity = lambda entity: ""
+        update.effective_message.parse_caption_entity = lambda entity: ""
+
+        asyncio.run(moderation_handler(update, self.context))
+
+        self.assertIn(
+            (update.effective_chat.id, update.effective_message.message_id),
+            self.context.bot.deleted,
+        )
+        incidents = self.runtime.db.list_incidents()
+        self.assertEqual(
+            incidents[0]["category"],
+            "possible_credential_exposure",
+        )
+
     def test_admin_link_keeps_admin_exemption(self) -> None:
         update = fake_update(
             user_id=1,
