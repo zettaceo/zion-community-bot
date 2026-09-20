@@ -3,12 +3,13 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SYSTEM_PYTHON="/usr/bin/python3"
-PYTHON="${ZION_RUNTIME_PYTHON:-$ROOT/.venv/bin/python}"
 PROD_ROOT="/home/zetta/zion-community-bot"
 PROD_ENV="$PROD_ROOT/.env"
 SERVICE="zion.service"
 EXPECTED_COMMIT="${ZION_EXPECTED_COMMIT:-}"
 APPROVED_REF="origin/zion-v1"
+RUNTIME_BASE="/home/zetta/.local/share/zion-community-bot/runtimes"
+PYTHON="${ZION_RUNTIME_PYTHON:-$RUNTIME_BASE/$EXPECTED_COMMIT/bin/python}"
 
 TMP_ROOT="$(mktemp -d /tmp/zion-v11-predeploy.XXXXXX)"
 chmod 700 "$TMP_ROOT"
@@ -61,9 +62,14 @@ echo "approved_ref=$APPROVED_REF"
 echo "approved_sha=$APPROVED_SHA"
 
 echo
-echo "[2/8] Virtualenv..."
+echo "[2/8] Staged release runtime..."
 if [[ ! -x "$PYTHON" ]]; then
-  echo "ERRO: $PYTHON não existe." >&2
+  echo "ERRO: runtime candidato ausente: $PYTHON" >&2
+  exit 1
+fi
+if [[ ! -f "$RUNTIME_BASE/$EXPECTED_COMMIT/release-sha.txt" ]] \
+  || [[ "$(cat "$RUNTIME_BASE/$EXPECTED_COMMIT/release-sha.txt")" != "$EXPECTED_COMMIT" ]]; then
+  echo "ERRO: identidade do runtime candidato inválida." >&2
   exit 1
 fi
 "$PYTHON" "$ROOT/scripts/check-runtime.py"
