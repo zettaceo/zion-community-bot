@@ -22,7 +22,7 @@ class V11ReleaseGateTests(unittest.TestCase):
         self.assertIn("SCRIPT_ROOT=", text)
         self.assertIn("BASH_SOURCE[0]", text)
         self.assertIn(
-            'candidate_head="$(git -C "$SCRIPT_ROOT" rev-parse HEAD',
+            'candidate_head="$(/usr/bin/git -C "$SCRIPT_ROOT" rev-parse HEAD',
             text,
         )
         self.assertIn('candidate_head" == "$EXPECTED"', text)
@@ -189,10 +189,11 @@ class V11ReleaseGateTests(unittest.TestCase):
         text = self.read("scripts/apply-dashboard.sh")
 
         self.assertIn(
-            "/home/zetta/.local/share/zion-community-bot/"
-            "runtimes/current/bin/python",
+            'RUNTIME_BASE="/home/zetta/.local/share/zion-community-bot/runtimes"',
             text,
         )
+        self.assertIn('CURRENT_RUNTIME="$RUNTIME_BASE/current"', text)
+        self.assertIn('PYTHON="$CURRENT_RUNTIME/bin/python"', text)
         self.assertIn(
             'DB="$STATE_DIR/zion.db"',
             text,
