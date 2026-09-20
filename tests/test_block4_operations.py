@@ -208,10 +208,19 @@ class Block4OperationsTests(unittest.TestCase):
             rt = Runtime(self._settings(root))
             app = FakeApplication(rt)
 
+            containment_prune_called = False
+            original_containment_prune = rt.db.prune_expired_containments
+
             def fail(*args, **kwargs):
                 raise RuntimeError("synthetic housekeeping failure")
 
+            def track_containment_prune(*args, **kwargs):
+                nonlocal containment_prune_called
+                containment_prune_called = True
+                return original_containment_prune(*args, **kwargs)
+
             rt.db.prune_knowledge_gaps = fail
+            rt.db.prune_expired_containments = track_containment_prune
             try:
                 asyncio.run(
                     hourly_operations_cycle(
@@ -222,8 +231,9 @@ class Block4OperationsTests(unittest.TestCase):
                 )
                 self.assertEqual(
                     rt.housekeeping_last_error,
-                    "RuntimeError",
+                    "knowledge_gaps_deleted:RuntimeError",
                 )
+                self.assertTrue(containment_prune_called)
                 self.assertEqual(app.bot.attempts, 1)
                 self.assertIn(
                     "housekeeping_failed",
