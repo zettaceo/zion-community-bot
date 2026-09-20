@@ -187,6 +187,15 @@ The temporary worktree is removed afterward.
 
 This is the last code gate before stopping the service.
 
+## Disabled legacy mutation paths
+
+The v1.1 repository intentionally disables the old direct host installers:
+
+- `scripts/apply-systemd.sh` — no longer allowed to install/restart the bot outside the exact-SHA release flow;
+- `scripts/apply-wifi-guardian.sh` — no longer allowed to mutate Wi-Fi host components without a separately reviewed physical procedure.
+
+Do not revive or bypass these scripts during release troubleshooting. A failed governed gate is a stop condition, not permission to use an older installer.
+
 ## Controlled cutover
 
 Only after both preflights are green:
