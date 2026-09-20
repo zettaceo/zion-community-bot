@@ -1001,12 +1001,12 @@ async def diagnostics_command(
     ai_accounting_ok = rt.ai.accounting_healthy
     ai_budget = rt.settings.ai_daily_token_budget
     ai_budget_text = "unlimited" if ai_budget <= 0 else str(ai_budget)
-    if ai_budget <= 0:
-        ai_remaining_text = "unlimited"
-    elif ai_accounting_ok:
-        ai_remaining_text = str(max(0, ai_budget - ai_used))
-    else:
+    if not ai_accounting_ok:
         ai_remaining_text = "unavailable"
+    elif ai_budget <= 0:
+        ai_remaining_text = "unlimited"
+    else:
+        ai_remaining_text = str(max(0, ai_budget - ai_used))
     circuit_remaining = rt.ai.circuit_remaining_seconds()
     circuit_text = (
         f"OPEN ({circuit_remaining}s)"
