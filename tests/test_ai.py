@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import tempfile
+import time
 import unittest
 from dataclasses import replace
 from pathlib import Path
@@ -401,6 +402,133 @@ class AITests(unittest.TestCase):
         finally:
             self.db.record_ai_event = original_record
 
+    def test_success_ledger_failure_preserves_usage_across_restart(
+        self,
+    ) -> None:
+        (self.root / "knowledge" / "official.md").write_text(
+            "# Guardian\nGuardian protection remains active.\n",
+            encoding="utf-8",
+        )
+        knowledge = KnowledgeBase(self.settings.knowledge_dir)
+        settings = replace(
+            self.settings,
+            ai_enabled=True,
+            mistral_api_key="fake-key-for-test-only",
+            ai_daily_token_budget=50000,
+        )
+        ai = AIService(settings, self.db, knowledge)
+
+        class SuccessfulClient:
+            configured = True
+
+            async def answer(self, *, question: str, context: str):
+                return AIAnswer(
+                    text="grounded",
+                    model="fake",
+                    input_tokens=7,
+                    output_tokens=5,
+                    latency_ms=1,
+                )
+
+        ai.client = SuccessfulClient()
+        original_record = self.db.record_ai_event
+
+        def fail_success_ledger(*args, **kwargs):
+            raise RuntimeError("synthetic success ledger failure")
+
+        self.db.record_ai_event = fail_success_ledger
+        try:
+            answer = asyncio.run(
+                ai.answer(
+                    chat_id=1,
+                    user_id=2,
+                    question="Guardian protection",
+                )
+            )
+            self.assertIn("grounded", answer.text)
+            self.assertFalse(ai.accounting_healthy)
+            self.assertIsNotNone(
+                self.db.get_setting("ai_uncertain_budget")
+            )
+        finally:
+            self.db.record_ai_event = original_record
+
+        restored = AIService(settings, self.db, knowledge)
+        self.assertEqual(restored.tokens_used_today(), 12)
+        self.assertEqual(
+            restored.budget_remaining(),
+            settings.ai_daily_token_budget - 12,
+        )
+
+    def test_budget_admission_reserve_is_utf8_conservative(self) -> None:
+        text = "🔥" * 10
+        estimate = self.ai._estimate_tokens(text, 100)
+        self.assertGreaterEqual(
+            estimate,
+            (len(text.encode("utf-8")) * 2) + 4096 + 100,
+        )
+
+    def test_circuit_state_pair_rolls_back_atomically_on_second_write_failure(
+        self,
+    ) -> None:
+        settings = replace(
+            self.settings,
+            ai_enabled=True,
+            mistral_api_key="fake-key-for-test-only",
+            ai_circuit_failures=1,
+            ai_circuit_seconds=120,
+        )
+        self.db.set_setting("ai_circuit_failures", "0")
+        self.db.set_setting("ai_circuit_open_until", "0")
+        ai = AIService(settings, self.db, self.knowledge)
+
+        original_set = self.db.set_setting
+
+        def fail_second_field(key: str, value: str) -> None:
+            if key == "ai_circuit_open_until":
+                raise RuntimeError("synthetic second circuit write failure")
+            original_set(key, value)
+
+        self.db.set_setting = fail_second_field
+        try:
+            ai._record_provider_failure()
+            self.assertTrue(ai.circuit_open())
+        finally:
+            self.db.set_setting = original_set
+
+        self.assertEqual(
+            self.db.get_setting("ai_circuit_failures"),
+            "0",
+        )
+        self.assertEqual(
+            self.db.get_setting("ai_circuit_open_until"),
+            "0",
+        )
+
+    def test_circuit_state_pair_persists_together_when_opened(self) -> None:
+        settings = replace(
+            self.settings,
+            ai_enabled=True,
+            mistral_api_key="fake-key-for-test-only",
+            ai_circuit_failures=1,
+            ai_circuit_seconds=120,
+        )
+        ai = AIService(settings, self.db, self.knowledge)
+        ai._record_provider_failure()
+
+        persisted_failures = self.db.get_setting(
+            "ai_circuit_failures"
+        )
+        persisted_until = self.db.get_setting(
+            "ai_circuit_open_until"
+        )
+        self.assertEqual(persisted_failures, "1")
+        self.assertIsNotNone(persisted_until)
+        self.assertGreater(float(persisted_until or "0"), time.time())
+
+        restored = AIService(settings, self.db, self.knowledge)
+        self.assertTrue(restored.circuit_open())
+
     def test_circuit_persistence_failure_does_not_break_in_memory_guard(self) -> None:
         settings = replace(
             self.settings,
@@ -438,6 +566,100 @@ class AITests(unittest.TestCase):
         ai._release_budget(reservation)
 
         self.assertEqual(ai._reserved_tokens, 0)
+
+    def test_failed_provider_charges_uncertain_estimate_to_daily_budget(
+        self,
+    ) -> None:
+        (self.root / "knowledge" / "official.md").write_text(
+            "# Guardian\nGuardian flood protection is active.\n",
+            encoding="utf-8",
+        )
+        knowledge = KnowledgeBase(self.settings.knowledge_dir)
+        settings = replace(
+            self.settings,
+            ai_enabled=True,
+            mistral_api_key="fake-key-for-test-only",
+            ai_daily_token_budget=5000,
+            ai_circuit_failures=10,
+        )
+        ai = AIService(settings, self.db, knowledge)
+
+        class FailingClient:
+            configured = True
+
+            async def answer(self, *, question: str, context: str):
+                raise TimeoutError("synthetic uncertain provider outcome")
+
+        ai.client = FailingClient()
+        answer = asyncio.run(
+            ai.answer(
+                chat_id=1,
+                user_id=2,
+                question="Guardian flood",
+            )
+        )
+
+        self.assertIn("indisponível", answer.text)
+        charged = ai.tokens_used_today()
+        self.assertGreater(charged, 0)
+        self.assertEqual(ai._reserved_tokens, 0)
+        self.assertIsNotNone(
+            self.db.get_setting("ai_uncertain_budget")
+        )
+
+        restored = AIService(settings, self.db, knowledge)
+        self.assertEqual(restored.tokens_used_today(), charged)
+
+    def test_old_uncertain_budget_day_does_not_count_today(self) -> None:
+        previous_day = self.ai._utc_day_number() - 1
+        self.db.set_setting(
+            "ai_uncertain_budget",
+            f"{previous_day}:9999",
+        )
+        self.assertEqual(self.ai.tokens_used_today(), 0)
+
+    def test_uncertain_budget_persistence_failure_is_fail_closed(self) -> None:
+        (self.root / "knowledge" / "official.md").write_text(
+            "# Guardian\nGuardian flood protection is active.\n",
+            encoding="utf-8",
+        )
+        knowledge = KnowledgeBase(self.settings.knowledge_dir)
+        settings = replace(
+            self.settings,
+            ai_enabled=True,
+            mistral_api_key="fake-key-for-test-only",
+            ai_daily_token_budget=5000,
+            ai_circuit_failures=10,
+        )
+        ai = AIService(settings, self.db, knowledge)
+
+        class FailingClient:
+            configured = True
+
+            async def answer(self, *, question: str, context: str):
+                raise TimeoutError("synthetic uncertain provider outcome")
+
+        ai.client = FailingClient()
+        original_set = self.db.set_setting
+
+        def fail_uncertain(key: str, value: str) -> None:
+            if key == "ai_uncertain_budget":
+                raise RuntimeError("synthetic accounting persistence failure")
+            original_set(key, value)
+
+        self.db.set_setting = fail_uncertain
+        try:
+            asyncio.run(
+                ai.answer(
+                    chat_id=1,
+                    user_id=2,
+                    question="Guardian flood",
+                )
+            )
+            self.assertFalse(ai.accounting_healthy)
+            self.assertFalse(ai.budget_available())
+        finally:
+            self.db.set_setting = original_set
 
     def test_budget_remaining_uses_recorded_tokens(self) -> None:
         self.db.record_ai_event(

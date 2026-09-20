@@ -144,8 +144,19 @@ class Runtime:
             ] = {}
             self.admin_cache_next_prune_at = 0.0
             self.update_lags: deque[float] = deque(maxlen=100)
+            self.update_lag_last_sample_monotonic = 0.0
             self.health_alert_signature: str | None = None
             self.health_alert_last_sent_at = 0.0
+            self.health_alert_persistence_dirty = False
+            self.health_incident_signature: str | None = None
+            self.health_incident_id: str | None = None
+            self.health_incident_hydrated = False
+            self.housekeeping_last_error: str | None = None
+            self.wal_checkpoint_last_error: str | None = None
+            self.state_maintenance_last_error: str | None = None
+            self.delivery_guard_last_error: str | None = None
+            self.delivery_health_blocked = False
+            self.delivery_health_block_reasons: tuple[str, ...] = ()
         except Exception:
             db = getattr(self, "db", None)
             if isinstance(db, ZionDB):
@@ -500,7 +511,10 @@ def record_update_lag(
     message = update.effective_message
     if not message:
         return
-    date = getattr(message, "date", None)
+    date = (
+        getattr(message, "edit_date", None)
+        or getattr(message, "date", None)
+    )
     if date is None:
         return
     try:
@@ -512,7 +526,9 @@ def record_update_lag(
         )
     except Exception:
         return
-    runtime(context).update_lags.append(lag)
+    rt = runtime(context)
+    rt.update_lags.append(lag)
+    rt.update_lag_last_sample_monotonic = time.monotonic()
 
 
 def update_lag_stats(rt: Runtime) -> tuple[float, float]:
@@ -939,11 +955,103 @@ async def diagnostics_command(
     latency = diag["ai_latency_24h"]
     pragmas = diag["sqlite_pragmas"]
 
-    disk_state = "LOW" if diag["disk_low"] else "OK"
-    lag_state = (
-        "WARNING"
-        if p95_lag > rt.settings.update_lag_warn_seconds
+    if not diag["disk_usage_ok"]:
+        disk_state = "UNAVAILABLE"
+    else:
+        disk_state = "LOW" if diag["disk_low"] else "OK"
+
+    lag_count = len(rt.update_lags)
+    lag_sample_max_age = max(
+        120,
+        rt.settings.health_check_interval_seconds * 2,
+    )
+    lag_sample_age = (
+        max(
+            0.0,
+            time.monotonic()
+            - rt.update_lag_last_sample_monotonic,
+        )
+        if rt.update_lag_last_sample_monotonic > 0
+        else None
+    )
+    lag_sample_fresh = (
+        lag_sample_age is not None
+        and lag_sample_age <= lag_sample_max_age
+    )
+    if not lag_count:
+        lag_state = "NO-SAMPLES"
+    elif not lag_sample_fresh:
+        lag_state = "STALE"
+    else:
+        lag_state = (
+            "WARNING"
+            if p95_lag > rt.settings.update_lag_warn_seconds
+            else "OK"
+        )
+    lag_age_text = (
+        "n/a"
+        if lag_sample_age is None
+        else f"{lag_sample_age:.0f}s"
+    )
+    pragma_state = "OK" if diag["sqlite_pragmas_ok"] else "WARNING"
+    pragma_issues = (
+        ",".join(diag["sqlite_pragma_issues"])
+        if diag["sqlite_pragma_issues"]
+        else "NONE"
+    )
+
+    ai_used = rt.ai.tokens_used_today()
+    ai_accounting_ok = rt.ai.accounting_healthy
+    ai_budget = rt.settings.ai_daily_token_budget
+    ai_budget_text = "unlimited" if ai_budget <= 0 else str(ai_budget)
+    if not ai_accounting_ok:
+        ai_remaining_text = "unavailable"
+    elif ai_budget <= 0:
+        ai_remaining_text = "unlimited"
+    else:
+        ai_remaining_text = str(max(0, ai_budget - ai_used))
+    circuit_remaining = rt.ai.circuit_remaining_seconds()
+    circuit_text = (
+        f"OPEN ({circuit_remaining}s)"
+        if circuit_remaining > 0
+        else "CLOSED"
+    )
+
+    scheduler_task = context.application.bot_data.get(
+        "zion_scheduler_task"
+    )
+    scheduler_state = (
+        "RUNNING"
+        if isinstance(scheduler_task, asyncio.Task)
+        and not scheduler_task.done()
+        else "STOPPED"
+    )
+    housekeeping_state = (
+        f"WARNING ({rt.housekeeping_last_error})"
+        if rt.housekeeping_last_error
         else "OK"
+    )
+    checkpoint_state = (
+        f"WARNING ({rt.wal_checkpoint_last_error})"
+        if rt.wal_checkpoint_last_error
+        else "OK"
+    )
+    state_maintenance = (
+        f"WARNING ({rt.state_maintenance_last_error})"
+        if rt.state_maintenance_last_error
+        else "OK"
+    )
+    delivery_guard = (
+        f"BLOCKED ({rt.delivery_guard_last_error})"
+        if rt.delivery_guard_last_error
+        else "OK"
+    )
+    delivery_health_gate = (
+        "BLOCKED ("
+        + ",".join(rt.delivery_health_block_reasons)
+        + ")"
+        if rt.delivery_health_blocked
+        else "OPEN"
     )
 
     await update.effective_message.reply_text(
@@ -953,7 +1061,21 @@ async def diagnostics_command(
         f"{'OK' if diag['sqlite_integrity_ok'] else 'FAIL'}\n"
         f"Runtime lock: "
         f"{'HELD' if rt.process_lock.acquired else 'MISSING'}\n"
-        f"SQLite schema: v{diag['schema_version']}\n"
+        f"Scheduler: {scheduler_state}\n"
+        f"Hourly housekeeping: {housekeeping_state}\n"
+        f"WAL checkpoint: {checkpoint_state}\n"
+        f"Temporary-state maintenance: {state_maintenance}\n"
+        f"Delivery safety preflight: {delivery_guard}\n"
+        f"Scheduled delivery health gate: {delivery_health_gate}\n"
+        f"Alert dedup persistence: "
+        f"{'DIRTY' if rt.health_alert_persistence_dirty else 'OK'}\n"
+        f"Health check/repeat cadence: "
+        f"{rt.settings.health_check_interval_seconds}s/"
+        f"{rt.settings.health_alert_repeat_seconds}s\n"
+        f"SQLite schema: v{diag['schema_version']} "
+        f"(supported={diag['schema_version_supported']}) "
+        f"[{'OK' if diag['schema_version_ok'] else 'WARNING'}]\n"
+        f"SQLite PRAGMAs: {pragma_state} ({pragma_issues})\n"
         f"SQLite application_id: "
         f"{pragmas['application_id']} "
         f"(ZION={ZION_APPLICATION_ID})\n"
@@ -968,9 +1090,9 @@ async def diagnostics_command(
         f"SQLite journal size limit: "
         f"{pragmas['journal_size_limit']} bytes\n"
         f"SQLite busy timeout: {pragmas['busy_timeout_ms']} ms\n"
-        f"SQLite total/db/WAL: "
+        f"SQLite total/db/WAL/SHM: "
         f"{diag['db_size_mb']}/{diag['db_file_mb']}/"
-        f"{diag['wal_size_mb']} MB\n"
+        f"{diag['wal_size_mb']}/{diag['shm_size_mb']} MB\n"
         f"SQLite DB threshold: {diag['db_warn_mb']} MB "
         f"[{'WARNING' if diag['db_large'] else 'OK'}]\n"
         f"SQLite WAL threshold: {diag['wal_warn_mb']} MB "
@@ -980,11 +1102,22 @@ async def diagnostics_command(
         f"{'PRIVATE' if diag['sensitive_files_private'] else 'WARNING'}\n"
         f"Wi-Fi interface: "
         f"{'PRESENT' if diag['wifi_interface_present'] else 'MISSING'}\n"
-        f"Telegram update lag latest/p95(100): "
-        f"{latest_lag:.2f}s/{p95_lag:.2f}s [{lag_state}]\n"
+        f"Telegram update lag latest/p95/n: "
+        f"{latest_lag:.2f}s/{p95_lag:.2f}s/{lag_count} "
+        f"[{lag_state}; age={lag_age_text}]\n"
         f"AI latency 24h avg/p95: "
         f"{latency['avg_ms']}ms/{latency['p95_ms']}ms "
-        f"(n={latency['count']})\n"
+        f"(n={latency['count']}) "
+        f"[{'OK' if diag['ai_latency_read_ok'] else 'UNAVAILABLE'}]\n"
+        f"AI enabled/provider ready: "
+        f"{rt.settings.ai_enabled}/{rt.ai.enabled}\n"
+        f"AI accounting: "
+        f"{'OK' if ai_accounting_ok else 'FAIL-CLOSED'}\n"
+        f"AI tokens UTC used/budget/remaining: "
+        f"{ai_used}/{ai_budget_text}/{ai_remaining_text}\n"
+        f"AI circuit: {circuit_text}\n"
+        f"AI provider failures: {rt.ai.circuit_failures}/"
+        f"{rt.settings.ai_circuit_failures}\n"
         f"Operators: {diag['operator_count']}\n"
         f"Knowledge: {len(rt.knowledge.chunks)} chunks / "
         f"{len(rt.knowledge.load_errors)} errors\n"
@@ -3643,18 +3776,330 @@ def expire_temporary_state(rt: Runtime) -> None:
         rt.db.set_setting("operating_state_expires_at", "0")
 
 
+def scheduler_safety_preflight(
+    rt: Runtime,
+    now: float,
+) -> bool:
+    try:
+        expire_temporary_state(rt)
+        rt.state_maintenance_last_error = None
+    except Exception as exc:
+        rt.state_maintenance_last_error = type(exc).__name__
+        logger.warning(
+            "Falha ao atualizar estado temporário: %s",
+            type(exc).__name__,
+        )
+
+    try:
+        quarantined = rt.db.quarantine_stale_delivery_claims(
+            now=now,
+            stale_after_seconds=(
+                rt.settings.delivery_claim_timeout_seconds
+            ),
+        )
+        rt.delivery_guard_last_error = None
+    except Exception as exc:
+        rt.delivery_guard_last_error = type(exc).__name__
+        logger.error(
+            "Falha no delivery safety preflight: %s",
+            type(exc).__name__,
+        )
+        return False
+
+    if any(quarantined.values()):
+        try:
+            rt.db.create_incident(
+                chat_id=None,
+                user_id=None,
+                category="stale_delivery_claims_quarantined",
+                severity=Severity.HIGH,
+                source="scheduler",
+                evidence=quarantined,
+                note=(
+                    "A delivery claim exceeded its timeout. "
+                    "ZION quarantined it instead of auto-replaying, "
+                    "preventing duplicate delivery after an unknown outcome."
+                ),
+            )
+        except Exception as exc:
+            logger.error(
+                "Claims stale foram isolados, mas o incidente "
+                "não pôde ser persistido: %s",
+                type(exc).__name__,
+            )
+        logger.error(
+            "Delivery claim quarantine | scheduled_uncertain=%s | "
+            "recurring_paused=%s",
+            quarantined["scheduled_uncertain"],
+            quarantined["recurring_paused"],
+        )
+
+    return True
+
+
+def housekeeping_cycle(
+    rt: Runtime,
+    now: float,
+) -> tuple[dict[str, int], list[str]]:
+    results: dict[str, int] = {}
+    failures: list[str] = []
+
+    def run_step(name: str, operation) -> None:
+        try:
+            results[name] = int(operation())
+        except Exception as exc:
+            error_type = type(exc).__name__
+            results[name] = 0
+            failures.append(f"{name}:{error_type}")
+            logger.warning(
+                "Housekeeping step failed | step=%s | error=%s",
+                name,
+                error_type,
+            )
+
+    run_step(
+        "knowledge_gaps_deleted",
+        lambda: rt.db.prune_knowledge_gaps(
+            now - (rt.settings.knowledge_gap_retention_days * 86400)
+        ),
+    )
+    run_step(
+        "resolved_reports_redacted",
+        lambda: rt.db.redact_resolved_user_reports(
+            now - (rt.settings.report_retention_days * 86400)
+        ),
+    )
+    run_step(
+        "user_events_deleted",
+        lambda: rt.db.prune_user_events(
+            now - (rt.settings.user_event_retention_days * 86400)
+        ),
+    )
+    run_step(
+        "idempotency_deleted",
+        lambda: rt.db.prune_idempotency_keys(now),
+    )
+
+    ama_cutoff = now - (rt.settings.ama_retention_days * 86400)
+    run_step(
+        "ama_questions_deleted",
+        lambda: rt.db.prune_ama_questions(ama_cutoff),
+    )
+    run_step(
+        "ama_sessions_deleted",
+        lambda: rt.db.prune_closed_ama_sessions(ama_cutoff),
+    )
+    run_step(
+        "ai_events_deleted",
+        lambda: rt.db.prune_ai_events(
+            now - (rt.settings.ai_event_retention_days * 86400)
+        ),
+    )
+    run_step(
+        "scheduled_deleted",
+        lambda: rt.db.prune_completed_scheduled_messages(
+            now - (rt.settings.completed_job_retention_days * 86400)
+        ),
+    )
+    run_step(
+        "containments_deleted",
+        lambda: rt.db.prune_expired_containments(now),
+    )
+
+    if any(results.values()):
+        logger.info(
+            "Housekeeping | knowledge_gaps_deleted=%s | "
+            "resolved_reports_redacted=%s | "
+            "user_events_deleted=%s | "
+            "idempotency_deleted=%s | "
+            "ama_questions_deleted=%s | "
+            "ama_sessions_deleted=%s | "
+            "ai_events_deleted=%s | "
+            "scheduled_deleted=%s | "
+            "containments_deleted=%s",
+            results["knowledge_gaps_deleted"],
+            results["resolved_reports_redacted"],
+            results["user_events_deleted"],
+            results["idempotency_deleted"],
+            results["ama_questions_deleted"],
+            results["ama_sessions_deleted"],
+            results["ai_events_deleted"],
+            results["scheduled_deleted"],
+            results["containments_deleted"],
+        )
+
+    return results, failures
+
+def hydrate_operational_health_incident(rt: Runtime) -> None:
+    if rt.health_incident_hydrated:
+        return
+
+    try:
+        signature = (
+            rt.db.get_setting("health_incident_signature")
+            or ""
+        ).strip()
+        incident_id = (
+            rt.db.get_setting("health_incident_id")
+            or ""
+        ).strip()
+
+        if signature and incident_id:
+            incident = rt.db.get_incident(incident_id)
+            if (
+                incident
+                and incident.get("status") == "open"
+                and incident.get("category")
+                == "operational_health_warning"
+            ):
+                rt.health_incident_signature = signature
+                rt.health_incident_id = incident_id
+            else:
+                with rt.db.transaction():
+                    rt.db.set_setting(
+                        "health_incident_signature",
+                        "",
+                    )
+                    rt.db.set_setting(
+                        "health_incident_id",
+                        "",
+                    )
+
+        rt.health_incident_hydrated = True
+    except Exception as exc:
+        logger.warning(
+            "Falha ao hidratar incidente operacional: %s",
+            type(exc).__name__,
+        )
+
+
+def transition_operational_health_incident(
+    rt: Runtime,
+    *,
+    signature: str,
+    issues: list[str],
+    snapshot,
+    p95_lag: float,
+) -> tuple[str | None, str | None]:
+    hydrate_operational_health_incident(rt)
+
+    previous_incident_id = rt.health_incident_id
+
+    if not issues:
+        if previous_incident_id:
+            try:
+                with rt.db.transaction():
+                    if not rt.db.set_incident_status(
+                        previous_incident_id,
+                        "resolved",
+                    ):
+                        raise RuntimeError(
+                            "operational incident not found"
+                        )
+                    rt.db.set_setting(
+                        "health_incident_signature",
+                        "",
+                    )
+                    rt.db.set_setting(
+                        "health_incident_id",
+                        "",
+                    )
+                rt.health_incident_signature = None
+                rt.health_incident_id = None
+            except Exception as exc:
+                logger.warning(
+                    "Falha ao resolver incidente operacional: %s",
+                    type(exc).__name__,
+                )
+        return None, previous_incident_id
+
+    if (
+        signature == rt.health_incident_signature
+        and rt.health_incident_id
+    ):
+        return rt.health_incident_id, None
+
+    try:
+        new_incident_id: str
+        with rt.db.transaction():
+            if previous_incident_id:
+                if not rt.db.set_incident_status(
+                    previous_incident_id,
+                    "resolved",
+                ):
+                    raise RuntimeError(
+                        "previous operational incident not found"
+                    )
+
+            new_incident_id = rt.db.create_incident(
+                chat_id=None,
+                user_id=None,
+                category="operational_health_warning",
+                severity=(
+                    Severity.HIGH
+                    if rt.delivery_health_blocked
+                    or "housekeeping_failed" in issues
+                    or "delivery_safety_preflight_failed" in issues
+                    else Severity.MEDIUM
+                ),
+                source="health",
+                evidence={
+                    "issues": issues,
+                    "disk_free_mb": snapshot.disk_free_mb,
+                    "telegram_update_lag_p95": round(p95_lag, 3),
+                    "repeat_interval_seconds": (
+                        rt.settings.health_alert_repeat_seconds
+                    ),
+                    "housekeeping_error_type": (
+                        rt.housekeeping_last_error
+                    ),
+                    "wal_checkpoint_error_type": (
+                        rt.wal_checkpoint_last_error
+                    ),
+                    "state_maintenance_error_type": (
+                        rt.state_maintenance_last_error
+                    ),
+                    "delivery_guard_error_type": (
+                        rt.delivery_guard_last_error
+                    ),
+                },
+                note=(
+                    "Operational alert; no automated destructive action executed."
+                ),
+            )
+            rt.db.set_setting(
+                "health_incident_signature",
+                signature,
+            )
+            rt.db.set_setting(
+                "health_incident_id",
+                new_incident_id,
+            )
+
+        rt.health_incident_signature = signature
+        rt.health_incident_id = new_incident_id
+        return new_incident_id, previous_incident_id
+    except Exception as exc:
+        logger.warning(
+            "Falha ao transicionar incidente operacional: %s",
+            type(exc).__name__,
+        )
+        return None, None
+
+
 async def operational_alert_cycle(
     application: Application,
     rt: Runtime,
 ) -> None:
     snapshot = rt.health.snapshot()
     diagnostics = rt.health.diagnostics()
-    pragmas = diagnostics["sqlite_pragmas"]
     _, p95_lag = update_lag_stats(rt)
 
+    community_stats_ok = True
     try:
         community = rt.db.community_stats()
     except Exception as exc:
+        community_stats_ok = False
         logger.warning(
             "Falha ao ler community_stats para health alert: %s",
             type(exc).__name__,
@@ -3669,32 +4114,70 @@ async def operational_alert_cycle(
 
     if not snapshot.db_ok:
         issues.append("database_or_integrity")
+    if not diagnostics.get("db_file_present", False):
+        issues.append("sqlite_database_file_missing")
     if not diagnostics.get("sqlite_foreign_keys_ok", False):
         issues.append("sqlite_foreign_key_violation")
-    if not rt.ai.accounting_healthy:
-        issues.append("ai_accounting_fail_closed")
+
+    if not diagnostics.get("schema_version_read_ok", False):
+        issues.append("sqlite_schema_version_unavailable")
+    elif not diagnostics.get("schema_version_ok", False):
+        issues.append("sqlite_schema_version_mismatch")
+    if not diagnostics.get("sqlite_pragma_read_ok", False):
+        issues.append("sqlite_pragmas_unavailable")
+    else:
+        pragma_issue_names = {
+            "journal_mode": "sqlite_not_wal",
+            "foreign_keys": "sqlite_foreign_keys_off",
+            "synchronous": "sqlite_synchronous_not_full",
+            "trusted_schema": "sqlite_trusted_schema_on",
+            "application_id": "sqlite_application_id_mismatch",
+            "busy_timeout": "sqlite_busy_timeout_too_low",
+            "wal_autocheckpoint": "sqlite_wal_autocheckpoint_drift",
+            "journal_size_limit": "sqlite_journal_size_limit_drift",
+        }
+        for pragma_issue in diagnostics.get("sqlite_pragma_issues", []):
+            issues.append(
+                pragma_issue_names.get(
+                    str(pragma_issue),
+                    f"sqlite_pragma:{pragma_issue}",
+                )
+            )
+
+    if rt.housekeeping_last_error:
+        issues.append("housekeeping_failed")
+    if rt.wal_checkpoint_last_error:
+        issues.append("wal_checkpoint_failed")
+    if rt.state_maintenance_last_error:
+        issues.append("temporary_state_maintenance_failed")
+    if rt.delivery_guard_last_error:
+        issues.append("delivery_safety_preflight_failed")
+
+    if rt.settings.ai_enabled:
+        if not rt.ai.accounting_healthy:
+            issues.append("ai_accounting_fail_closed")
+        if not rt.ai.enabled:
+            issues.append("ai_provider_not_ready")
+        elif rt.ai.circuit_open():
+            issues.append("ai_circuit_open")
+
+        if rt.settings.ai_daily_token_budget > 0:
+            remaining = rt.ai.budget_remaining()
+            if not rt.ai.accounting_healthy:
+                if "ai_accounting_fail_closed" not in issues:
+                    issues.append("ai_accounting_fail_closed")
+            elif remaining == 0:
+                issues.append("ai_budget_exhausted")
+
     if not rt.knowledge.chunks:
         issues.append("knowledge_empty")
     if rt.knowledge.load_errors:
         issues.append("knowledge_load_error")
     for config_issue in diagnostics.get("configuration_issues", []):
         issues.append(f"config:{config_issue}")
-    if pragmas["journal_mode"] not in {"wal", "unknown"}:
-        issues.append("sqlite_not_wal")
-    if (
-        pragmas["journal_mode"] != "unknown"
-        and int(pragmas["foreign_keys"]) != 1
-    ):
-        issues.append("sqlite_foreign_keys_off")
-    if int(pragmas.get("synchronous", -1)) not in {2, -1}:
-        issues.append("sqlite_synchronous_not_full")
-    if int(pragmas.get("trusted_schema", -1)) not in {0, -1}:
-        issues.append("sqlite_trusted_schema_on")
-    if int(pragmas.get("application_id", 0)) not in {
-        ZION_APPLICATION_ID,
-        0,
-    }:
-        issues.append("sqlite_application_id_mismatch")
+
+    if not community_stats_ok:
+        issues.append("community_stats_unavailable")
     if community.get("failed_scheduled", 0) > 0:
         issues.append("scheduled_delivery_failed")
     if community.get("uncertain_scheduled", 0) > 0:
@@ -3705,42 +4188,123 @@ async def operational_alert_cycle(
         issues.append("sqlite_database_large")
     if diagnostics.get("wal_large"):
         issues.append("sqlite_wal_large")
-    if snapshot.details.get("disk_low"):
+    if not diagnostics.get("ai_latency_read_ok", False):
+        issues.append("ai_latency_telemetry_unavailable")
+    if not diagnostics.get("disk_usage_ok", False):
+        issues.append("disk_usage_unavailable")
+    elif snapshot.details.get("disk_low"):
         issues.append("disk_low")
     if not snapshot.details.get("sensitive_files_private"):
         issues.append("sensitive_file_permissions")
     if not snapshot.wifi_interface_present:
         issues.append("wifi_interface_missing")
+    lag_sample_max_age = max(
+        120,
+        rt.settings.health_check_interval_seconds * 2,
+    )
+    lag_sample_fresh = (
+        rt.update_lag_last_sample_monotonic > 0
+        and (
+            time.monotonic()
+            - rt.update_lag_last_sample_monotonic
+        )
+        <= lag_sample_max_age
+    )
     if (
         rt.update_lags
+        and lag_sample_fresh
         and p95_lag > rt.settings.update_lag_warn_seconds
     ):
         issues.append("telegram_update_lag")
 
-    signature = "|".join(sorted(issues)) if issues else "OK"
+    issues = sorted(set(issues))
+
+    delivery_blocking_issues = {
+        "database_or_integrity",
+        "sqlite_database_file_missing",
+        "sqlite_foreign_key_violation",
+        "sqlite_schema_version_unavailable",
+        "sqlite_schema_version_mismatch",
+        "sqlite_pragmas_unavailable",
+        "sqlite_not_wal",
+        "sqlite_foreign_keys_off",
+        "sqlite_synchronous_not_full",
+        "sqlite_trusted_schema_on",
+        "sqlite_application_id_mismatch",
+    }
+    rt.delivery_health_block_reasons = tuple(
+        issue for issue in issues
+        if issue in delivery_blocking_issues
+    )
+    rt.delivery_health_blocked = bool(
+        rt.delivery_health_block_reasons
+    )
+
     now = time.time()
 
     previous = rt.health_alert_signature
     last_sent_at = rt.health_alert_last_sent_at
+    persistence_read_ok = True
 
-    try:
-        persisted = rt.db.get_setting("health_alert_signature")
-        if persisted is not None:
-            previous = persisted
+    # Normally persisted dedup state is authoritative so restarts and
+    # the configured repeat interval keep their historical semantics.
+    # If a dedup write failed after a confirmed Telegram delivery, the
+    # live single-process state is newer than SQLite. Repair that state
+    # before accepting persisted values again.
+    if rt.health_alert_persistence_dirty and previous is not None:
+        try:
+            with rt.db.transaction():
+                rt.db.set_setting("health_alert_signature", previous)
+                rt.db.set_setting(
+                    "health_alert_last_sent_at",
+                    str(last_sent_at),
+                )
+            rt.health_alert_persistence_dirty = False
+        except Exception as exc:
+            persistence_read_ok = False
+            logger.warning(
+                "Health alert dedup ainda não pôde ser persistido: %s",
+                type(exc).__name__,
+            )
 
-        raw_last_sent = (
-            rt.db.get_setting("health_alert_last_sent_at")
-            or "0"
-        )
-        last_sent_at = float(raw_last_sent)
-    except Exception as exc:
-        logger.warning(
-            "Health alert persistence indisponível: %s",
-            type(exc).__name__,
-        )
+    if not rt.health_alert_persistence_dirty:
+        try:
+            persisted = rt.db.get_setting("health_alert_signature")
+            if persisted is not None:
+                previous = persisted
 
+            raw_last_sent = (
+                rt.db.get_setting("health_alert_last_sent_at")
+                or "0"
+            )
+            last_sent_at = float(raw_last_sent)
+        except Exception as exc:
+            persistence_read_ok = False
+            logger.warning(
+                "Health alert persistence indisponível: %s",
+                type(exc).__name__,
+            )
+
+    if (
+        not persistence_read_ok
+        or rt.health_alert_persistence_dirty
+    ):
+        issues.append("health_alert_persistence_unavailable")
+        issues = sorted(set(issues))
+
+    signature = "|".join(issues) if issues else "OK"
     rt.health_alert_signature = previous
     rt.health_alert_last_sent_at = last_sent_at
+
+    incident_id, recovered_incident_id = (
+        transition_operational_health_incident(
+            rt,
+            signature=signature,
+            issues=issues,
+            snapshot=snapshot,
+            p95_lag=p95_lag,
+        )
+    )
 
     if signature == previous:
         if signature == "OK":
@@ -3751,88 +4315,68 @@ async def operational_alert_cycle(
         ):
             return
 
-    try:
-        rt.db.set_setting("health_alert_signature", signature)
-    except Exception as exc:
-        logger.warning(
-            "Falha ao persistir assinatura de health alert: %s",
-            type(exc).__name__,
-        )
-    rt.health_alert_signature = signature
-
     if not issues:
+        if not previous or previous == "OK":
+            return
+
+        delivered = False
+        for operator_id in sorted(rt.settings.admin_user_ids):
+            success = False
+            try:
+                await application.bot.send_message(
+                    chat_id=operator_id,
+                    text=(
+                        "✅ ZION OPERATIONAL RECOVERY\n"
+                        "Os alertas operacionais anteriormente ativos "
+                        "não estão mais presentes. "
+                        "Use /diagnostics para confirmar."
+                    ),
+                )
+                success = True
+                delivered = True
+            except Exception as exc:
+                logger.warning(
+                    "Falha ao enviar recuperação para operator=%s: %s",
+                    operator_id,
+                    type(exc).__name__,
+                )
+
+            try:
+                rt.db.record_action(
+                    incident_id=recovered_incident_id,
+                    chat_id=operator_id,
+                    user_id=None,
+                    action_type="operator_recovery",
+                    actor_type="health",
+                    actor_id=None,
+                    reason="operational_health_recovered",
+                    success=success,
+                    metadata={"previous_signature": previous},
+                )
+            except Exception:
+                pass
+
+        if not delivered:
+            logger.warning(
+                "Operational recovery sem entrega confirmada; "
+                "estado permanecerá elegível para retry."
+            )
+            return
+
         try:
-            rt.db.set_setting("health_alert_last_sent_at", "0")
-        except Exception:
-            pass
+            with rt.db.transaction():
+                rt.db.set_setting("health_alert_signature", "OK")
+                rt.db.set_setting("health_alert_last_sent_at", "0")
+            rt.health_alert_persistence_dirty = False
+        except Exception as exc:
+            rt.health_alert_persistence_dirty = True
+            logger.warning(
+                "Recuperação entregue, mas persistência do dedup falhou: %s",
+                type(exc).__name__,
+            )
+        rt.health_alert_signature = "OK"
         rt.health_alert_last_sent_at = 0.0
-
-        if previous and previous != "OK":
-            for operator_id in sorted(rt.settings.admin_user_ids):
-                success = False
-                try:
-                    await application.bot.send_message(
-                        chat_id=operator_id,
-                        text=(
-                            "✅ ZION OPERATIONAL RECOVERY\n"
-                            "Os alertas operacionais anteriormente ativos "
-                            "não estão mais presentes. "
-                            "Use /diagnostics para confirmar."
-                        ),
-                    )
-                    success = True
-                except Exception as exc:
-                    logger.warning(
-                        "Falha ao enviar recuperação para operator=%s: %s",
-                        operator_id,
-                        type(exc).__name__,
-                    )
-
-                try:
-                    rt.db.record_action(
-                        incident_id=None,
-                        chat_id=operator_id,
-                        user_id=None,
-                        action_type="operator_recovery",
-                        actor_type="health",
-                        actor_id=None,
-                        reason="operational_health_recovered",
-                        success=success,
-                        metadata={"previous_signature": previous},
-                    )
-                except Exception:
-                    pass
         return
-
-    incident_id: str | None = None
-    try:
-        incident_id = rt.db.create_incident(
-            chat_id=None,
-            user_id=None,
-            category="operational_health_warning",
-            severity=(
-                Severity.HIGH
-                if not snapshot.db_ok
-                else Severity.MEDIUM
-            ),
-            source="health",
-            evidence={
-                "issues": issues,
-                "disk_free_mb": snapshot.disk_free_mb,
-                "telegram_update_lag_p95": round(p95_lag, 3),
-                "repeat_interval_seconds": (
-                    rt.settings.health_alert_repeat_seconds
-                ),
-            },
-            note=(
-                "Operational alert; no automated destructive action executed."
-            ),
-        )
-    except Exception as exc:
-        logger.warning(
-            "Falha ao persistir incidente operacional: %s",
-            type(exc).__name__,
-        )
 
     alert_text = (
         "⚠️ ZION OPERATIONAL ALERT\n"
@@ -3840,6 +4384,7 @@ async def operational_alert_cycle(
         + "\nUse /diagnostics para detalhes."
     )
 
+    delivered = False
     for operator_id in sorted(rt.settings.admin_user_ids):
         success = False
         try:
@@ -3848,6 +4393,7 @@ async def operational_alert_cycle(
                 text=alert_text,
             )
             success = True
+            delivered = True
         except Exception as exc:
             logger.warning(
                 "Falha ao enviar alerta operacional para operator=%s: %s",
@@ -3870,15 +4416,84 @@ async def operational_alert_cycle(
         except Exception:
             pass
 
+    if not delivered:
+        logger.warning(
+            "Operational alert sem entrega confirmada; "
+            "não avançando estado de deduplicação."
+        )
+        return
+
     try:
-        rt.db.set_setting("health_alert_last_sent_at", str(now))
-    except Exception:
-        pass
+        with rt.db.transaction():
+            rt.db.set_setting("health_alert_signature", signature)
+            rt.db.set_setting("health_alert_last_sent_at", str(now))
+        rt.health_alert_persistence_dirty = False
+    except Exception as exc:
+        rt.health_alert_persistence_dirty = True
+        logger.warning(
+            "Alerta entregue, mas persistência do dedup falhou: %s",
+            type(exc).__name__,
+        )
+    rt.health_alert_signature = signature
     rt.health_alert_last_sent_at = now
 
 
+async def hourly_operations_cycle(
+    application: Application,
+    rt: Runtime,
+    *,
+    now: float | None = None,
+) -> None:
+    cycle_now = time.time() if now is None else now
+
+    try:
+        _, housekeeping_failures = housekeeping_cycle(rt, cycle_now)
+        rt.housekeeping_last_error = (
+            ",".join(housekeeping_failures)
+            if housekeeping_failures
+            else None
+        )
+    except Exception as exc:
+        rt.housekeeping_last_error = f"cycle:{type(exc).__name__}"
+        logger.exception(
+            "Falha estrutural no housekeeping do ZION; "
+            "health alert seguirá ativo."
+        )
+
+    try:
+        checkpoint = rt.db.checkpoint_wal()
+        rt.wal_checkpoint_last_error = None
+        if checkpoint["busy"] not in {0, -1}:
+            logger.warning(
+                "SQLite WAL checkpoint busy | frames=%s | checkpointed=%s",
+                checkpoint["log_frames"],
+                checkpoint["checkpointed_frames"],
+            )
+    except Exception as exc:
+        rt.wal_checkpoint_last_error = type(exc).__name__
+        logger.warning(
+            "Falha no checkpoint passivo SQLite: %s",
+            type(exc).__name__,
+        )
+
+    try:
+        await operational_alert_cycle(application, rt)
+    except Exception as exc:
+        rt.delivery_health_blocked = True
+        rt.delivery_health_block_reasons = (
+            f"operational_health_check_failed:{type(exc).__name__}",
+        )
+        logger.exception(
+            "Falha no ciclo de alerta operacional do ZION; "
+            "scheduled delivery bloqueada."
+        )
+
+
 async def scheduler_loop(application: Application) -> None:
-    last_housekeeping = 0.0
+    # Preserve the previous startup contract: maintenance and health run
+    # on the first scheduler iteration regardless of host uptime.
+    last_housekeeping_monotonic = float("-inf")
+    last_health_check_monotonic = float("-inf")
 
     while True:
         try:
@@ -3887,136 +4502,69 @@ async def scheduler_loop(application: Application) -> None:
                 await asyncio.sleep(10)
                 continue
 
-            expire_temporary_state(rt)
-
             now = time.time()
-
-            quarantined = rt.db.quarantine_stale_delivery_claims(
-                now=now,
-                stale_after_seconds=(
-                    rt.settings.delivery_claim_timeout_seconds
-                ),
+            monotonic_now = time.monotonic()
+            previous_preflight_state = (
+                rt.state_maintenance_last_error,
+                rt.delivery_guard_last_error,
             )
-            if any(quarantined.values()):
-                rt.db.create_incident(
-                    chat_id=None,
-                    user_id=None,
-                    category="stale_delivery_claims_quarantined",
-                    severity=Severity.HIGH,
-                    source="scheduler",
-                    evidence=quarantined,
-                    note=(
-                        "A delivery claim exceeded its timeout. "
-                        "ZION quarantined it instead of auto-replaying, "
-                        "preventing duplicate delivery after an unknown outcome."
-                    ),
-                )
-                logger.error(
-                    "Delivery claim quarantine | scheduled_uncertain=%s | "
-                    "recurring_paused=%s",
-                    quarantined["scheduled_uncertain"],
-                    quarantined["recurring_paused"],
-                )
+            delivery_guard_ok = scheduler_safety_preflight(rt, now)
+            preflight_state = (
+                rt.state_maintenance_last_error,
+                rt.delivery_guard_last_error,
+            )
+            preflight_changed = (
+                any(preflight_state)
+                and preflight_state != previous_preflight_state
+            )
 
-            if now - last_housekeeping >= 3600:
-                gaps_removed = rt.db.prune_knowledge_gaps(
-                    now
-                    - (
-                        rt.settings.knowledge_gap_retention_days
-                        * 86400
-                    )
+            ran_operational_check = False
+            if monotonic_now - last_housekeeping_monotonic >= 3600:
+                await hourly_operations_cycle(
+                    application,
+                    rt,
+                    now=now,
                 )
-                reports_redacted = rt.db.redact_resolved_user_reports(
-                    now
-                    - (
-                        rt.settings.report_retention_days
-                        * 86400
-                    )
-                )
-                user_events_deleted = rt.db.prune_user_events(
-                    now
-                    - (
-                        rt.settings.user_event_retention_days
-                        * 86400
-                    )
-                )
-                idempotency_deleted = rt.db.prune_idempotency_keys(now)
-                ama_cutoff = (
-                    now - (rt.settings.ama_retention_days * 86400)
-                )
-                ama_questions_deleted = rt.db.prune_ama_questions(
-                    ama_cutoff
-                )
-                ama_sessions_deleted = rt.db.prune_closed_ama_sessions(
-                    ama_cutoff
-                )
-                ai_events_deleted = rt.db.prune_ai_events(
-                    now
-                    - (
-                        rt.settings.ai_event_retention_days
-                        * 86400
-                    )
-                )
-                scheduled_deleted = (
-                    rt.db.prune_completed_scheduled_messages(
-                        now
-                        - (
-                            rt.settings.completed_job_retention_days
-                            * 86400
-                        )
-                    )
-                )
-                containments_deleted = (
-                    rt.db.prune_expired_containments(now)
-                )
-                if (
-                    gaps_removed
-                    or reports_redacted
-                    or user_events_deleted
-                    or idempotency_deleted
-                    or ama_questions_deleted
-                    or ama_sessions_deleted
-                    or ai_events_deleted
-                    or scheduled_deleted
-                    or containments_deleted
-                ):
-                    logger.info(
-                        "Housekeeping | knowledge_gaps_deleted=%s | "
-                        "resolved_reports_redacted=%s | "
-                        "user_events_deleted=%s | "
-                        "idempotency_deleted=%s | "
-                        "ama_questions_deleted=%s | "
-                        "ama_sessions_deleted=%s | "
-                        "ai_events_deleted=%s | "
-                        "scheduled_deleted=%s | "
-                        "containments_deleted=%s",
-                        gaps_removed,
-                        reports_redacted,
-                        user_events_deleted,
-                        idempotency_deleted,
-                        ama_questions_deleted,
-                        ama_sessions_deleted,
-                        ai_events_deleted,
-                        scheduled_deleted,
-                        containments_deleted,
-                    )
+                last_housekeeping_monotonic = monotonic_now
+                last_health_check_monotonic = monotonic_now
+                ran_operational_check = True
+            elif (
+                monotonic_now - last_health_check_monotonic
+                >= rt.settings.health_check_interval_seconds
+            ):
                 try:
-                    checkpoint = rt.db.checkpoint_wal()
-                    if checkpoint["busy"] not in {0, -1}:
-                        logger.warning(
-                            "SQLite WAL checkpoint busy | frames=%s | "
-                            "checkpointed=%s",
-                            checkpoint["log_frames"],
-                            checkpoint["checkpointed_frames"],
-                        )
+                    await operational_alert_cycle(application, rt)
                 except Exception as exc:
-                    logger.warning(
-                        "Falha no checkpoint passivo SQLite: %s",
-                        type(exc).__name__,
+                    rt.delivery_health_blocked = True
+                    rt.delivery_health_block_reasons = (
+                        f"operational_health_check_failed:{type(exc).__name__}",
                     )
+                    logger.exception(
+                        "Falha no ciclo periódico de saúde operacional; "
+                        "scheduled delivery bloqueada."
+                    )
+                finally:
+                    last_health_check_monotonic = monotonic_now
+                ran_operational_check = True
 
-                await operational_alert_cycle(application, rt)
-                last_housekeeping = now
+            if preflight_changed and not ran_operational_check:
+                try:
+                    await operational_alert_cycle(application, rt)
+                except Exception as exc:
+                    rt.delivery_health_blocked = True
+                    rt.delivery_health_block_reasons = (
+                        f"operational_health_check_failed:{type(exc).__name__}",
+                    )
+                    logger.exception(
+                        "Falha no alerta imediato do scheduler safety preflight; "
+                        "scheduled delivery bloqueada."
+                    )
+                finally:
+                    last_health_check_monotonic = monotonic_now
+
+            if not delivery_guard_ok or rt.delivery_health_blocked:
+                await asyncio.sleep(20)
+                continue
 
             state = rt.db.get_operating_state()
             due = (

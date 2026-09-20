@@ -17,6 +17,9 @@ from .models import AIAnswer, AIClassification, OperatingState
 logger = logging.getLogger("zion.ai")
 
 
+AI_REQUEST_OVERHEAD_TOKEN_RESERVE = 4096
+
+
 AI_CREDENTIAL_REGEX = re.compile(
     r"(?i)\b("
     r"api[_ -]?key|access[_ -]?key|client[_ -]?secret|"
@@ -187,11 +190,30 @@ class AIService:
             int(self._circuit_open_until - time.time()),
         )
 
+    def _persist_circuit_state(self) -> bool:
+        try:
+            with self.db.transaction():
+                self.db.set_setting(
+                    "ai_circuit_failures",
+                    str(self._circuit_failures),
+                )
+                self.db.set_setting(
+                    "ai_circuit_open_until",
+                    str(self._circuit_open_until),
+                )
+            return True
+        except Exception as exc:
+            logger.warning(
+                "Falha ao persistir circuit breaker da IA atomicamente | "
+                "error=%s",
+                type(exc).__name__,
+            )
+            return False
+
     def _reset_circuit(self) -> None:
         self._circuit_failures = 0
         self._circuit_open_until = 0.0
-        self._safe_set_setting("ai_circuit_failures", "0")
-        self._safe_set_setting("ai_circuit_open_until", "0")
+        self._persist_circuit_state()
 
     def _record_provider_success(self) -> None:
         if self._circuit_failures or self._circuit_open_until:
@@ -199,21 +221,17 @@ class AIService:
 
     def _record_provider_failure(self) -> None:
         self._circuit_failures += 1
-        self._safe_set_setting(
-            "ai_circuit_failures",
-            str(self._circuit_failures),
-        )
+
+        if self._circuit_failures >= self.settings.ai_circuit_failures:
+            self._circuit_open_until = (
+                time.time() + self.settings.ai_circuit_seconds
+            )
+
+        self._persist_circuit_state()
 
         if self._circuit_failures < self.settings.ai_circuit_failures:
             return
 
-        self._circuit_open_until = (
-            time.time() + self.settings.ai_circuit_seconds
-        )
-        self._safe_set_setting(
-            "ai_circuit_open_until",
-            str(self._circuit_open_until),
-        )
         logger.warning(
             "Circuit breaker Mistral aberto por %ss após %s falhas consecutivas.",
             self.settings.ai_circuit_seconds,
@@ -233,11 +251,20 @@ class AIService:
         text: str,
         max_output_tokens: int,
     ) -> int:
-        # Conservative approximation for a hard local budget gate.
-        # UTF-8 natural language is usually <= ~4 chars/token; using 3
-        # intentionally over-reserves rather than risking a cost overrun.
-        input_estimate = max(1, (len(text) + 2) // 3)
-        return input_estimate + max(1, max_output_tokens)
+        # Conservative admission reserve. Do not estimate from average
+        # chars/token: Unicode and serialization overhead can invalidate
+        # that assumption. Reserve at least twice the UTF-8 payload bytes
+        # plus a fixed allowance for system prompts/wrappers, then the
+        # provider-side output ceiling.
+        payload_bytes = len(
+            (text or "").encode("utf-8", errors="replace")
+        )
+        input_reserve = max(
+            1,
+            (payload_bytes * 2)
+            + AI_REQUEST_OVERHEAD_TOKEN_RESERVE,
+        )
+        return input_reserve + max(1, int(max_output_tokens))
 
     def _reserve_budget(self, estimated_tokens: int) -> int | None:
         budget = self.settings.ai_daily_token_budget
@@ -267,11 +294,92 @@ class AIService:
                 self._reserved_tokens - reservation,
             )
 
+    @staticmethod
+    def _utc_day_number(now: float | None = None) -> int:
+        ts = time.time() if now is None else now
+        return int(ts // 86400)
+
+    def _uncertain_budget_tokens_today(self) -> int:
+        raw = self.db.get_setting("ai_uncertain_budget")
+        if raw is None:
+            return 0
+
+        day_text, separator, tokens_text = raw.partition(":")
+        if not separator:
+            raise ValueError("invalid uncertain AI budget state")
+
+        day = int(day_text)
+        tokens = max(0, int(tokens_text))
+        if day != self._utc_day_number():
+            return 0
+        return tokens
+
+    def _charge_uncertain_budget(self, estimated_tokens: int) -> bool:
+        estimate = max(0, int(estimated_tokens))
+        if estimate <= 0:
+            return True
+
+        with self._budget_lock:
+            try:
+                current = self._uncertain_budget_tokens_today()
+                day = self._utc_day_number()
+                self.db.set_setting(
+                    "ai_uncertain_budget",
+                    f"{day}:{current + estimate}",
+                )
+                return True
+            except Exception as exc:
+                self._accounting_healthy = False
+                logger.error(
+                    "AI accounting FAIL-CLOSED | "
+                    "uso incerto não persistido | error=%s",
+                    type(exc).__name__,
+                )
+                return False
+
+    def _record_provider_success_event(
+        self,
+        *,
+        reservation: int,
+        input_tokens: int,
+        output_tokens: int,
+        **event_kwargs,
+    ) -> bool:
+        recorded = self._record_ai_event(
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            **event_kwargs,
+        )
+        if recorded:
+            return True
+
+        # The provider returned successfully, so external usage already
+        # happened. If the exact event ledger write fails, persist that
+        # usage in the conservative UTC-day accounting channel so a
+        # restart cannot make the cost disappear.
+        exact_usage = (
+            max(0, int(input_tokens))
+            + max(0, int(output_tokens))
+        )
+        fallback_usage = (
+            exact_usage if exact_usage > 0 else max(0, reservation)
+        )
+        charged = self._charge_uncertain_budget(fallback_usage)
+        logger.error(
+            "AI success ledger fallback | exact_event_persisted=false | "
+            "fallback_tokens=%s | fallback_persisted=%s",
+            fallback_usage,
+            charged,
+        )
+        return False
+
     def tokens_used_today(self) -> int:
         now = time.time()
         utc_day_start = now - (now % 86400)
         try:
-            return self.db.ai_tokens_since(utc_day_start)
+            recorded = self.db.ai_tokens_since(utc_day_start)
+            uncertain = self._uncertain_budget_tokens_today()
+            return recorded + uncertain
         except Exception as exc:
             self._accounting_healthy = False
             logger.error(
@@ -413,15 +521,16 @@ class AIService:
                     + "\n- ".join(source_labels)
                 )
 
-            self._record_ai_event(
+            self._record_provider_success_event(
+                reservation=reservation,
+                input_tokens=answer.input_tokens,
+                output_tokens=answer.output_tokens,
                 chat_id=chat_id,
                 user_id=user_id,
                 purpose="support_answer",
                 model=answer.model,
                 success=True,
                 latency_ms=answer.latency_ms,
-                input_tokens=answer.input_tokens,
-                output_tokens=answer.output_tokens,
                 input_hash=question_hash,
                 metadata={
                     "knowledge_hits": len(self.knowledge.search(safe_question)),
@@ -434,6 +543,7 @@ class AIService:
 
         except Exception as exc:
             self._record_provider_failure()
+            self._charge_uncertain_budget(reservation)
             logger.warning("Falha na resposta Mistral: %s", exc)
             self._record_ai_event(
                 chat_id=chat_id,
@@ -442,7 +552,11 @@ class AIService:
                 model=self.settings.mistral_model,
                 success=False,
                 input_hash=question_hash,
-                metadata={"error_type": type(exc).__name__},
+                metadata={
+                    "error_type": type(exc).__name__,
+                    "budget_estimate_tokens": reservation,
+                    "usage_outcome": "uncertain",
+                },
             )
             return AIAnswer(
                 text=(
@@ -505,20 +619,22 @@ class AIService:
 
             self._record_provider_success()
 
-            self._record_ai_event(
+            self._record_provider_success_event(
+                reservation=reservation,
+                input_tokens=answer.input_tokens,
+                output_tokens=answer.output_tokens,
                 chat_id=chat_id,
                 user_id=user_id,
                 purpose="summarize",
                 model=answer.model,
                 success=True,
                 latency_ms=answer.latency_ms,
-                input_tokens=answer.input_tokens,
-                output_tokens=answer.output_tokens,
                 input_hash=self._hash_text(safe_text),
             )
             return answer
         except Exception as exc:
             self._record_provider_failure()
+            self._charge_uncertain_budget(reservation)
             logger.warning("Falha no resumo Mistral: %s", exc)
             self._record_ai_event(
                 chat_id=chat_id,
@@ -527,7 +643,11 @@ class AIService:
                 model=self.settings.mistral_model,
                 success=False,
                 input_hash=self._hash_text(safe_text),
-                metadata={"error_type": type(exc).__name__},
+                metadata={
+                    "error_type": type(exc).__name__,
+                    "budget_estimate_tokens": reservation,
+                    "usage_outcome": "uncertain",
+                },
             )
             return AIAnswer(
                 text="Não foi possível gerar o resumo agora.",
@@ -597,21 +717,23 @@ class AIService:
 
             self._record_provider_success()
 
-            self._record_ai_event(
+            self._record_provider_success_event(
+                reservation=reservation,
+                input_tokens=answer.input_tokens,
+                output_tokens=answer.output_tokens,
                 chat_id=chat_id,
                 user_id=user_id,
                 purpose="translate",
                 model=answer.model,
                 success=True,
                 latency_ms=answer.latency_ms,
-                input_tokens=answer.input_tokens,
-                output_tokens=answer.output_tokens,
                 input_hash=self._hash_text(safe_text),
                 metadata={"target_language": safe_target},
             )
             return answer
         except Exception as exc:
             self._record_provider_failure()
+            self._charge_uncertain_budget(reservation)
             logger.warning("Falha na tradução Mistral: %s", exc)
             self._record_ai_event(
                 chat_id=chat_id,
@@ -623,6 +745,8 @@ class AIService:
                 metadata={
                     "target_language": safe_target,
                     "error_type": type(exc).__name__,
+                    "budget_estimate_tokens": reservation,
+                    "usage_outcome": "uncertain",
                 },
             )
             return AIAnswer(
@@ -666,7 +790,10 @@ class AIService:
 
             self._record_provider_success()
 
-            self._record_ai_event(
+            self._record_provider_success_event(
+                reservation=reservation,
+                input_tokens=result.input_tokens,
+                output_tokens=result.output_tokens,
                 chat_id=chat_id,
                 user_id=user_id,
                 purpose="moderation_observe",
@@ -676,14 +803,13 @@ class AIService:
                 risk=result.risk,
                 requires_human=result.requires_human,
                 latency_ms=result.latency_ms,
-                input_tokens=result.input_tokens,
-                output_tokens=result.output_tokens,
                 input_hash=self._hash_text(safe_text),
             )
             return result
 
         except Exception as exc:
             self._record_provider_failure()
+            self._charge_uncertain_budget(reservation)
             logger.warning("Falha no classificador Mistral: %s", exc)
             self._record_ai_event(
                 chat_id=chat_id,
@@ -692,6 +818,10 @@ class AIService:
                 model=self.settings.mistral_model,
                 success=False,
                 input_hash=self._hash_text(safe_text),
-                metadata={"error_type": type(exc).__name__},
+                metadata={
+                    "error_type": type(exc).__name__,
+                    "budget_estimate_tokens": reservation,
+                    "usage_outcome": "uncertain",
+                },
             )
             return None

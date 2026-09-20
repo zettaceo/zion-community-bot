@@ -76,6 +76,79 @@ def _extract_content(message: dict[str, Any]) -> str:
     return str(content).strip()
 
 
+def _validated_usage_tokens(
+    usage: Any,
+) -> tuple[int, int]:
+    if not isinstance(usage, dict):
+        raise RuntimeError(
+            "Resposta Mistral sem telemetria de uso válida."
+        )
+
+    def parse_optional(*keys: str) -> int | None:
+        raw = None
+        for key in keys:
+            if key in usage and usage.get(key) is not None:
+                raw = usage.get(key)
+                break
+        if raw is None:
+            return None
+        try:
+            value = int(raw)
+        except (TypeError, ValueError) as exc:
+            raise RuntimeError(
+                "Resposta Mistral com telemetria de uso inválida."
+            ) from exc
+        if value < 0:
+            raise RuntimeError(
+                "Resposta Mistral com telemetria de uso inválida."
+            )
+        return value
+
+    input_tokens = parse_optional(
+        "prompt_tokens",
+        "input_tokens",
+    )
+    output_tokens = parse_optional(
+        "completion_tokens",
+        "output_tokens",
+    )
+    total_tokens = parse_optional("total_tokens")
+
+    if total_tokens is None:
+        if input_tokens is None or output_tokens is None:
+            raise RuntimeError(
+                "Resposta Mistral com telemetria de uso incompleta."
+            )
+        if input_tokens + output_tokens <= 0:
+            raise RuntimeError(
+                "Resposta Mistral sem telemetria de uso contabilizável."
+            )
+        return input_tokens, output_tokens
+
+    if total_tokens <= 0:
+        raise RuntimeError(
+            "Resposta Mistral sem telemetria de uso contabilizável."
+        )
+
+    known_input = input_tokens or 0
+    known_output = output_tokens or 0
+    known_total = known_input + known_output
+
+    if input_tokens is None and output_tokens is None:
+        return total_tokens, 0
+
+    if input_tokens is None:
+        known_input = max(0, total_tokens - known_output)
+    elif output_tokens is None:
+        known_output = max(0, total_tokens - known_input)
+    elif known_total < total_tokens:
+        known_input += total_tokens - known_total
+
+    # If components exceed total_tokens, keep the larger component sum:
+    # it is the conservative value for local budget accounting.
+    return known_input, known_output
+
+
 def _parse_json_object(text: str) -> dict[str, Any]:
     stripped = text.strip()
 
@@ -176,16 +249,8 @@ class MistralClient:
         if not text:
             raise RuntimeError("Resposta Mistral sem conteúdo textual.")
 
-        usage = data.get("usage") or {}
-        input_tokens = int(
-            usage.get("prompt_tokens")
-            or usage.get("input_tokens")
-            or 0
-        )
-        output_tokens = int(
-            usage.get("completion_tokens")
-            or usage.get("output_tokens")
-            or 0
+        input_tokens, output_tokens = _validated_usage_tokens(
+            data.get("usage")
         )
 
         return MistralRawResponse(

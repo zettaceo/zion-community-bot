@@ -5,7 +5,7 @@ import time
 from pathlib import Path
 
 from .config import Settings
-from .db import ZionDB
+from .db import SUPPORTED_SCHEMA_VERSION, ZION_APPLICATION_ID, ZionDB
 from .models import HealthSnapshot, OperatingState
 
 
@@ -24,6 +24,13 @@ class HealthService:
         self.db = db
         self._started_monotonic = time.monotonic()
         self._integrity_checked_at = float("-inf")
+        self._integrity_cache_seconds = max(
+            1,
+            min(
+                300,
+                int(settings.health_check_interval_seconds),
+            ),
+        )
         self._integrity_cache: dict[str, object] = {
             "ok": True,
             "database_ok": True,
@@ -34,18 +41,37 @@ class HealthService:
 
     def _integrity_status(self) -> dict[str, object]:
         now = time.monotonic()
-        if now - self._integrity_checked_at >= 300:
-            self._integrity_cache = self.db.verify_integrity(
-                full=False
-            )
+        if (
+            now - self._integrity_checked_at
+            >= self._integrity_cache_seconds
+        ):
+            try:
+                self._integrity_cache = self.db.verify_integrity(
+                    full=False
+                )
+            except Exception as exc:
+                error_type = type(exc).__name__
+                self._integrity_cache = {
+                    "ok": False,
+                    "database_ok": False,
+                    "database_messages": [
+                        f"integrity_probe_unavailable:{error_type}"
+                    ],
+                    "foreign_keys_ok": False,
+                    "foreign_key_violations": [
+                        f"integrity_probe_unavailable:{error_type}"
+                    ],
+                }
             self._integrity_checked_at = now
         return self._integrity_cache
 
     def snapshot(self) -> HealthSnapshot:
+        disk_usage_ok = True
         try:
             disk = shutil.disk_usage(self.settings.root_dir)
             disk_free_mb = int(disk.free / 1024 / 1024)
         except OSError:
+            disk_usage_ok = False
             disk_free_mb = -1
 
         wifi_path = Path("/sys/class/net") / self.settings.wifi_interface
@@ -98,14 +124,21 @@ class HealthService:
         foreign_key_violations = list(
             integrity.get("foreign_key_violations", [])
         )
+        db_file_present = self.settings.db_path.exists()
         db_sizes = self.db.file_sizes_bytes()
         db_size_mb = int(db_sizes["total"] / 1024 / 1024)
         db_file_mb = int(db_sizes["database"] / 1024 / 1024)
         wal_size_mb = int(db_sizes["wal"] / 1024 / 1024)
+        shm_size_mb = int(db_sizes["shm"] / 1024 / 1024)
 
         return HealthSnapshot(
             state=state,
-            db_ok=state_read_ok and self.db.ping() and integrity_ok,
+            db_ok=(
+                state_read_ok
+                and db_file_present
+                and self.db.ping()
+                and integrity_ok
+            ),
             telegram_configured=bool(self.settings.telegram_token),
             ai_enabled=self.settings.ai_enabled,
             ai_configured=bool(self.settings.mistral_api_key),
@@ -125,9 +158,11 @@ class HealthService:
                 "sqlite_foreign_key_violations": (
                     foreign_key_violations[:20]
                 ),
+                "db_file_present": db_file_present,
                 "db_size_mb": db_size_mb,
                 "db_file_mb": db_file_mb,
                 "wal_size_mb": wal_size_mb,
+                "shm_size_mb": shm_size_mb,
                 "db_large": (
                     db_file_mb >= self.settings.db_warn_mb
                 ),
@@ -136,8 +171,9 @@ class HealthService:
                 ),
                 "db_warn_mb": self.settings.db_warn_mb,
                 "wal_warn_mb": self.settings.wal_warn_mb,
+                "disk_usage_ok": disk_usage_ok,
                 "disk_low": (
-                    disk_free_mb >= 0
+                    disk_usage_ok
                     and disk_free_mb < self.settings.disk_warn_mb
                 ),
                 "disk_warn_mb": self.settings.disk_warn_mb,
@@ -153,14 +189,18 @@ class HealthService:
     def diagnostics(self) -> dict[str, object]:
         snapshot = self.snapshot()
 
+        ai_latency_read_ok = True
         try:
             latency = self.db.ai_latency_stats(time.time() - 86400)
         except Exception:
+            ai_latency_read_ok = False
             latency = {"count": 0, "avg_ms": 0, "p95_ms": 0}
 
+        pragma_read_ok = True
         try:
             pragmas = self.db.runtime_pragmas()
         except Exception:
+            pragma_read_ok = False
             pragmas = {
                 "journal_mode": "unknown",
                 "foreign_keys": 0,
@@ -172,10 +212,35 @@ class HealthService:
                 "application_id": 0,
             }
 
+        pragma_issues: list[str] = []
+        if pragma_read_ok:
+            if pragmas["journal_mode"] != "wal":
+                pragma_issues.append("journal_mode")
+            if int(pragmas["foreign_keys"]) != 1:
+                pragma_issues.append("foreign_keys")
+            if int(pragmas["synchronous"]) != 2:
+                pragma_issues.append("synchronous")
+            if int(pragmas["trusted_schema"]) != 0:
+                pragma_issues.append("trusted_schema")
+            if int(pragmas["application_id"]) != ZION_APPLICATION_ID:
+                pragma_issues.append("application_id")
+            if int(pragmas["busy_timeout_ms"]) < 5000:
+                pragma_issues.append("busy_timeout")
+            if int(pragmas["wal_autocheckpoint"]) != 1000:
+                pragma_issues.append("wal_autocheckpoint")
+            if int(pragmas["journal_size_limit"]) != 16777216:
+                pragma_issues.append("journal_size_limit")
+
+        schema_version_read_ok = True
         try:
             schema_version = self.db.schema_version()
         except Exception:
+            schema_version_read_ok = False
             schema_version = -1
+        schema_version_ok = (
+            schema_version_read_ok
+            and schema_version == SUPPORTED_SCHEMA_VERSION
+        )
 
         return {
             "state": snapshot.state.value,
@@ -195,22 +260,38 @@ class HealthService:
                     [],
                 )
             ),
+            "db_file_present": bool(
+                snapshot.details.get("db_file_present")
+            ),
             "db_size_mb": int(snapshot.details.get("db_size_mb", 0)),
             "db_file_mb": int(snapshot.details.get("db_file_mb", 0)),
             "wal_size_mb": int(snapshot.details.get("wal_size_mb", 0)),
+            "shm_size_mb": int(snapshot.details.get("shm_size_mb", 0)),
             "db_large": bool(snapshot.details.get("db_large")),
             "wal_large": bool(snapshot.details.get("wal_large")),
             "db_warn_mb": int(snapshot.details.get("db_warn_mb", 0)),
             "wal_warn_mb": int(snapshot.details.get("wal_warn_mb", 0)),
             "disk_free_mb": snapshot.disk_free_mb,
+            "disk_usage_ok": bool(
+                snapshot.details.get("disk_usage_ok")
+            ),
             "disk_low": bool(snapshot.details.get("disk_low")),
             "sensitive_files_private": bool(
                 snapshot.details.get("sensitive_files_private")
             ),
             "wifi_interface_present": snapshot.wifi_interface_present,
             "ai_latency_24h": latency,
+            "ai_latency_read_ok": ai_latency_read_ok,
             "schema_version": schema_version,
+            "schema_version_supported": SUPPORTED_SCHEMA_VERSION,
+            "schema_version_read_ok": schema_version_read_ok,
+            "schema_version_ok": schema_version_ok,
             "sqlite_pragmas": pragmas,
+            "sqlite_pragmas_ok": (
+                pragma_read_ok and not pragma_issues
+            ),
+            "sqlite_pragma_read_ok": pragma_read_ok,
+            "sqlite_pragma_issues": pragma_issues,
             "configuration_issues": list(
                 snapshot.details.get("configuration_issues", ())
             ),
