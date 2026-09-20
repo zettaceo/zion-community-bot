@@ -184,6 +184,27 @@ class Block4OperationsTests(unittest.TestCase):
             finally:
                 rt.close()
 
+    def test_failed_notifications_do_not_duplicate_health_incidents(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            rt = Runtime(self._settings(root))
+            rt.housekeeping_last_error = "RuntimeError"
+            app = FakeApplication(rt, fail=True)
+
+            try:
+                asyncio.run(operational_alert_cycle(app, rt))
+                asyncio.run(operational_alert_cycle(app, rt))
+
+                incidents = [
+                    item
+                    for item in rt.db.list_incidents(limit=100)
+                    if item["category"] == "operational_health_warning"
+                ]
+                self.assertEqual(app.bot.attempts, 2)
+                self.assertEqual(len(incidents), 1)
+            finally:
+                rt.close()
+
     def test_successful_alert_delivery_is_deduplicated(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -255,7 +276,7 @@ class Block4OperationsTests(unittest.TestCase):
 
                 source = inspect.getsource(scheduler_loop)
                 self.assertLess(
-                    source.index("if preflight_has_error"),
+                    source.index("if preflight_changed"),
                     source.index("if not delivery_guard_ok:"),
                 )
                 self.assertLess(
