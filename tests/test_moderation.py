@@ -17,6 +17,7 @@ from zion.telegram_app import (
     is_operator,
     moderation_handler,
     telegram_entity_domains,
+    telegram_entity_link_evidence,
 )
 
 
@@ -183,6 +184,72 @@ class ModerationPipelineTests(unittest.TestCase):
 
         self.assertIn("bare.example", domains)
         self.assertIn("hidden.example", domains)
+
+    def test_hidden_tg_scheme_is_blocked(self) -> None:
+        hidden_entity = SimpleNamespace(
+            type="text_link",
+            url="tg://resolve?domain=example",
+        )
+        update = fake_update(
+            user_id=2,
+            text="clique aqui",
+            message_id=79,
+        )
+        update.effective_message.entities = [hidden_entity]
+        update.effective_message.caption_entities = []
+        update.effective_message.parse_entity = lambda entity: ""
+        update.effective_message.parse_caption_entity = lambda entity: ""
+
+        domains, schemes = telegram_entity_link_evidence(
+            update.effective_message
+        )
+        self.assertEqual(domains, [])
+        self.assertEqual(schemes, ["tg"])
+
+        asyncio.run(moderation_handler(update, self.context))
+
+        self.assertIn(
+            (update.effective_chat.id, update.effective_message.message_id),
+            self.context.bot.deleted,
+        )
+        incidents = self.runtime.db.list_incidents()
+        self.assertEqual(incidents[0]["category"], "unauthorized_link")
+
+    def test_caption_hidden_link_is_checked(self) -> None:
+        hidden_entity = SimpleNamespace(
+            type="text_link",
+            url="https://hidden.example/path",
+        )
+        update = fake_update(
+            user_id=2,
+            text=None,
+            message_id=80,
+        )
+        update.effective_message.caption = "imagem"
+        update.effective_message.entities = []
+        update.effective_message.caption_entities = [hidden_entity]
+        update.effective_message.parse_entity = lambda entity: ""
+        update.effective_message.parse_caption_entity = lambda entity: ""
+
+        asyncio.run(moderation_handler(update, self.context))
+
+        self.assertIn(
+            (update.effective_chat.id, update.effective_message.message_id),
+            self.context.bot.deleted,
+        )
+
+    def test_fullwidth_obfuscated_link_is_deleted(self) -> None:
+        update = fake_update(
+            user_id=2,
+            text="veja ｈｔｔｐｓ：／／evil.example/path",
+            message_id=81,
+        )
+        asyncio.run(moderation_handler(update, self.context))
+
+        self.assertIn(
+            (update.effective_chat.id, update.effective_message.message_id),
+            self.context.bot.deleted,
+        )
 
     def test_explicit_operator_allowlist(self) -> None:
         operator = fake_update(
