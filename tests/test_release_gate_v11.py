@@ -338,6 +338,27 @@ class V11ReleaseGateTests(unittest.TestCase):
             apply,
         )
 
+    def test_predeploy_validates_installed_dashboard_before_downtime(
+        self,
+    ) -> None:
+        text = self.read("scripts/predeploy-v11.sh")
+
+        self.assertIn("DASHBOARD_LOAD_STATE", text)
+        self.assertIn(
+            'systemd-analyze verify "$ROOT/systemd/zion-dashboard.service"',
+            text,
+        )
+        self.assertIn("dashboard_systemd_unit=OK", text)
+
+    def test_runtime_current_accepts_only_known_rollback_provenance(self) -> None:
+        text = self.read("scripts/prepare-release-runtime.sh")
+
+        self.assertIn("validate_previous_runtime_target", text)
+        self.assertIn('if [[ "$target" == "$LEGACY_RUNTIME" ]]', text)
+        self.assertIn('"$RUNTIME_BASE"/*', text)
+        self.assertIn("runtime anterior não possui identidade SHA", text)
+        self.assertIn("release-sha.txt", text)
+
     def test_ci_and_runtime_use_audited_dependency_lock(self) -> None:
         ci = self.read(".github/workflows/ci.yml")
         runtime = self.read("scripts/check-runtime.py")
