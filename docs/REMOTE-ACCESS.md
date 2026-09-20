@@ -1,45 +1,131 @@
 # ZION Remote Access Runbook
 
-Status: preparation only. This document does not expose SSH to the public internet and contains no credentials.
+Status: **prepared, not applied to the Acer host**.
 
-## Architecture
+This design uses OpenSSH **over a private Tailscale path**. It does not require or authorize public TCP/22 exposure.
+
+## Trust boundary
 
 ```text
 Android / Termux
-      |
-      | Tailscale private network
-      v
-Linux Mint host
-      |
-      | SSH public-key authentication
-      v
-zetta@zion host
+    |
+    | dedicated SSH client key
+    | Tailscale private network
+    v
+Linux Mint / Acer ZION host
+    |
+    | OpenSSH public-key auth only
+    v
+zetta account
+    |
+    | explicit sudo only for host administration
+    v
+systemd / sshd / ZION deployment controls
 ```
 
-## Security invariants
+GitHub remains the code source of truth. Runtime secrets remain local on the host.
 
-1. Do not forward TCP/22 on the router.
-2. Do not store private SSH keys, Telegram tokens, Mistral keys, passwords or Tailscale auth keys in Git.
-3. Use a dedicated ED25519 client key for the Android device.
-4. Keep password authentication disabled for the dedicated Termux alias after public-key access has been proven.
-5. Authorize only the public key in `~/.ssh/authorized_keys`.
-6. Prefer the Tailscale address or MagicDNS name as the SSH target.
-7. Do not reboot the ZION host as part of remote-access setup.
-8. Do not change the USB Wi-Fi topology or unbind its parent hub.
-9. Test a second terminal session before tightening sshd rules, so a configuration mistake cannot lock out the operator.
-10. Keep ZION runtime secrets local in `.env`; GitHub remains code-only.
+Remote access and bot deployment are separate changes. Applying SSH/Tailscale configuration must not restart `zion.service`.
 
-## Android side
+## Non-negotiable controls
 
-Expected files:
+1. Do **not** configure router/NAT forwarding for TCP/22.
+2. Do **not** place SSH private keys, Tailscale auth material, Telegram tokens, Mistral keys or passwords in Git.
+3. Use a dedicated ED25519 key for this host.
+4. Verify the server ED25519 host-key fingerprint out of band before permanently trusting it.
+5. Keep `~/.ssh` mode `0700`; keep `authorized_keys` mode `0600`.
+6. Public-key login must be proven **before** password authentication is disabled.
+7. Never close the bootstrap session until a second independent session succeeds.
+8. Root SSH login, password auth, keyboard-interactive auth, agent forwarding, TCP forwarding, X11 forwarding and tunnels stay disabled.
+9. SSH hardening does not replace Tailnet policy or host firewall policy.
+10. Do not install a privileged GitHub Actions self-hosted runner on the production host.
+11. Do not change the USB Wi-Fi topology or reboot the Acer as part of remote-access setup.
+12. `.env`, SQLite runtime files and host backups remain outside GitHub.
 
-```text
-~/.ssh/zion-server       # private; 0600; never copied
-~/.ssh/zion-server.pub   # public; may be authorized on server
-~/.ssh/config            # 0600
+## Phase 0 — physical-console prerequisites
+
+Do the initial bootstrap while physical/local access to the Acer is available.
+
+Run the read-only report first:
+
+```bash
+cd /home/zetta/zion-community-bot
+bash scripts/remote-access-preflight.sh --report-only
 ```
 
-Recommended alias:
+Expected before setup: missing Tailscale/SSH controls may be reported as failures. The command does not change configuration.
+
+Install Tailscale only from its official Linux distribution channel and authenticate the Acer into the intended Tailnet. Do not put reusable Tailscale auth keys in the repository or shell scripts.
+
+Verify that the host receives a Tailscale address and that the intended Android device appears as the expected Tailnet identity.
+
+## Phase 1 — Android / Termux client key
+
+Create a dedicated client key locally on Android:
+
+```bash
+mkdir -p ~/.ssh
+chmod 700 ~/.ssh
+ssh-keygen -t ed25519 -a 100 -f ~/.ssh/zion-server
+chmod 600 ~/.ssh/zion-server
+chmod 644 ~/.ssh/zion-server.pub
+```
+
+The private file `~/.ssh/zion-server` never leaves Android.
+
+Transfer only `zion-server.pub` to the Acer using a trusted local method.
+
+## Phase 2 — Acer authorized key
+
+On the Acer, as `zetta`:
+
+```bash
+mkdir -p ~/.ssh
+chmod 700 ~/.ssh
+touch ~/.ssh/authorized_keys
+chmod 600 ~/.ssh/authorized_keys
+```
+
+Append the **public** Android key once. Do not replace existing authorized keys blindly.
+
+Verify ownership:
+
+```bash
+stat -c '%a %U %G %n' ~/.ssh ~/.ssh/authorized_keys
+```
+
+Expected owner: `zetta`. Expected modes: `700` and `600`.
+
+## Phase 3 — pin the server host key
+
+At the Acer physical console:
+
+```bash
+ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub
+```
+
+Record the SHA256 fingerprint through a trusted out-of-band channel.
+
+On Android, fetch the public host key over the Tailscale address/MagicDNS name into a temporary file:
+
+```bash
+ssh-keyscan -t ed25519 <tailscale-host> > /tmp/zion-hostkey
+ssh-keygen -lf /tmp/zion-hostkey
+```
+
+Compare the fingerprint character-for-character with the one read physically on the Acer.
+
+Only after they match:
+
+```bash
+cat /tmp/zion-hostkey >> ~/.ssh/known_hosts
+chmod 600 ~/.ssh/known_hosts
+rm -f /tmp/zion-hostkey
+```
+
+Do not treat `ssh-keyscan` by itself as identity proof.
+
+Recommended Android alias after pinning:
 
 ```sshconfig
 Host zion-server
@@ -49,35 +135,141 @@ Host zion-server
     IdentitiesOnly yes
     PreferredAuthentications publickey
     PasswordAuthentication no
+    KbdInteractiveAuthentication no
     ServerAliveInterval 30
     ServerAliveCountMax 3
     ConnectTimeout 10
-    StrictHostKeyChecking accept-new
+    StrictHostKeyChecking yes
 ```
 
-## Linux Mint side — when physically available
+## Phase 4 — prove key login before hardening
 
-Perform these steps interactively and verify output after each step:
+With the existing sshd policy still available, prove:
 
-1. Install Tailscale from its official Linux distribution channel.
-2. Authenticate the host into the same Tailnet as the Android device.
-3. Verify the Tailscale interface/address and peer visibility.
-4. Verify OpenSSH server is installed and listening locally.
-5. Back up `~/.ssh/authorized_keys` if it already exists.
-6. Append the Android `zion-server.pub` key only.
-7. Enforce `0700` on `~/.ssh` and `0600` on `authorized_keys`.
-8. Test `ssh zion-server` from Android over Tailscale.
-9. Open a second SSH session and keep the first alive.
-10. Only after both work, restrict sshd/firewall access to the Tailscale interface if desired.
-11. Re-test ZION service health; remote-access work must not restart the bot.
+```bash
+ssh zion-server
+```
 
-## Rollback
+Inside that session, confirm that the source path is Tailscale and keep the session open.
 
-If SSH hardening causes trouble while a local terminal is available:
+Do **not** disable password authentication merely because the key exists on disk. A real public-key login must succeed first.
 
-- restore the previous sshd configuration from backup;
-- validate with `sshd -t`;
-- reload, rather than reboot, sshd;
-- keep Tailscale installed unless it is itself the source of the problem.
+## Phase 5 — apply the reviewed sshd drop-in
 
-ZION service deployment and remote-access configuration are separate concerns. A remote-access change must never be coupled to a bot deployment.
+Authoritative template:
+
+`ops/sshd/99-zion-remote.conf`
+
+The guarded installer refuses to run unless the operator explicitly attests that key access was proven.
+
+From a proven Tailscale SSH session:
+
+```bash
+cd /home/zetta/zion-community-bot
+ZION_REMOTE_ACCESS_PROVEN=YES \
+  bash scripts/apply-ssh-hardening.sh
+```
+
+From a physical console instead:
+
+```bash
+cd /home/zetta/zion-community-bot
+ZION_REMOTE_ACCESS_PROVEN=YES \
+ZION_PHYSICAL_CONSOLE=YES \
+  bash scripts/apply-ssh-hardening.sh
+```
+
+The installer:
+
+- validates the current authorized-key boundary;
+- backs up an existing ZION sshd drop-in;
+- installs the reviewed drop-in;
+- runs `sshd -t`;
+- reloads, never restarts, the SSH daemon;
+- verifies the effective hardening;
+- rolls back the drop-in if a post-install gate fails;
+- does not alter Tailscale, firewall, router, Wi-Fi or `zion.service`.
+
+Keep the current session open.
+
+## Phase 6 — second-session gate
+
+Open a **new** Android terminal and run:
+
+```bash
+ssh zion-server
+```
+
+Only after the second session succeeds may the bootstrap session be closed.
+
+Then run strict host verification:
+
+```bash
+cd /home/zetta/zion-community-bot
+bash scripts/remote-access-preflight.sh
+```
+
+A non-zero exit means the remote-access gate is not complete.
+
+## Phase 7 — network-exposure gate
+
+The host cannot prove router/NAT configuration or Tailnet ACL/device policy by itself.
+
+Before any remote deployment, manually verify:
+
+- router has no TCP/22 port-forward to the Acer;
+- no cloud/VPN forwarding exposes SSH publicly;
+- intended devices/users are the only Tailnet principals allowed to reach the Acer;
+- device approval/key-expiry policy is acceptable;
+- host firewall rules do not unintentionally expose SSH on an untrusted interface.
+
+If firewall rules are tightened, do it while two SSH sessions are available and test a third session before closing either existing connection.
+
+Do not paste generic firewall commands blindly: interface names and existing policy must be inspected on the Acer first.
+
+## Ongoing preflight
+
+Read-only report:
+
+```bash
+bash scripts/remote-access-preflight.sh --report-only
+```
+
+Strict gate:
+
+```bash
+bash scripts/remote-access-preflight.sh
+```
+
+The script checks Tailscale presence/address, sshd state, authorized-key permissions/ownership, the ZION sshd drop-in, effective sshd controls, host-key fingerprint availability and listening surface.
+
+Router/NAT and Tailnet control-plane policy remain explicit manual checks.
+
+## Rollback of SSH hardening
+
+The installer stores previous ZION drop-ins under:
+
+```text
+/home/zetta/.local/state/zion-community-bot/ssh-hardening-backups/
+```
+
+If hardening must be reverted, do it from a still-open SSH session or physical console:
+
+1. restore the previous drop-in (or remove the ZION drop-in if none existed);
+2. run `sudo /usr/sbin/sshd -t`;
+3. reload `ssh.service` / `sshd.service`;
+4. test a new session;
+5. investigate before attempting hardening again.
+
+Never reboot as a recovery substitute for an unvalidated sshd configuration.
+
+## Relationship to deployment
+
+Remote access only provides the private operator path. It does not authorize a code release.
+
+A remote deployment additionally requires the GitHub/commit gates in:
+
+- `docs/GITHUB-DEPLOY-GATES.md`
+- `docs/DEPLOYMENT-MODEL.md`
+- `scripts/deployment-preflight.sh`
+- `scripts/verify-approved-release.sh`
