@@ -32,8 +32,10 @@ lines.
 - Unicode/NFKC-obfuscated credential labels, HTTP basic-auth credentials,
   labeled Base58/byte-array wallet keys, mnemonic-like material, and PEM/OpenSSH
   private-key blocks are covered by deterministic protection.
-- Command secret protection still executes if the persistent command
-  idempotency ledger fails.
+- Command secret protection executes before the persistent command
+  idempotency claim. This keeps deletion retriable if the process crashes before
+  the normal command pipeline, while functional command side effects remain
+  at-most-once.
 - Ordinary moderation updates and join-service updates have persistent
   idempotency keys, preventing duplicate punitive/onboarding side effects from
   Telegram redelivery.
@@ -67,6 +69,12 @@ The source PR #5 CI failure was not a product failure: its synthetic OpenSSH key
 fixture contained a literal PEM begin marker and was correctly rejected by the
 repository secret scanner. The fixture is now assembled at runtime; the scanner
 itself was not weakened.
+
+A post-reconciliation review found one additional crash-ordering gap: command
+update IDs were claimed before universal secret deletion. A crash between those
+steps could suppress Telegram redelivery while leaving a credential visible. The
+secret preflight now runs before the durable claim; the regression test proves
+the claim is not attempted for a secret-bearing command.
 
 ## Validation
 
