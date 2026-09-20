@@ -216,7 +216,7 @@ def reject_git_transport_tls_overrides(root: Path) -> None:
         root,
         "config",
         "--get-regexp",
-        r"^http(?:\..*)?\.sslverify$",
+        r"^http(\..*)?\.sslverify$",
         allow_no_match=True,
     )
     for raw in ssl_verify.splitlines():
@@ -233,7 +233,7 @@ def reject_git_transport_tls_overrides(root: Path) -> None:
         root,
         "config",
         "--get-regexp",
-        r"^http(?:\..*)?\.(?:sslcainfo|sslcapath)$",
+        r"^http(\..*)?\.(sslcainfo|sslcapath)$",
         allow_no_match=True,
     )
     if custom_ca:
