@@ -4,8 +4,8 @@ set -euo pipefail
 SCRIPT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 EXPECTED_USER="zetta"
 EXPECTED_GROUP="$(id -gn "$EXPECTED_USER" 2>/dev/null || printf '%s' "$EXPECTED_USER")"
-SRC="$SCRIPT_ROOT/ops/sshd/99-zion-remote.conf"
-DST="/etc/ssh/sshd_config.d/99-zion-remote.conf"
+SRC="$SCRIPT_ROOT/ops/sshd/00-zion-remote.conf"
+DST="/etc/ssh/sshd_config.d/00-zion-remote.conf"
 SSH_DIR="/home/zetta/.ssh"
 AUTHORIZED_KEYS="/home/zetta/.ssh/authorized_keys"
 STATE_DIR="/home/zetta/.local/state/zion-community-bot"
@@ -127,7 +127,7 @@ rollback() {
 trap rollback ERR
 
 if [[ -f "$DST" ]]; then
-  backup="$BACKUP_DIR/99-zion-remote.$stamp.$BASHPID.conf"
+  backup="$BACKUP_DIR/00-zion-remote.$stamp.$BASHPID.conf"
   sudo /usr/bin/install     -o "$EXPECTED_USER"     -g "$EXPECTED_GROUP"     -m 0600     "$DST"     "$backup"
 fi
 
