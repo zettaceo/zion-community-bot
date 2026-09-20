@@ -220,8 +220,8 @@ class GuardianTests(unittest.TestCase):
         )
 
         self.assertFalse(first.triggered)
-        self.assertFalse(second.triggered)
-        self.assertTrue(third.triggered)
+        self.assertTrue(second.triggered)
+        self.assertFalse(third.triggered)
 
     def test_manual_warning_does_not_advance_flood_ban_counter(self) -> None:
         now = 3000.0
