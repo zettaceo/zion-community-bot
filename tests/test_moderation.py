@@ -280,6 +280,39 @@ class ModerationPipelineTests(unittest.TestCase):
             self.context.bot.deleted,
         )
 
+    def test_unparseable_url_entity_fails_closed(self) -> None:
+        url_entity = SimpleNamespace(
+            type="url",
+            url=None,
+        )
+        update = fake_update(
+            user_id=2,
+            text="https://example.com",
+            message_id=83,
+            update_id=5083,
+        )
+        update.effective_message.entities = [url_entity]
+        update.effective_message.caption_entities = []
+
+        def broken_parser(entity):
+            raise ValueError("forced parser failure")
+
+        update.effective_message.parse_entity = broken_parser
+        update.effective_message.parse_caption_entity = lambda entity: ""
+
+        domains, schemes = telegram_entity_link_evidence(
+            update.effective_message
+        )
+        self.assertEqual(domains, [])
+        self.assertIn("unparseable-url-entity", schemes)
+
+        asyncio.run(moderation_handler(update, self.context))
+
+        self.assertIn(
+            (update.effective_chat.id, update.effective_message.message_id),
+            self.context.bot.deleted,
+        )
+
     def test_explicit_operator_allowlist(self) -> None:
         operator = fake_update(
             user_id=1,
