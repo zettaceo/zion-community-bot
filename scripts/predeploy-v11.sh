@@ -201,8 +201,8 @@ if [[ -n "$DASHBOARD_LOAD_STATE" && "$DASHBOARD_LOAD_STATE" != "not-found" ]]; t
     exit 1
   fi
   DASHBOARD_DB_PATH="$(
-    "$PYTHON" -c 'import os, pathlib; print(pathlib.Path(os.environ["P"]).expanduser().resolve(strict=False))' \
-      P="$DASHBOARD_DB_PATH"
+    P="$DASHBOARD_DB_PATH" \
+      "$PYTHON" -c 'import os, pathlib; print(pathlib.Path(os.environ["P"]).expanduser().resolve(strict=False))'
   )"
   if [[ "$DASHBOARD_DB_PATH" != "$PROD_DB_PATH" ]]; then
     echo "ERRO: dashboard aponta para DB diferente do bot." >&2
