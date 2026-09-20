@@ -334,6 +334,117 @@ class Block4OperationsTests(unittest.TestCase):
             finally:
                 rt.close()
 
+    def test_operational_recovery_resolves_active_incident(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            rt = Runtime(self._settings(root))
+            app = FakeApplication(rt)
+
+            try:
+                rt.housekeeping_last_error = "RuntimeError"
+                asyncio.run(operational_alert_cycle(app, rt))
+
+                incident_id = rt.health_incident_id
+                self.assertIsNotNone(incident_id)
+                self.assertEqual(
+                    rt.db.get_incident(incident_id or "")["status"],
+                    "open",
+                )
+
+                rt.housekeeping_last_error = None
+                asyncio.run(operational_alert_cycle(app, rt))
+
+                self.assertEqual(
+                    rt.db.get_incident(incident_id or "")["status"],
+                    "resolved",
+                )
+                self.assertIsNone(rt.health_incident_id)
+                self.assertIsNone(rt.health_incident_signature)
+                self.assertEqual(
+                    rt.db.get_setting("health_incident_id"),
+                    "",
+                )
+                self.assertEqual(
+                    rt.db.get_setting("health_incident_signature"),
+                    "",
+                )
+            finally:
+                rt.close()
+
+    def test_operational_signature_transition_resolves_previous_incident(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            rt = Runtime(self._settings(root))
+            app = FakeApplication(rt)
+
+            try:
+                rt.housekeeping_last_error = "RuntimeError"
+                asyncio.run(operational_alert_cycle(app, rt))
+                first_id = rt.health_incident_id
+                self.assertIsNotNone(first_id)
+
+                rt.wal_checkpoint_last_error = "RuntimeError"
+                asyncio.run(operational_alert_cycle(app, rt))
+                second_id = rt.health_incident_id
+
+                self.assertIsNotNone(second_id)
+                self.assertNotEqual(first_id, second_id)
+                self.assertEqual(
+                    rt.db.get_incident(first_id or "")["status"],
+                    "resolved",
+                )
+                self.assertEqual(
+                    rt.db.get_incident(second_id or "")["status"],
+                    "open",
+                )
+                self.assertEqual(
+                    rt.db.get_setting("health_incident_id"),
+                    second_id,
+                )
+                self.assertEqual(
+                    rt.db.get_setting("health_incident_signature"),
+                    rt.health_incident_signature,
+                )
+            finally:
+                rt.close()
+
+    def test_operational_incident_pointer_survives_runtime_restart(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            settings = self._settings(root)
+            first_rt = Runtime(settings)
+            first_app = FakeApplication(first_rt)
+
+            first_rt.housekeeping_last_error = "RuntimeError"
+            asyncio.run(operational_alert_cycle(first_app, first_rt))
+            incident_id = first_rt.health_incident_id
+            self.assertIsNotNone(incident_id)
+            first_rt.close()
+
+            second_rt = Runtime(settings)
+            second_app = FakeApplication(second_rt)
+            second_rt.housekeeping_last_error = "RuntimeError"
+            try:
+                asyncio.run(
+                    operational_alert_cycle(second_app, second_rt)
+                )
+
+                self.assertEqual(
+                    second_rt.health_incident_id,
+                    incident_id,
+                )
+                incidents = [
+                    item
+                    for item in second_rt.db.list_incidents(limit=50)
+                    if item["category"] == "operational_health_warning"
+                ]
+                self.assertEqual(len(incidents), 1)
+                self.assertEqual(incidents[0]["status"], "open")
+            finally:
+                second_rt.close()
+
     def test_failed_recovery_delivery_remains_retryable(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
