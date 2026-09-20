@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import tempfile
+import time
 import unittest
 from dataclasses import replace
 from pathlib import Path
@@ -466,6 +467,67 @@ class AITests(unittest.TestCase):
             estimate,
             (len(text.encode("utf-8")) * 2) + 4096 + 100,
         )
+
+    def test_circuit_state_pair_rolls_back_atomically_on_second_write_failure(
+        self,
+    ) -> None:
+        settings = replace(
+            self.settings,
+            ai_enabled=True,
+            mistral_api_key="fake-key-for-test-only",
+            ai_circuit_failures=1,
+            ai_circuit_seconds=120,
+        )
+        self.db.set_setting("ai_circuit_failures", "0")
+        self.db.set_setting("ai_circuit_open_until", "0")
+        ai = AIService(settings, self.db, self.knowledge)
+
+        original_set = self.db.set_setting
+
+        def fail_second_field(key: str, value: str) -> None:
+            if key == "ai_circuit_open_until":
+                raise RuntimeError("synthetic second circuit write failure")
+            original_set(key, value)
+
+        self.db.set_setting = fail_second_field
+        try:
+            ai._record_provider_failure()
+            self.assertTrue(ai.circuit_open())
+        finally:
+            self.db.set_setting = original_set
+
+        self.assertEqual(
+            self.db.get_setting("ai_circuit_failures"),
+            "0",
+        )
+        self.assertEqual(
+            self.db.get_setting("ai_circuit_open_until"),
+            "0",
+        )
+
+    def test_circuit_state_pair_persists_together_when_opened(self) -> None:
+        settings = replace(
+            self.settings,
+            ai_enabled=True,
+            mistral_api_key="fake-key-for-test-only",
+            ai_circuit_failures=1,
+            ai_circuit_seconds=120,
+        )
+        ai = AIService(settings, self.db, self.knowledge)
+        ai._record_provider_failure()
+
+        persisted_failures = self.db.get_setting(
+            "ai_circuit_failures"
+        )
+        persisted_until = self.db.get_setting(
+            "ai_circuit_open_until"
+        )
+        self.assertEqual(persisted_failures, "1")
+        self.assertIsNotNone(persisted_until)
+        self.assertGreater(float(persisted_until or "0"), time.time())
+
+        restored = AIService(settings, self.db, self.knowledge)
+        self.assertTrue(restored.circuit_open())
 
     def test_circuit_persistence_failure_does_not_break_in_memory_guard(self) -> None:
         settings = replace(
