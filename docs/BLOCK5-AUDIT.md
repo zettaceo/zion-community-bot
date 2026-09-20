@@ -42,7 +42,7 @@ That means repository policy itself did not prevent direct writes/force-history 
 
 `apply-zion-v1.sh` previously enforced `ZION_EXPECTED_COMMIT` only when supplied. An operator could therefore run a deploy from the wrong local HEAD.
 
-**Remediation:** expected commit is mandatory, full-length, must equal current HEAD and must equal the approved production ref. Previous commit can be recorded in backup metadata for rollback.
+**Remediation:** expected commit is mandatory, full-length, must equal current HEAD and the approved production ref. Deployment preflight/release verification also validate the expected GitHub origin and the live remote `zion-v1` SHA without mutating production. Previous commit can be recorded in backup metadata for rollback.
 
 ### MEDIUM — predeploy candidate identity was not bound to production ref
 
@@ -60,11 +60,11 @@ The previous preflight reported installation/state but did not enforce key owner
 
 Automatically accepting the first observed host key does not independently authenticate that first connection.
 
-**Remediation:** the runbook now requires out-of-band ED25519 host-key fingerprint comparison before storing the key; normal client config uses `StrictHostKeyChecking yes`.
+**Remediation:** the runbook now requires out-of-band ED25519 host-key fingerprint comparison before storing the key; normal client config uses `StrictHostKeyChecking yes`, and the hardening installer requires a separate `ZION_HOSTKEY_PROVEN=YES` attestation.
 
 ### MEDIUM — sshd hardening had no authoritative reviewed template
 
-**Remediation:** `ops/sshd/99-zion-remote.conf` is now the repository-authoritative drop-in. A guarded installer requires proven key access, validates with `sshd -t`, reloads instead of restarting, verifies effective policy and rolls back the drop-in on failure.
+**Remediation:** `ops/sshd/99-zion-remote.conf` is now the repository-authoritative drop-in. A guarded installer requires proven key access and host identity, validates with `sshd -t`, reloads instead of restarting, verifies effective key/forwarding/session policy and rolls back the drop-in on failure. The strict preflight treats inability to prove effective sshd policy as a failure rather than a warning.
 
 ## Security invariants
 
