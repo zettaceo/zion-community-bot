@@ -21,6 +21,16 @@ URL_REGEX = re.compile(
     r"(?i)\b(?:https?://|www\.|t\.me/)[^\s<>]+"
 )
 
+UNSUPPORTED_VISIBLE_SCHEME_REGEX = re.compile(
+    r"(?i)\b("
+    r"tg|ton|solana|ethereum|javascript|data|file|intent|mailto|ftp"
+    r"):(?://)?[^\s<>]+"
+)
+
+BASE58_PRIVATE_KEY_REGEX = re.compile(
+    r"\b[1-9A-HJ-NP-Za-km-z]{64,100}\b"
+)
+
 POLICY_DOMAIN_REGEX = re.compile(
     r"(?i)^(?=.{1,253}$)"
     r"(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+"
@@ -141,6 +151,18 @@ def extract_domains(text: str) -> list[str]:
     return domains
 
 
+def extract_unsupported_schemes(text: str) -> list[str]:
+    normalized_text = _normalize_security_text(text)
+    schemes: list[str] = []
+    for match in UNSUPPORTED_VISIBLE_SCHEME_REGEX.finditer(
+        normalized_text
+    ):
+        scheme = match.group(1).lower()
+        if scheme not in schemes:
+            schemes.append(scheme)
+    return schemes
+
+
 def domain_matches(domain: str, allowed: str) -> bool:
     domain = domain.lower().strip(".")
     allowed = allowed.lower().strip(".")
@@ -184,6 +206,35 @@ def detect_sensitive_content(text: str) -> SensitiveContentDecision:
             kind="possible_private_key",
             reason=(
                 "possível chave privada identificada "
+                "junto a um rótulo sensível"
+            ),
+        )
+
+    if BASE58_PRIVATE_KEY_REGEX.search(tail):
+        return SensitiveContentDecision(
+            detected=True,
+            kind="possible_private_key",
+            reason=(
+                "possível chave privada base58 identificada "
+                "junto a um rótulo sensível"
+            ),
+        )
+
+    byte_values = [
+        int(value)
+        for value in re.findall(r"(?<!\d)(\d{1,3})(?!\d)", tail)
+    ]
+    if (
+        len(byte_values) in {32, 64}
+        and all(0 <= value <= 255 for value in byte_values)
+        and "[" in tail
+        and "]" in tail
+    ):
+        return SensitiveContentDecision(
+            detected=True,
+            kind="possible_private_key",
+            reason=(
+                "possível chave privada em vetor de bytes identificada "
                 "junto a um rótulo sensível"
             ),
         )
@@ -235,7 +286,7 @@ class Guardian:
             state = self.db.get_operating_state()
             threshold = self.settings.flood_max_messages
             if state == OperatingState.ELEVATED:
-                threshold = max(3, threshold - 2)
+                threshold = max(2, threshold - 2)
             elif state == OperatingState.ATTACK:
                 threshold = max(2, threshold // 2)
 
@@ -393,7 +444,10 @@ class Guardian:
         unsupported = sorted(
             {
                 str(scheme).strip().lower()
-                for scheme in (unsupported_schemes or ())
+                for scheme in (
+                    list(extract_unsupported_schemes(text))
+                    + list(unsupported_schemes or ())
+                )
                 if str(scheme).strip()
             }
         )
