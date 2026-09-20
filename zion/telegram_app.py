@@ -206,6 +206,8 @@ def format_duration(seconds: int) -> str:
 
 def _telegram_link_candidates(
     message: Any,
+    *,
+    policy_limits: bool = True,
 ) -> tuple[list[str], bool, bool]:
     targets: list[str] = []
     parse_failed = False
@@ -215,10 +217,12 @@ def _telegram_link_candidates(
         nonlocal too_many
         if candidate is None:
             return
-        value = str(candidate).strip()[:2048]
+        value = str(candidate).strip()
+        if policy_limits:
+            value = value[:2048]
         if not value or value in targets:
             return
-        if len(targets) >= 20:
+        if policy_limits and len(targets) >= 20:
             too_many = True
             return
         targets.append(value)
@@ -304,15 +308,19 @@ def telegram_entity_domains(message: Any) -> list[str]:
 
 
 def telegram_sensitive_surface(message: Any, visible_text: str) -> str:
-    values = [visible_text or ""]
-    for url in telegram_external_urls(message):
-        values.append(url)
-        try:
-            decoded = unquote(url)
-        except Exception:
-            decoded = url
-        if decoded != url:
+    # Domain-policy limits must not hide credentials in private/admin messages.
+    # Inspect the entire supplied surface; never persist these raw values.
+    targets, _, _ = _telegram_link_candidates(message, policy_limits=False)
+    values = []
+    for value in [visible_text or "", *targets]:
+        values.append(value)
+        # Support singly/doubly encoded labels without an unbounded decode loop.
+        for _ in range(2):
+            decoded = unquote(value)
+            if decoded == value:
+                break
             values.append(decoded)
+            value = decoded
     return "\n".join(values)
 
 

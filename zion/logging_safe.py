@@ -28,7 +28,7 @@ BEARER_REGEX = re.compile(
 )
 
 BASIC_AUTH_URL_REGEX = re.compile(
-    r"(?i)(https?://[^/\s:@]+:)([^@\s/]+)(@)"
+    r"(?i)([a-z][a-z0-9+.-]*://[^/\s:@]+:)([^@\s/]+)(@)"
 )
 
 LABELED_CREDENTIAL_REGEX = re.compile(
