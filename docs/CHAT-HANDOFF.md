@@ -511,3 +511,66 @@ This rule prevented the accidental invention of a nonexistent “Block 6”.
 The next conversation should not reconstruct ZION from memory or from chat summaries when the repository can answer the question.
 
 Use the repository as source of truth, distinguish development from production, and never turn a green CI result into an unsupported claim about the real Acer/control plane.
+
+
+---
+
+## 2026-09-20 — FINAL ADVERSARIAL RE-AUDIT HANDOFF
+
+**This section supersedes older SHA / CI / delta snapshots in this file.** Older sections remain as historical evidence only.
+
+### Final implementation/security identity
+
+- development branch: `zion-v1.1-dev`;
+- implementation/security HEAD: `bae040899c9294ab912d349eb1cca58f2cedaf13`;
+- production branch: `zion-v1`;
+- production SHA remained untouched: `f8c704f16d05c5fba3b55957721b025c9abbaa23`;
+- implementation delta at this checkpoint: **655 commits ahead / 0 behind**, **103 changed files**;
+- PR #2 remained **OPEN + DRAFT + UNMERGED**.
+
+### Final implementation CI evidence
+
+GitHub Actions **ZION CI #1146** on `bae040899c9294ab912d349eb1cca58f2cedaf13`:
+
+- Python 3.12.14;
+- runtime lock: 9 packages;
+- wheel artifacts pinned by SHA-256 and installed with `--require-hashes`;
+- runtime compatibility: PASS;
+- imports: PASS;
+- **441/441 tests: OK**;
+- shell validation: PASS;
+- sensitive-file check: PASS;
+- secret scan: PASS;
+- **ZION VALIDATION: OK**.
+
+### Additional re-audit closures
+
+The final adversarial pass added and validated repository-side protections for:
+
+- Git `assume-unchanged` / `skip-worktree` index flags that can hide tracked-file tampering from ordinary status checks;
+- ignored importable artifacts and local ignore/attribute overrides;
+- executable Git credential helpers and askpass programs;
+- executable / reroutable SSH client configuration during Git remote proof;
+- disabled Git HTTPS TLS verification / custom CA overrides;
+- exact SHA-256 pinning of all release wheel artifacts;
+- DB/WAL/SHM/log symlink/hardlink boundaries;
+- fixed executable paths and clean Python release environment;
+- first-upgrade pre-check before candidate worktree checkout.
+
+No unresolved HIGH or MEDIUM **repository/development** finding is known at the implementation/security HEAD above.
+
+### External gates still blocking production
+
+The repository is not production-authorized. The following remain external evidence gates:
+
+1. GitHub governance: `zion-v1` and `zion-v1.1-dev` were still reported as `protected:false`; required branch/ruleset controls must be configured and verified by a repository administrator.
+2. Acer/Tailnet/SSH: real device identity, Tailnet policy, router/NAT TCP/22 exposure, SSH key inventory, ED25519 host fingerprint, effective sshd policy and second-session recovery must be proven on the real host/control plane.
+3. Real host/runtime: production `.env`, Python 3.12/runtime-by-SHA, filesystem ownership/modes and current systemd state must be inspected.
+4. Real SQLite: integrity, verified backup, disposable-copy migration rehearsal and rollback rehearsal must pass using the Acer's actual production data.
+5. Live acceptance: Telegram commands and service/dashboard health are post-cutover gates and have not been executed.
+
+### Next execution boundary
+
+Repository/GitHub development hardening should not be extended by inventing a new feature block. The next phase is **local Acer evidence gathering**, preferably with Codex used first as a **review-only local inspector**. It must not mutate systemd, SSH, Tailscale, Wi-Fi, router/firewall, production `.env`, production SQLite, or deploy anything until the corresponding evidence has been reviewed and explicit authorization is given.
+
+Any documentation-only descendant created after `bae040899c9294ab912d349eb1cca58f2cedaf13` must pass ZION CI before becoming the current release-candidate head.
