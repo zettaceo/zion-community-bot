@@ -204,11 +204,14 @@ Bootstrap inventory:
 bash scripts/remote-access-preflight.sh --report-only
 ```
 
-Strict access gate:
+Strict access gate from a Tailscale SSH session:
 
 ```bash
+sudo -v
 bash scripts/remote-access-preflight.sh
 ```
+
+From a physical console, set `ZION_TAILSCALE_CLIENT_IP` to the actual approved remote client address so `Match User/Address` policy is evaluated in the intended connection context.
 
 SSH hardening is applied only after a real public-key login is proven:
 
