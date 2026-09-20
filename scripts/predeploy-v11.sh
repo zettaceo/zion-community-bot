@@ -41,6 +41,10 @@ if [[ -n "$CANDIDATE_STATUS" ]]; then
   echo "ERRO: candidate worktree possui alterações rastreadas ou arquivos não versionados." >&2
   exit 1
 fi
+if [[ -e "$ROOT/.env" || -L "$ROOT/.env" ]]; then
+  echo "ERRO: candidate worktree não pode conter .env local ignorado." >&2
+  exit 1
+fi
 
 echo "candidate_head=$HEAD_SHA"
 echo "approved_ref=$APPROVED_REF"
@@ -66,6 +70,11 @@ echo "systemd_unit=OK"
 
 echo
 echo "[5/8] Production config + candidate knowledge readiness (read-only)..."
+"$PYTHON" "$ROOT/scripts/check-env-boundary.py" \
+  --env "$PROD_ENV" \
+  --allowlist "$ROOT/.env.example" \
+  --owner zetta
+
 PROD_ENV="$PROD_ENV" \
 PROD_ROOT="$PROD_ROOT" \
 CANDIDATE_ROOT="$ROOT" \
