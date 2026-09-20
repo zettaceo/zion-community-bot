@@ -26,6 +26,7 @@ FORBIDDEN_GIT_ENV = (
     "GIT_NAMESPACE",
     "GIT_SSH",
     "GIT_SSH_COMMAND",
+    "GIT_SSH_VARIANT",
     "GIT_ASKPASS",
     "GIT_PROXY_COMMAND",
     "GIT_EXEC_PATH",
@@ -305,6 +306,62 @@ class GitReleaseBoundaryTests(unittest.TestCase):
 
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("SSH_ASKPASS", result.stderr)
+
+    def test_ssh_variant_config_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.make_repo(root)
+            self.git(root, "config", "ssh.variant", "plink")
+
+            result = self.run_check(root)
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("ssh.variant is configured", result.stderr)
+
+    def test_git_ssh_variant_environment_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.make_repo(root)
+
+            result = self.run_check(
+                root,
+                extra_env={"GIT_SSH_VARIANT": "plink"},
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("GIT_SSH_VARIANT", result.stderr)
+
+    def test_http_ssl_verify_false_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.make_repo(root)
+            self.git(root, "config", "http.sslVerify", "false")
+
+            result = self.run_check(root)
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("TLS verification", result.stderr)
+
+    def test_http_ssl_verify_true_is_allowed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.make_repo(root)
+            self.git(root, "config", "http.sslVerify", "true")
+
+            result = self.run_check(root)
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_custom_http_ca_override_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.make_repo(root)
+            self.git(root, "config", "http.sslCAInfo", "/tmp/custom-ca.pem")
+
+            result = self.run_check(root)
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("custom Git HTTP CA overrides", result.stderr)
 
     def test_ignored_importable_bytecode_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
