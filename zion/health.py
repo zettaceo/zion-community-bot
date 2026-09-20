@@ -35,9 +35,23 @@ class HealthService:
     def _integrity_status(self) -> dict[str, object]:
         now = time.monotonic()
         if now - self._integrity_checked_at >= 300:
-            self._integrity_cache = self.db.verify_integrity(
-                full=False
-            )
+            try:
+                self._integrity_cache = self.db.verify_integrity(
+                    full=False
+                )
+            except Exception as exc:
+                error_type = type(exc).__name__
+                self._integrity_cache = {
+                    "ok": False,
+                    "database_ok": False,
+                    "database_messages": [
+                        f"integrity_probe_unavailable:{error_type}"
+                    ],
+                    "foreign_keys_ok": False,
+                    "foreign_key_violations": [
+                        f"integrity_probe_unavailable:{error_type}"
+                    ],
+                }
             self._integrity_checked_at = now
         return self._integrity_cache
 
