@@ -33,8 +33,9 @@ if [[ "$CURRENT_BRANCH" != "$LOCAL_PROD_BRANCH" ]]; then
   echo "ERRO: branch local=$CURRENT_BRANCH; esperado=$LOCAL_PROD_BRANCH." >&2
   exit 1
 fi
-if ! git diff --quiet || ! git diff --cached --quiet; then
-  echo "ERRO: existem alterações rastreadas não commitadas." >&2
+WORKTREE_STATUS="$(git status --porcelain --untracked-files=all)"
+if [[ -n "$WORKTREE_STATUS" ]]; then
+  echo "ERRO: worktree possui alterações rastreadas ou arquivos não versionados." >&2
   exit 1
 fi
 
