@@ -543,9 +543,53 @@ class Block4OperationsTests(unittest.TestCase):
 
                 self.assertEqual(len(rt.update_lags), 100)
                 self.assertTrue(all(value >= 0 for value in rt.update_lags))
+                self.assertGreater(
+                    rt.update_lag_last_sample_monotonic,
+                    0,
+                )
                 latest, p95 = update_lag_stats(rt)
                 self.assertGreaterEqual(latest, 0)
                 self.assertGreaterEqual(p95, 0)
+            finally:
+                rt.close()
+
+    def test_stale_high_update_lag_does_not_raise_current_alert(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            rt = Runtime(self._settings(root))
+            app = FakeApplication(rt)
+
+            try:
+                rt.update_lags.extend([999.0] * 100)
+                rt.update_lag_last_sample_monotonic = (
+                    time.monotonic()
+                    - max(
+                        121,
+                        rt.settings.health_check_interval_seconds * 2 + 1,
+                    )
+                )
+
+                asyncio.run(operational_alert_cycle(app, rt))
+                self.assertEqual(app.bot.attempts, 0)
+            finally:
+                rt.close()
+
+    def test_fresh_high_update_lag_raises_operational_alert(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            rt = Runtime(self._settings(root))
+            app = FakeApplication(rt)
+
+            try:
+                rt.update_lags.extend([999.0] * 100)
+                rt.update_lag_last_sample_monotonic = time.monotonic()
+
+                asyncio.run(operational_alert_cycle(app, rt))
+                self.assertEqual(app.bot.attempts, 1)
+                self.assertIn(
+                    "telegram_update_lag",
+                    app.bot.sent[0][1],
+                )
             finally:
                 rt.close()
 
