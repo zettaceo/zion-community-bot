@@ -3689,39 +3689,75 @@ def expire_temporary_state(rt: Runtime) -> None:
         rt.db.set_setting("operating_state_expires_at", "0")
 
 
-def housekeeping_cycle(rt: Runtime, now: float) -> dict[str, int]:
-    gaps_removed = rt.db.prune_knowledge_gaps(
-        now - (rt.settings.knowledge_gap_retention_days * 86400)
-    )
-    reports_redacted = rt.db.redact_resolved_user_reports(
-        now - (rt.settings.report_retention_days * 86400)
-    )
-    user_events_deleted = rt.db.prune_user_events(
-        now - (rt.settings.user_event_retention_days * 86400)
-    )
-    idempotency_deleted = rt.db.prune_idempotency_keys(now)
-    ama_cutoff = now - (rt.settings.ama_retention_days * 86400)
-    ama_questions_deleted = rt.db.prune_ama_questions(ama_cutoff)
-    ama_sessions_deleted = rt.db.prune_closed_ama_sessions(ama_cutoff)
-    ai_events_deleted = rt.db.prune_ai_events(
-        now - (rt.settings.ai_event_retention_days * 86400)
-    )
-    scheduled_deleted = rt.db.prune_completed_scheduled_messages(
-        now - (rt.settings.completed_job_retention_days * 86400)
-    )
-    containments_deleted = rt.db.prune_expired_containments(now)
+def housekeeping_cycle(
+    rt: Runtime,
+    now: float,
+) -> tuple[dict[str, int], list[str]]:
+    results: dict[str, int] = {}
+    failures: list[str] = []
 
-    results = {
-        "knowledge_gaps_deleted": gaps_removed,
-        "resolved_reports_redacted": reports_redacted,
-        "user_events_deleted": user_events_deleted,
-        "idempotency_deleted": idempotency_deleted,
-        "ama_questions_deleted": ama_questions_deleted,
-        "ama_sessions_deleted": ama_sessions_deleted,
-        "ai_events_deleted": ai_events_deleted,
-        "scheduled_deleted": scheduled_deleted,
-        "containments_deleted": containments_deleted,
-    }
+    def run_step(name: str, operation) -> None:
+        try:
+            results[name] = int(operation())
+        except Exception as exc:
+            error_type = type(exc).__name__
+            results[name] = 0
+            failures.append(f"{name}:{error_type}")
+            logger.warning(
+                "Housekeeping step failed | step=%s | error=%s",
+                name,
+                error_type,
+            )
+
+    run_step(
+        "knowledge_gaps_deleted",
+        lambda: rt.db.prune_knowledge_gaps(
+            now - (rt.settings.knowledge_gap_retention_days * 86400)
+        ),
+    )
+    run_step(
+        "resolved_reports_redacted",
+        lambda: rt.db.redact_resolved_user_reports(
+            now - (rt.settings.report_retention_days * 86400)
+        ),
+    )
+    run_step(
+        "user_events_deleted",
+        lambda: rt.db.prune_user_events(
+            now - (rt.settings.user_event_retention_days * 86400)
+        ),
+    )
+    run_step(
+        "idempotency_deleted",
+        lambda: rt.db.prune_idempotency_keys(now),
+    )
+
+    ama_cutoff = now - (rt.settings.ama_retention_days * 86400)
+    run_step(
+        "ama_questions_deleted",
+        lambda: rt.db.prune_ama_questions(ama_cutoff),
+    )
+    run_step(
+        "ama_sessions_deleted",
+        lambda: rt.db.prune_closed_ama_sessions(ama_cutoff),
+    )
+    run_step(
+        "ai_events_deleted",
+        lambda: rt.db.prune_ai_events(
+            now - (rt.settings.ai_event_retention_days * 86400)
+        ),
+    )
+    run_step(
+        "scheduled_deleted",
+        lambda: rt.db.prune_completed_scheduled_messages(
+            now - (rt.settings.completed_job_retention_days * 86400)
+        ),
+    )
+    run_step(
+        "containments_deleted",
+        lambda: rt.db.prune_expired_containments(now),
+    )
+
     if any(results.values()):
         logger.info(
             "Housekeeping | knowledge_gaps_deleted=%s | "
@@ -3733,18 +3769,18 @@ def housekeeping_cycle(rt: Runtime, now: float) -> dict[str, int]:
             "ai_events_deleted=%s | "
             "scheduled_deleted=%s | "
             "containments_deleted=%s",
-            gaps_removed,
-            reports_redacted,
-            user_events_deleted,
-            idempotency_deleted,
-            ama_questions_deleted,
-            ama_sessions_deleted,
-            ai_events_deleted,
-            scheduled_deleted,
-            containments_deleted,
+            results["knowledge_gaps_deleted"],
+            results["resolved_reports_redacted"],
+            results["user_events_deleted"],
+            results["idempotency_deleted"],
+            results["ama_questions_deleted"],
+            results["ama_sessions_deleted"],
+            results["ai_events_deleted"],
+            results["scheduled_deleted"],
+            results["containments_deleted"],
         )
-    return results
 
+    return results, failures
 
 async def operational_alert_cycle(
     application: Application,
@@ -4056,12 +4092,17 @@ async def hourly_operations_cycle(
     cycle_now = time.time() if now is None else now
 
     try:
-        housekeeping_cycle(rt, cycle_now)
-        rt.housekeeping_last_error = None
+        _, housekeeping_failures = housekeeping_cycle(rt, cycle_now)
+        rt.housekeeping_last_error = (
+            ",".join(housekeeping_failures)
+            if housekeeping_failures
+            else None
+        )
     except Exception as exc:
-        rt.housekeeping_last_error = type(exc).__name__
+        rt.housekeeping_last_error = f"cycle:{type(exc).__name__}"
         logger.exception(
-            "Falha no housekeeping do ZION; health alert seguirá ativo."
+            "Falha estrutural no housekeeping do ZION; "
+            "health alert seguirá ativo."
         )
 
     try:
