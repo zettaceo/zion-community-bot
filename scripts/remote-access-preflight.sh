@@ -9,10 +9,17 @@ elif [[ -n "${1:-}" ]]; then
   exit 64
 fi
 
-EXPECTED_USER="${ZION_REMOTE_USER:-zetta}"
-SSH_DIR="${ZION_SSH_DIR:-$HOME/.ssh}"
-AUTHORIZED_KEYS="${ZION_AUTHORIZED_KEYS:-$SSH_DIR/authorized_keys}"
-SSHD_DROPIN="${ZION_SSHD_DROPIN:-/etc/ssh/sshd_config.d/99-zion-remote.conf}"
+if [[ "$REPORT_ONLY" == true ]]; then
+  EXPECTED_USER="${ZION_REMOTE_USER:-zetta}"
+  SSH_DIR="${ZION_SSH_DIR:-$HOME/.ssh}"
+  AUTHORIZED_KEYS="${ZION_AUTHORIZED_KEYS:-$SSH_DIR/authorized_keys}"
+  SSHD_DROPIN="${ZION_SSHD_DROPIN:-/etc/ssh/sshd_config.d/99-zion-remote.conf}"
+else
+  EXPECTED_USER="zetta"
+  SSH_DIR="/home/zetta/.ssh"
+  AUTHORIZED_KEYS="/home/zetta/.ssh/authorized_keys"
+  SSHD_DROPIN="/etc/ssh/sshd_config.d/99-zion-remote.conf"
+fi
 
 failures=0
 warnings=0
@@ -74,6 +81,34 @@ PY
   else
     warn "tailscale0 interface not visible"
   fi
+fi
+
+client_ip=""
+if [[ -n "${SSH_CONNECTION:-}" ]]; then
+  client_ip="${SSH_CONNECTION%% *}"
+elif [[ -n "${ZION_TAILSCALE_CLIENT_IP:-}" ]]; then
+  client_ip="$ZION_TAILSCALE_CLIENT_IP"
+fi
+
+if [[ -n "$client_ip" ]]; then
+  if python3 - "$client_ip" <<'PY' >/dev/null 2>&1
+import ipaddress
+import sys
+address = ipaddress.ip_address(sys.argv[1])
+v4 = ipaddress.ip_network("100.64.0.0/10")
+v6 = ipaddress.ip_network("fd7a:115c:a1e0::/48")
+raise SystemExit(0 if address in v4 or address in v6 else 1)
+PY
+  then
+    pass "SSH client context is a Tailscale address"
+  else
+    fail "SSH client context is outside Tailscale address space"
+    client_ip=""
+  fi
+elif [[ "$REPORT_ONLY" == true ]]; then
+  warn "no current Tailscale SSH client context available"
+else
+  fail "strict mode requires SSH_CONNECTION or ZION_TAILSCALE_CLIENT_IP"
 fi
 
 echo
@@ -151,13 +186,21 @@ else
 fi
 
 if command -v sshd >/dev/null 2>&1; then
-  effective="$(sshd -T 2>/dev/null || true)"
-  if [[ -z "$effective" ]] && command -v sudo >/dev/null 2>&1; then
-    effective="$(sudo -n "$(command -v sshd)" -T 2>/dev/null || true)"
+  effective=""
+  if [[ -n "$client_ip" && -n "${tailscale_ip:-}" ]]; then
+    context="user=$EXPECTED_USER,host=zion-server,addr=$client_ip,laddr=$tailscale_ip,lport=22"
+    effective="$(sshd -T -C "$context" 2>/dev/null || true)"
+    if [[ -z "$effective" ]] && command -v sudo >/dev/null 2>&1; then
+      effective="$(sudo -n "$(command -v sshd)" -T -C "$context" 2>/dev/null || true)"
+    fi
   fi
 
   if [[ -z "$effective" ]]; then
-    fail "effective sshd configuration could not be proven; run sudo -v and retry"
+    if [[ "$REPORT_ONLY" == true ]]; then
+      warn "effective user/address-specific sshd configuration could not be proven"
+    else
+      fail "effective user/address-specific sshd configuration could not be proven; run sudo -v and retry"
+    fi
   else
     declare -a required=(
       "passwordauthentication no"
