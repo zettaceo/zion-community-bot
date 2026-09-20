@@ -268,6 +268,74 @@ class GitReleaseBoundaryTests(unittest.TestCase):
 
             self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_assume_unchanged_index_entry_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.make_repo(root)
+            self.git(root, "update-index", "--assume-unchanged", "tracked.txt")
+            (root / "tracked.txt").write_text(
+                "tampered\n",
+                encoding="utf-8",
+            )
+
+            status = subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    str(root),
+                    "status",
+                    "--porcelain",
+                    "--untracked-files=all",
+                ],
+                text=True,
+                capture_output=True,
+                check=True,
+            ).stdout
+            self.assertEqual(status, "")
+
+            result = self.run_check(root)
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn(
+                "assume-unchanged/skip-worktree",
+                result.stderr,
+            )
+            self.assertIn("tracked.txt", result.stderr)
+
+    def test_skip_worktree_index_entry_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.make_repo(root)
+            self.git(root, "update-index", "--skip-worktree", "tracked.txt")
+            (root / "tracked.txt").write_text(
+                "tampered\n",
+                encoding="utf-8",
+            )
+
+            status = subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    str(root),
+                    "status",
+                    "--porcelain",
+                    "--untracked-files=all",
+                ],
+                text=True,
+                capture_output=True,
+                check=True,
+            ).stdout
+            self.assertEqual(status, "")
+
+            result = self.run_check(root)
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn(
+                "assume-unchanged/skip-worktree",
+                result.stderr,
+            )
+            self.assertIn("tracked.txt", result.stderr)
+
     def test_replace_ref_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
