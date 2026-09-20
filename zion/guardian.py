@@ -195,11 +195,14 @@ def extract_unsupported_schemes(text: str) -> list[str]:
     schemes: list[str] = []
 
     for raw in URL_REGEX.findall(normalized_text):
-        if (
-            _contains_invisible_security_char(raw)
-            and "invisible-link-character" not in schemes
-        ):
-            schemes.append("invisible-link-character")
+        if _contains_invisible_security_char(raw):
+            if "invisible-link-character" not in schemes:
+                schemes.append("invisible-link-character")
+            continue
+
+        if _normalize_domain(raw) is None:
+            if "invalid-http-target" not in schemes:
+                schemes.append("invalid-http-target")
 
     for match in UNSUPPORTED_VISIBLE_SCHEME_REGEX.finditer(
         normalized_text
