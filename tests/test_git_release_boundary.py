@@ -20,7 +20,10 @@ FORBIDDEN_GIT_ENV = (
     "GIT_CONFIG",
     "GIT_CONFIG_GLOBAL",
     "GIT_CONFIG_SYSTEM",
+    "GIT_CONFIG_PARAMETERS",
     "GIT_CONFIG_COUNT",
+    "GIT_INDEX_FILE",
+    "GIT_NAMESPACE",
     "GIT_SSH",
     "GIT_SSH_COMMAND",
     "GIT_SSL_NO_VERIFY",
@@ -149,6 +152,55 @@ class GitReleaseBoundaryTests(unittest.TestCase):
 
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("Git replace refs", result.stderr)
+
+    def test_url_rewrite_config_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.make_repo(root)
+            self.git(
+                root,
+                "config",
+                "url.https://attacker.invalid/.insteadOf",
+                "https://github.com/",
+            )
+
+            result = self.run_check(root)
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("url.*.insteadOf", result.stderr)
+
+    def test_remote_uploadpack_override_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.make_repo(root)
+            self.git(
+                root,
+                "config",
+                "remote.origin.uploadpack",
+                "/tmp/fake-upload-pack",
+            )
+
+            result = self.run_check(root)
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("remote.origin.uploadpack", result.stderr)
+
+    def test_config_parameters_environment_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.make_repo(root)
+
+            result = self.run_check(
+                root,
+                extra_env={
+                    "GIT_CONFIG_PARAMETERS": (
+                        "'core.hooksPath=/tmp/zion-hooks'"
+                    )
+                },
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("GIT_CONFIG_PARAMETERS", result.stderr)
 
     def test_forbidden_git_environment_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
