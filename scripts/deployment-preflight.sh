@@ -11,9 +11,9 @@ fi
 
 ROOT="${ZION_PROD_ROOT:-/home/zetta/zion-community-bot}"
 EXPECTED="${ZION_DEPLOY_COMMIT:-}"
-REMOTE_BRANCH="${ZION_PRODUCTION_REMOTE_BRANCH:-zion-v1}"
-APPROVED_REF="${ZION_APPROVED_REF:-origin/$REMOTE_BRANCH}"
-EXPECTED_REPO="${ZION_EXPECTED_GITHUB_REPO:-zettaceo/zion-community-bot}"
+REMOTE_BRANCH="zion-v1"
+APPROVED_REF="origin/zion-v1"
+EXPECTED_REPO="zettaceo/zion-community-bot"
 LOCAL_PROD_BRANCH="${ZION_LOCAL_PROD_BRANCH:-zion-v1-prod}"
 EXPECTED_USER="${ZION_REMOTE_USER:-zetta}"
 ENV_FILE="$ROOT/.env"
