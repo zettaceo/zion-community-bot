@@ -259,6 +259,10 @@ print(
 PY
 
 echo "[7/15] Preparando diretório privado de estado compartilhado..."
+if [[ -L "$STATE_DIR" ]]; then
+  echo "ERRO: state dir não pode ser symlink." >&2
+  exit 1
+fi
 sudo /usr/bin/install \
   -d \
   -o zetta \
@@ -266,7 +270,18 @@ sudo /usr/bin/install \
   -m 0700 \
   "$STATE_DIR"
 
-echo "[8/15] Criando e verificando backup antes de parar ZION..."
+STATE_REAL="$(readlink -f -- "$STATE_DIR" 2>/dev/null || true)"
+if [[ "$STATE_REAL" != "$STATE_DIR" ]]; then
+  echo "ERRO: state dir resolve por symlink/alias: $STATE_REAL" >&2
+  exit 1
+fi
+if [[ "$(stat -c '%U' "$STATE_DIR")" != "$EXPECTED_USER" ]] \
+  || [[ "$(stat -c '%a' "$STATE_DIR")" != "700" ]]; then
+  echo "ERRO: state dir deve ser 0700 e pertencer a $EXPECTED_USER." >&2
+  exit 1
+fi
+
+echo "[8/15] Criando e verificando backup antes do cutover..."
 if [[ -L "$BACKUP_DIR" ]]; then
   echo "ERRO: diretório de backup não pode ser symlink." >&2
   exit 1
@@ -395,11 +410,25 @@ from zion.db import ZION_APPLICATION_ID, ZionDB
 from zion.migrate import migrate_legacy_guardian_state
 
 settings = Settings.from_env()
-source_db = settings.db_path.expanduser().resolve(strict=False)
-source_legacy = settings.legacy_state_path.expanduser().resolve(strict=False)
 
-target_db = Path(os.environ["ZION_TARGET_DB"]).resolve(strict=False)
-target_legacy = Path(os.environ["ZION_TARGET_LEGACY"]).resolve(strict=False)
+source_db_raw = settings.db_path.expanduser()
+source_legacy_raw = settings.legacy_state_path.expanduser()
+target_db_raw = Path(os.environ["ZION_TARGET_DB"]).expanduser()
+target_legacy_raw = Path(os.environ["ZION_TARGET_LEGACY"]).expanduser()
+
+for label, path in (
+    ("source_db", source_db_raw),
+    ("source_legacy", source_legacy_raw),
+    ("target_db", target_db_raw),
+    ("target_legacy", target_legacy_raw),
+):
+    if path.is_symlink():
+        raise RuntimeError(f"{label} must not be a symlink: {path}")
+
+source_db = source_db_raw.resolve(strict=False)
+source_legacy = source_legacy_raw.resolve(strict=False)
+target_db = target_db_raw.resolve(strict=False)
+target_legacy = target_legacy_raw.resolve(strict=False)
 
 target_db.parent.mkdir(parents=True, exist_ok=True)
 os.chmod(target_db.parent, 0o700)
@@ -478,7 +507,28 @@ finally:
     db.close()
 PY
 
-echo "[12/15] Instalando unit autoritativa..."
+echo "[12/15] Revalidando inputs imutáveis e instalando units..."
+if [[ "$(git rev-parse HEAD)" != "$EXPECTED_COMMIT" ]]; then
+  echo "ERRO: HEAD mudou durante o cutover." >&2
+  exit 1
+fi
+if [[ -n "$(git status --porcelain --untracked-files=all)" ]]; then
+  echo "ERRO: worktree mudou durante o cutover." >&2
+  exit 1
+fi
+if ! sha256sum -c "$DEST/env.sha256" >/dev/null 2>&1; then
+  echo "ERRO: .env mudou durante o cutover." >&2
+  exit 1
+fi
+"$PYTHON" "$ROOT/scripts/check-env-boundary.py" \
+  --env "$ROOT/.env" \
+  --allowlist "$ROOT/.env.example" \
+  --owner zetta
+if [[ "$(readlink -f -- "$CURRENT_RUNTIME" 2>/dev/null || true)" != "$RUNTIME_DIR" ]]; then
+  echo "ERRO: runtime/current mudou durante o cutover." >&2
+  exit 1
+fi
+
 sudo /usr/bin/install \
   -o root \
   -g root \
