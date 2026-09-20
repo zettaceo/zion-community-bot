@@ -116,6 +116,30 @@ class V11ReleaseGateTests(unittest.TestCase):
         )
         self.assertIn("trate como incidente antes do release", text)
 
+    def test_predeploy_post_stop_mode_is_first_cutover_only(self) -> None:
+        text = self.read("scripts/predeploy-v11.sh")
+
+        self.assertIn(
+            'FIRST_CUTOVER_POST_STOP="${ZION_FIRST_CUTOVER_POST_STOP:-NO}"',
+            text,
+        )
+        self.assertIn(
+            "gate pós-stop exige zion.service realmente parado",
+            text,
+        )
+        self.assertIn(
+            "gate pós-stop especial só é permitido no primeiro cutover legado",
+            text,
+        )
+        self.assertIn(
+            "production_service=STOPPED_FOR_FIRST_CUTOVER_VERIFICATION",
+            text,
+        )
+        self.assertIn(
+            "dashboard deve estar parado durante o gate pós-stop",
+            text,
+        )
+
     def test_predeploy_rejects_dashboard_db_divergence(self) -> None:
         text = self.read("scripts/predeploy-v11.sh")
 
@@ -238,12 +262,26 @@ class V11ReleaseGateTests(unittest.TestCase):
         self.assertIn("fast-forward", text)
         self.assertIn("zion-v1-prod", text)
         self.assertIn("ZION_REBUILD_RUNTIME_AFTER_STOP=YES", text)
+        self.assertIn("ZION_FIRST_CUTOVER_POST_STOP=YES", text)
+        self.assertIn("EXPECTED_CHECKER_BLOB=", text)
+        self.assertIn("ACTUAL_CHECKER_BLOB=", text)
+        self.assertIn('rev-parse "$ZION_DEPLOY_COMMIT:scripts/check-git-release-boundary.py"', text)
+        self.assertGreaterEqual(
+            text.count(
+                'worktree add --detach "$CANDIDATE_ROOT" "$ZION_DEPLOY_COMMIT"'
+            ),
+            2,
+        )
 
         stop_pos = text.index("sudo systemctl stop zion.service")
+        checker_pos = text.index("EXPECTED_CHECKER_BLOB=")
         rebuild_pos = text.index("ZION_REBUILD_RUNTIME_AFTER_STOP=YES")
+        post_stop_verify_pos = text.index("ZION_FIRST_CUTOVER_POST_STOP=YES")
         merge_pos = text.index('merge --ff-only "$ZION_DEPLOY_COMMIT"')
-        self.assertLess(stop_pos, rebuild_pos)
-        self.assertLess(rebuild_pos, merge_pos)
+        self.assertLess(stop_pos, checker_pos)
+        self.assertLess(checker_pos, rebuild_pos)
+        self.assertLess(rebuild_pos, post_stop_verify_pos)
+        self.assertLess(post_stop_verify_pos, merge_pos)
 
     def test_bootstrap_and_cutover_neutralize_git_hooks(self) -> None:
         first_upgrade = self.read("docs/V1.1-FIRST-UPGRADE.md")
