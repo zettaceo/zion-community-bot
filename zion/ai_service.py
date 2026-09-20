@@ -17,6 +17,9 @@ from .models import AIAnswer, AIClassification, OperatingState
 logger = logging.getLogger("zion.ai")
 
 
+AI_REQUEST_OVERHEAD_TOKEN_RESERVE = 4096
+
+
 AI_CREDENTIAL_REGEX = re.compile(
     r"(?i)\b("
     r"api[_ -]?key|access[_ -]?key|client[_ -]?secret|"
@@ -233,11 +236,20 @@ class AIService:
         text: str,
         max_output_tokens: int,
     ) -> int:
-        # Conservative approximation for a hard local budget gate.
-        # UTF-8 natural language is usually <= ~4 chars/token; using 3
-        # intentionally over-reserves rather than risking a cost overrun.
-        input_estimate = max(1, (len(text) + 2) // 3)
-        return input_estimate + max(1, max_output_tokens)
+        # Conservative admission reserve. Do not estimate from average
+        # chars/token: Unicode and serialization overhead can invalidate
+        # that assumption. Reserve at least twice the UTF-8 payload bytes
+        # plus a fixed allowance for system prompts/wrappers, then the
+        # provider-side output ceiling.
+        payload_bytes = len(
+            (text or "").encode("utf-8", errors="replace")
+        )
+        input_reserve = max(
+            1,
+            (payload_bytes * 2)
+            + AI_REQUEST_OVERHEAD_TOKEN_RESERVE,
+        )
+        return input_reserve + max(1, int(max_output_tokens))
 
     def _reserve_budget(self, estimated_tokens: int) -> int | None:
         budget = self.settings.ai_daily_token_budget
@@ -309,6 +321,42 @@ class AIService:
                     type(exc).__name__,
                 )
                 return False
+
+    def _record_provider_success_event(
+        self,
+        *,
+        reservation: int,
+        input_tokens: int,
+        output_tokens: int,
+        **event_kwargs,
+    ) -> bool:
+        recorded = self._record_ai_event(
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            **event_kwargs,
+        )
+        if recorded:
+            return True
+
+        # The provider returned successfully, so external usage already
+        # happened. If the exact event ledger write fails, persist that
+        # usage in the conservative UTC-day accounting channel so a
+        # restart cannot make the cost disappear.
+        exact_usage = (
+            max(0, int(input_tokens))
+            + max(0, int(output_tokens))
+        )
+        fallback_usage = (
+            exact_usage if exact_usage > 0 else max(0, reservation)
+        )
+        charged = self._charge_uncertain_budget(fallback_usage)
+        logger.error(
+            "AI success ledger fallback | exact_event_persisted=false | "
+            "fallback_tokens=%s | fallback_persisted=%s",
+            fallback_usage,
+            charged,
+        )
+        return False
 
     def tokens_used_today(self) -> int:
         now = time.time()
@@ -458,15 +506,16 @@ class AIService:
                     + "\n- ".join(source_labels)
                 )
 
-            self._record_ai_event(
+            self._record_provider_success_event(
+                reservation=reservation,
+                input_tokens=answer.input_tokens,
+                output_tokens=answer.output_tokens,
                 chat_id=chat_id,
                 user_id=user_id,
                 purpose="support_answer",
                 model=answer.model,
                 success=True,
                 latency_ms=answer.latency_ms,
-                input_tokens=answer.input_tokens,
-                output_tokens=answer.output_tokens,
                 input_hash=question_hash,
                 metadata={
                     "knowledge_hits": len(self.knowledge.search(safe_question)),
@@ -555,15 +604,16 @@ class AIService:
 
             self._record_provider_success()
 
-            self._record_ai_event(
+            self._record_provider_success_event(
+                reservation=reservation,
+                input_tokens=answer.input_tokens,
+                output_tokens=answer.output_tokens,
                 chat_id=chat_id,
                 user_id=user_id,
                 purpose="summarize",
                 model=answer.model,
                 success=True,
                 latency_ms=answer.latency_ms,
-                input_tokens=answer.input_tokens,
-                output_tokens=answer.output_tokens,
                 input_hash=self._hash_text(safe_text),
             )
             return answer
@@ -652,15 +702,16 @@ class AIService:
 
             self._record_provider_success()
 
-            self._record_ai_event(
+            self._record_provider_success_event(
+                reservation=reservation,
+                input_tokens=answer.input_tokens,
+                output_tokens=answer.output_tokens,
                 chat_id=chat_id,
                 user_id=user_id,
                 purpose="translate",
                 model=answer.model,
                 success=True,
                 latency_ms=answer.latency_ms,
-                input_tokens=answer.input_tokens,
-                output_tokens=answer.output_tokens,
                 input_hash=self._hash_text(safe_text),
                 metadata={"target_language": safe_target},
             )
@@ -724,7 +775,10 @@ class AIService:
 
             self._record_provider_success()
 
-            self._record_ai_event(
+            self._record_provider_success_event(
+                reservation=reservation,
+                input_tokens=result.input_tokens,
+                output_tokens=result.output_tokens,
                 chat_id=chat_id,
                 user_id=user_id,
                 purpose="moderation_observe",
@@ -734,8 +788,6 @@ class AIService:
                 risk=result.risk,
                 requires_human=result.requires_human,
                 latency_ms=result.latency_ms,
-                input_tokens=result.input_tokens,
-                output_tokens=result.output_tokens,
                 input_hash=self._hash_text(safe_text),
             )
             return result
