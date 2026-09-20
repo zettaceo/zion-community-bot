@@ -23,6 +23,8 @@ from zion.telegram_app import (
     ban_command,
     block_domain_command,
     command_guard_handler,
+    gaps_command,
+    incident_command,
     is_admin,
     moderation_handler,
     mute_command,
@@ -867,6 +869,68 @@ class OperatorAuditLedgerTests(unittest.TestCase):
         self.assertEqual(row["success"], 1)
         self.assertIn('"chunks":1', row["metadata_json"])
         self.assertNotIn("Approved fact", row["metadata_json"])
+
+
+class OperatorDisplayIntegrityTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        root = Path(self.temp.name)
+        (root / "knowledge").mkdir()
+        self.runtime = Runtime(make_settings(root))
+        self.addCleanup(self.runtime.close)
+
+    def test_knowledge_gap_display_strips_control_formatting_only_on_output(self) -> None:
+        raw = "normal\n\u202eFAKE ADMIN FIELD\tvalue"
+        self.runtime.db.record_knowledge_gap(
+            question_hash="display-gap",
+            sample_text=raw,
+        )
+        bot = FakeBot()
+        context = FakeContext(self.runtime, bot)
+        update = make_update(
+            user_id=1,
+            chat_type="private",
+            text="/gaps",
+            message_id=90,
+        )
+
+        asyncio.run(gaps_command(update, context))
+
+        rendered = update.effective_message.replies[0]
+        self.assertNotIn("\u202e", rendered)
+        self.assertNotIn("\nFAKE ADMIN", rendered)
+        stored = self.runtime.db.list_knowledge_gaps(limit=10)[0]
+        self.assertEqual(stored["sample_text"], raw)
+
+    def test_incident_display_cannot_inject_fake_fields(self) -> None:
+        incident_id = self.runtime.db.create_incident(
+            chat_id=1,
+            user_id=2,
+            category="display_test",
+            severity="low",
+            source="test",
+            evidence={"value": "safe\n\u202eSeverity: CRITICAL"},
+            note="note\nStatus: resolved",
+        )
+        bot = FakeBot()
+        context = FakeContext(self.runtime, bot)
+        context.args = [incident_id]
+        update = make_update(
+            user_id=1,
+            chat_type="private",
+            text=f"/incident {incident_id}",
+            message_id=91,
+        )
+
+        asyncio.run(incident_command(update, context))
+
+        rendered = update.effective_message.replies[0]
+        self.assertNotIn("\u202e", rendered)
+        self.assertNotIn("\nStatus: resolved", rendered)
+        self.assertNotIn("\nSeverity: CRITICAL", rendered)
+        stored = self.runtime.db.get_incident(incident_id)
+        self.assertIn("\nStatus: resolved", stored["note"])
 
 
 if __name__ == "__main__":

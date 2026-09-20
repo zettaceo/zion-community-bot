@@ -1249,7 +1249,7 @@ async def gaps_command(
     for item in gaps:
         lines.append(
             f"{item['question_hash']} | x{item['seen_count']} | "
-            f"{item['sample_text'][:220]}"
+            f"{safe_display_text(item['sample_text'], 220)}"
         )
     await update.effective_message.reply_text("\n".join(lines)[:3900])
 
@@ -1361,7 +1361,7 @@ async def incident_command(
 
     try:
         evidence = incident.get("evidence_json") or "{}"
-        evidence_text = str(evidence)[:900]
+        evidence_text = safe_display_text(evidence, 900)
     except Exception:
         evidence_text = "{}"
 
@@ -1380,7 +1380,7 @@ async def incident_command(
         f"Chat: {incident['chat_id']}\n"
         f"User: {incident['user_id']}\n"
         f"Created: {when}\n"
-        f"Note: {incident.get('note') or '-'}\n"
+        f"Note: {safe_display_text(incident.get('note') or '-', 500)}\n"
         f"Evidence: {evidence_text}"
     )
 
@@ -1480,7 +1480,7 @@ async def strikes_command(
         )
         lines.append(
             f"{item['id'][:8]} | {item['severity']} | "
-            f"{item['reason']} | exp={expires_text}"
+            f"{safe_display_text(item['reason'], 200)} | exp={expires_text}"
         )
     await update.effective_message.reply_text("\n".join(lines)[:3900])
 
@@ -1532,7 +1532,7 @@ async def user_command(
     await update.effective_message.reply_text(
         "ZION USER\n"
         f"ID: {target_id}\n"
-        f"Username: {user.get('username') or '-'}\n"
+        f"Username: {safe_display_text(user.get('username') or '-', 80)}\n"
         f"Messages observed: {user.get('message_count', 0)}\n"
         f"Active strikes: {summary['active_strikes']}\n"
         f"Incidents: {summary['incidents']}\n"
@@ -2650,14 +2650,14 @@ async def ama_list_command(
 
     questions = rt.db.list_ama_questions(str(active["id"]), limit=30)
     lines = [
-        f"🎙️ AMA: {active['title']}",
+        f"🎙️ AMA: {safe_display_text(active['title'], 200)}",
         f"ID: {str(active['id'])[:8]}",
         f"Perguntas: {len(questions)}",
     ]
     for item in questions:
         lines.append(
             f"{str(item['id'])[:8]} | user={item['user_id']} | "
-            f"{str(item['question'])[:220]}"
+            f"{safe_display_text(item['question'], 220)}"
         )
     await update.effective_message.reply_text(
         "\n".join(lines)[:3900]
@@ -2699,7 +2699,7 @@ async def ama_close_command(
         return
 
     await update.effective_message.reply_text(
-        f"🎙️ AMA encerrado: {closed['title']}"
+        f"🎙️ AMA encerrado: {safe_display_text(closed['title'], 200)}"
     )
 
 
