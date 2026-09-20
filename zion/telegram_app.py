@@ -3209,7 +3209,6 @@ async def command_guard_handler(
     record_user(update, context, increment_messages=True)
 
     text = message.text or message.caption or ""
-    external_urls = telegram_external_urls(message)
     sensitive_surface = telegram_sensitive_surface(message, text)
     if await protect_credential_exposure(
         update,
@@ -3289,9 +3288,13 @@ async def command_guard_handler(
         await _enforce_flood(update, context, flood)
         raise ApplicationHandlerStop
 
+    entity_domains, unsupported_schemes = (
+        telegram_entity_link_evidence(message)
+    )
     links = rt.guardian.evaluate_links(
         text,
-        extra_urls=external_urls,
+        extra_domains=entity_domains,
+        unsupported_schemes=unsupported_schemes,
     )
     if links.should_delete:
         deleted = await delete_message_safe(
@@ -3304,10 +3307,14 @@ async def command_guard_handler(
                 chat_id=chat.id,
                 user_id=user.id,
                 category="unauthorized_link",
-                severity=Severity.LOW,
+                severity=link_incident_severity(
+                    links.unauthorized_domains,
+                    links.unsupported_schemes,
+                ),
                 source="guardian_command_preflight",
                 evidence={
                     "domains": links.unauthorized_domains,
+                    "unsupported_schemes": links.unsupported_schemes,
                     "message_id": message.message_id,
                 },
             )
@@ -3320,7 +3327,10 @@ async def command_guard_handler(
                 actor_id=None,
                 reason="unauthorized_link",
                 success=deleted,
-                metadata={"domains": links.unauthorized_domains},
+                metadata={
+                    "domains": links.unauthorized_domains,
+                    "unsupported_schemes": links.unsupported_schemes,
+                },
             )
         raise ApplicationHandlerStop
 
@@ -3347,7 +3357,6 @@ async def moderation_handler(
     # Segredos são protegidos para TODOS, inclusive administradores.
     # Admin não deve perder esta camada por causa da isenção de moderação.
     text = message.text or message.caption or ""
-    external_urls = telegram_external_urls(message)
     sensitive_surface = telegram_sensitive_surface(message, text)
     if await protect_credential_exposure(
         update,
@@ -3379,6 +3388,29 @@ async def moderation_handler(
     # secret/credential protection still runs before this boundary.
     if chat.type == "private":
         return
+
+    update_id = getattr(update, "update_id", None)
+    if update_id is not None:
+        try:
+            claimed = rt.db.claim_idempotency_key(
+                f"telegram_moderation:{int(update_id)}",
+                ttl_seconds=(
+                    rt.settings.idempotency_retention_days * 86400
+                ),
+            )
+        except Exception as exc:
+            logger.error(
+                "Falha no gate de idempotência da moderação: %s",
+                type(exc).__name__,
+            )
+            return
+
+        if not claimed:
+            logger.warning(
+                "Update de moderação duplicado suprimido | update_id=%s",
+                update_id,
+            )
+            return
 
     admin = await is_admin(update, context)
 
@@ -3440,9 +3472,13 @@ async def moderation_handler(
         await _enforce_flood(update, context, flood)
         return
 
+    entity_domains, unsupported_schemes = (
+        telegram_entity_link_evidence(message)
+    )
     links = rt.guardian.evaluate_links(
         text,
-        extra_urls=external_urls,
+        extra_domains=entity_domains,
+        unsupported_schemes=unsupported_schemes,
     )
     if links.should_delete:
         deleted = await delete_message_safe(
@@ -3455,10 +3491,14 @@ async def moderation_handler(
                 chat_id=chat.id,
                 user_id=user.id,
                 category="unauthorized_link",
-                severity=Severity.LOW,
+                severity=link_incident_severity(
+                    links.unauthorized_domains,
+                    links.unsupported_schemes,
+                ),
                 source="guardian",
                 evidence={
                     "domains": links.unauthorized_domains,
+                    "unsupported_schemes": links.unsupported_schemes,
                     "message_id": message.message_id,
                 },
             )
@@ -3471,7 +3511,10 @@ async def moderation_handler(
                 actor_id=None,
                 reason="unauthorized_link",
                 success=deleted,
-                metadata={"domains": links.unauthorized_domains},
+                metadata={
+                    "domains": links.unauthorized_domains,
+                    "unsupported_schemes": links.unsupported_schemes,
+                },
             )
         try:
             await context.bot.send_message(
