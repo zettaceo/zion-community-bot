@@ -3,7 +3,9 @@ set -euo pipefail
 
 ROOT="${ZION_PROD_ROOT:-/home/zetta/zion-community-bot}"
 EXPECTED="${ZION_DEPLOY_COMMIT:-}"
-APPROVED_REF="${ZION_APPROVED_REF:-origin/zion-v1}"
+REMOTE_BRANCH="${ZION_PRODUCTION_REMOTE_BRANCH:-zion-v1}"
+APPROVED_REF="${ZION_APPROVED_REF:-origin/$REMOTE_BRANCH}"
+EXPECTED_REPO="${ZION_EXPECTED_GITHUB_REPO:-zettaceo/zion-community-bot}"
 PYTHON="${ZION_RUNTIME_PYTHON:-$ROOT/.venv/bin/python}"
 EXPECTED_USER="${ZION_REMOTE_USER:-zetta}"
 
@@ -16,9 +18,34 @@ if [[ "$(id -un)" != "$EXPECTED_USER" ]]; then
   echo "ERRO: execute como $EXPECTED_USER." >&2
   exit 2
 fi
+if [[ "${ZION_GITHUB_GATES_PROVEN:-}" != "YES" ]]; then
+  echo "ERRO: confirme os gates GitHub antes de verificar release aprovado." >&2
+  exit 2
+fi
 
 if [[ ! -x "$PYTHON" ]]; then
   echo "ERRO: runtime Python ausente: $PYTHON" >&2
+  exit 2
+fi
+
+origin_url="$(git -C "$ROOT" remote get-url origin 2>/dev/null || true)"
+case "$origin_url" in
+  "https://github.com/$EXPECTED_REPO"|"https://github.com/$EXPECTED_REPO.git"|"git@github.com:$EXPECTED_REPO.git"|"ssh://git@github.com/$EXPECTED_REPO.git")
+    ;;
+  *)
+    echo "ERRO: origin não aponta para o repositório GitHub esperado." >&2
+    exit 2
+    ;;
+esac
+
+if command -v timeout >/dev/null 2>&1; then
+  remote_line="$(timeout 20 env GIT_TERMINAL_PROMPT=0 git -C "$ROOT" ls-remote --exit-code origin "refs/heads/$REMOTE_BRANCH" 2>/dev/null | head -n1 || true)"
+else
+  remote_line="$(env GIT_TERMINAL_PROMPT=0 git -C "$ROOT" ls-remote --exit-code origin "refs/heads/$REMOTE_BRANCH" 2>/dev/null | head -n1 || true)"
+fi
+remote_sha="${remote_line%%[[:space:]]*}"
+if [[ "$remote_sha" != "$EXPECTED" ]]; then
+  echo "ERRO: HEAD remoto ao vivo não corresponde a ZION_DEPLOY_COMMIT." >&2
   exit 2
 fi
 
@@ -54,7 +81,12 @@ echo "Approved release candidate: $EXPECTED"
 echo "Temporary candidate worktree: created"
 echo "Production service remains running during verification."
 
-ZION_RUNTIME_PYTHON="$PYTHON" ZION_PROD_ROOT="$ROOT" ZION_EXPECTED_COMMIT="$EXPECTED" ZION_APPROVED_REF="$APPROVED_REF" bash "$candidate/scripts/predeploy-v11.sh"
+ZION_RUNTIME_PYTHON="$PYTHON" \
+ZION_PROD_ROOT="$ROOT" \
+ZION_EXPECTED_COMMIT="$EXPECTED" \
+ZION_APPROVED_REF="$APPROVED_REF" \
+ZION_GITHUB_GATES_PROVEN=YES \
+  bash "$candidate/scripts/predeploy-v11.sh"
 
 echo
 echo "APPROVED RELEASE VERIFICATION: OK"
