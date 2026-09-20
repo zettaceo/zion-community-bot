@@ -64,6 +64,16 @@ class GuardianTests(unittest.TestCase):
             normalize_policy_domain("faß.de")
         )
 
+    def test_visible_transitional_idna_target_fails_closed(self) -> None:
+        decision = self.guardian.evaluate_links(
+            "https://faß.de/login"
+        )
+        self.assertTrue(decision.should_delete)
+        self.assertIn(
+            "invalid-http-target",
+            decision.unsupported_schemes,
+        )
+
     def test_unicode_lookalike_remains_distinct_punycode(self) -> None:
         domain = normalize_policy_domain("еxample.com")
         self.assertIsNotNone(domain)
