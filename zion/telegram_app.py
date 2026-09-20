@@ -3136,6 +3136,49 @@ async def command_idempotency_guard_handler(
             "Falha no gate de idempotência do comando: %s",
             type(exc).__name__,
         )
+
+        # Idempotency storage failure must not let a command carrying a
+        # credential bypass the universal secret-protection layer that would
+        # normally run in the next handler group.
+        message = update.effective_message
+        if message is not None:
+            visible = message.text or message.caption or ""
+            sensitive_surface = telegram_sensitive_surface(
+                message,
+                visible,
+            )
+            try:
+                if await protect_credential_exposure(
+                    update,
+                    context,
+                    sensitive_surface,
+                    source="guardian_command_idempotency_failure",
+                    notice_text=(
+                        "🚨 ZION bloqueou um comando que aparentava conter "
+                        "uma credencial. O conteúdo não foi processado."
+                    ),
+                ):
+                    raise ApplicationHandlerStop from exc
+                if await protect_wallet_secret(
+                    update,
+                    context,
+                    sensitive_surface,
+                    source="guardian_command_idempotency_failure",
+                    notice_text=(
+                        "🚨 ZION bloqueou um comando que aparentava conter "
+                        "segredo de carteira. O conteúdo não foi processado."
+                    ),
+                ):
+                    raise ApplicationHandlerStop from exc
+            except ApplicationHandlerStop:
+                raise
+            except Exception as protection_exc:
+                logger.error(
+                    "Falha adicional na proteção de segredo após erro "
+                    "de idempotência: %s",
+                    type(protection_exc).__name__,
+                )
+
         raise ApplicationHandlerStop from exc
 
     if not claimed:
@@ -3144,7 +3187,6 @@ async def command_idempotency_guard_handler(
             update_id,
         )
         raise ApplicationHandlerStop
-
 
 async def command_guard_handler(
     update: Update,
