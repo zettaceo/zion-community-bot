@@ -36,6 +36,10 @@ class SystemdContractTests(unittest.TestCase):
                 "zion-community-bot/runtimes"
             ),
             (
+                "InaccessiblePaths=/home/zetta/.local/share/"
+                "zion-community-bot/deploy-backups"
+            ),
+            (
                 "ReadWritePaths=/home/zetta/.local/state/"
                 "zion-community-bot"
             ),
@@ -79,6 +83,13 @@ class SystemdContractTests(unittest.TestCase):
         )
         self.assertIn(
             "ReadOnlyPaths=/home/zetta/zion-community-bot",
+            text,
+        )
+        self.assertIn(
+            (
+                "InaccessiblePaths=/home/zetta/.local/share/"
+                "zion-community-bot/deploy-backups"
+            ),
             text,
         )
         self.assertIn(
