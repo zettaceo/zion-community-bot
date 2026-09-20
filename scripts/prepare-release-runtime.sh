@@ -44,13 +44,13 @@ PY
 
 "$SYSTEM_PYTHON" -I "$ROOT/scripts/check-git-release-boundary.py"   --root "$ROOT"
 
-HEAD_SHA="$(GIT_NO_REPLACE_OBJECTS=1 git -C "$ROOT" rev-parse HEAD)"
+HEAD_SHA="$(GIT_NO_REPLACE_OBJECTS=1 /usr/bin/git -C "$ROOT" rev-parse HEAD)"
 if [[ "$HEAD_SHA" != "$EXPECTED" ]]; then
   echo "ERRO: worktree de runtime não corresponde ao SHA aprovado." >&2
   exit 2
 fi
 
-STATUS="$(git -C "$ROOT" status --porcelain --untracked-files=all)"
+STATUS="$(/usr/bin/git -C "$ROOT" status --porcelain --untracked-files=all)"
 if [[ -n "$STATUS" ]]; then
   echo "ERRO: candidate worktree contaminada." >&2
   exit 2

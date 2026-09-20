@@ -110,18 +110,18 @@ fi
 "$PYTHON" -m pip check
 
 echo "[2/15] Conferindo worktree e commit..."
-CURRENT_BRANCH="$(git symbolic-ref --quiet --short HEAD 2>/dev/null || true)"
+CURRENT_BRANCH="$(/usr/bin/git symbolic-ref --quiet --short HEAD 2>/dev/null || true)"
 if [[ "$CURRENT_BRANCH" != "$LOCAL_PROD_BRANCH" ]]; then
   echo "ERRO: branch local=$CURRENT_BRANCH; esperado=$LOCAL_PROD_BRANCH." >&2
   exit 1
 fi
-WORKTREE_STATUS="$(git status --porcelain --untracked-files=all)"
+WORKTREE_STATUS="$(/usr/bin/git status --porcelain --untracked-files=all)"
 if [[ -n "$WORKTREE_STATUS" ]]; then
   echo "ERRO: worktree possui alterações rastreadas ou arquivos não versionados." >&2
   exit 1
 fi
 
-CURRENT_HEAD="$(git rev-parse HEAD)"
+CURRENT_HEAD="$(/usr/bin/git rev-parse HEAD)"
 echo "HEAD=$CURRENT_HEAD"
 
 if [[ ! "$EXPECTED_COMMIT" =~ ^[0-9a-fA-F]{40}$ ]]; then
@@ -138,7 +138,7 @@ if [[ "${ZION_GITHUB_GATES_PROVEN:-}" != "YES" ]]; then
   exit 1
 fi
 
-ORIGIN_URL="$(git remote get-url origin 2>/dev/null || true)"
+ORIGIN_URL="$(/usr/bin/git remote get-url origin 2>/dev/null || true)"
 case "$ORIGIN_URL" in
   "https://github.com/$EXPECTED_REPO"|"https://github.com/$EXPECTED_REPO.git"|"git@github.com:$EXPECTED_REPO.git"|"ssh://git@github.com/$EXPECTED_REPO.git")
     ;;
@@ -148,8 +148,8 @@ case "$ORIGIN_URL" in
     ;;
 esac
 
-APPROVED_SHA="$(git rev-parse "$APPROVED_REF^{commit}" 2>/dev/null || true)"
-if [[ -z "$APPROVED_SHA" ]] || ! git merge-base --is-ancestor "$EXPECTED_COMMIT" "$APPROVED_REF" 2>/dev/null; then
+APPROVED_SHA="$(/usr/bin/git rev-parse "$APPROVED_REF^{commit}" 2>/dev/null || true)"
+if [[ -z "$APPROVED_SHA" ]] || ! /usr/bin/git merge-base --is-ancestor "$EXPECTED_COMMIT" "$APPROVED_REF" 2>/dev/null; then
   echo "ERRO: ZION_EXPECTED_COMMIT não pertence ao histórico local aprovado de $APPROVED_REF." >&2
   exit 1
 fi
@@ -162,11 +162,11 @@ if [[ "$PREVIOUS_COMMIT" == "$CURRENT_HEAD" ]]; then
   echo "ERRO: ZION_PREVIOUS_COMMIT não pode ser igual ao release atual." >&2
   exit 1
 fi
-if ! git cat-file -e "$PREVIOUS_COMMIT^{commit}" 2>/dev/null; then
+if ! /usr/bin/git cat-file -e "$PREVIOUS_COMMIT^{commit}" 2>/dev/null; then
   echo "ERRO: ZION_PREVIOUS_COMMIT não existe localmente." >&2
   exit 1
 fi
-if ! git merge-base --is-ancestor "$PREVIOUS_COMMIT" "$CURRENT_HEAD"; then
+if ! /usr/bin/git merge-base --is-ancestor "$PREVIOUS_COMMIT" "$CURRENT_HEAD"; then
   echo "ERRO: ZION_PREVIOUS_COMMIT não é ancestral do release atual." >&2
   exit 1
 fi
@@ -344,7 +344,7 @@ printf '%s\n' "$APPROVED_SHA" > "$DEST/approved-sha.txt"
 printf '%s\n' "$PREVIOUS_COMMIT" > "$DEST/rollback-head.txt"
 printf '%s\n' "$PREVIOUS_RUNTIME_TARGET" > "$DEST/runtime-before.txt"
 printf '%s\n' "$RUNTIME_DIR" > "$DEST/runtime-candidate.txt"
-git status --short --branch > "$DEST/git-status.txt"
+/usr/bin/git status --short --branch > "$DEST/git-status.txt"
 stat -c 'mode=%a owner=%U group=%G' "$ROOT/.env" > "$DEST/env-metadata.txt"
 sha256sum "$ROOT/.env" > "$DEST/env.sha256"
 chmod 600 \
@@ -575,11 +575,11 @@ finally:
 PY
 
 echo "[12/15] Revalidando inputs imutáveis e instalando units..."
-if [[ "$(git rev-parse HEAD)" != "$EXPECTED_COMMIT" ]]; then
+if [[ "$(/usr/bin/git rev-parse HEAD)" != "$EXPECTED_COMMIT" ]]; then
   echo "ERRO: HEAD mudou durante o cutover." >&2
   exit 1
 fi
-if [[ -n "$(git status --porcelain --untracked-files=all)" ]]; then
+if [[ -n "$(/usr/bin/git status --porcelain --untracked-files=all)" ]]; then
   echo "ERRO: worktree mudou durante o cutover." >&2
   exit 1
 fi

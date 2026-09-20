@@ -36,15 +36,15 @@ fi
   --root "$PROD_ROOT"
 
 cd "$ROOT"
-git status --short --branch
-HEAD_SHA="$(git rev-parse HEAD)"
+/usr/bin/git status --short --branch
+HEAD_SHA="$(/usr/bin/git rev-parse HEAD)"
 
 if [[ ! "$EXPECTED_COMMIT" =~ ^[0-9a-fA-F]{40}$ ]]; then
   echo "ERRO: ZION_EXPECTED_COMMIT deve ser um SHA completo de 40 caracteres." >&2
   exit 1
 fi
 
-APPROVED_SHA="$(git rev-parse "$APPROVED_REF^{commit}" 2>/dev/null || true)"
+APPROVED_SHA="$(/usr/bin/git rev-parse "$APPROVED_REF^{commit}" 2>/dev/null || true)"
 if [[ "$HEAD_SHA" != "$EXPECTED_COMMIT" ]]; then
   echo "ERRO: candidate HEAD diferente de ZION_EXPECTED_COMMIT." >&2
   exit 1
@@ -53,7 +53,7 @@ if [[ "$APPROVED_SHA" != "$EXPECTED_COMMIT" ]]; then
   echo "ERRO: $APPROVED_REF não aponta exatamente para o commit aprovado." >&2
   exit 1
 fi
-CANDIDATE_STATUS="$(git status --porcelain --untracked-files=all)"
+CANDIDATE_STATUS="$(/usr/bin/git status --porcelain --untracked-files=all)"
 if [[ -n "$CANDIDATE_STATUS" ]]; then
   echo "ERRO: candidate worktree possui alterações rastreadas ou arquivos não versionados." >&2
   exit 1

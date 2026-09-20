@@ -48,13 +48,13 @@ if [[ ! "$EXPECTED" =~ ^[0-9a-fA-F]{40}$ ]]; then
   fail "ZION_DEPLOY_COMMIT must be one full 40-character commit SHA"
 fi
 
-candidate_head="$(git -C "$SCRIPT_ROOT" rev-parse HEAD 2>/dev/null || true)"
+candidate_head="$(/usr/bin/git -C "$SCRIPT_ROOT" rev-parse HEAD 2>/dev/null || true)"
 if [[ -n "$EXPECTED" && "$candidate_head" == "$EXPECTED" ]]; then
   pass "preflight code itself is pinned to the approved candidate SHA"
 else
   fail "preflight script worktree HEAD does not equal ZION_DEPLOY_COMMIT"
 fi
-candidate_status="$(git -C "$SCRIPT_ROOT" status --porcelain --untracked-files=all 2>/dev/null || true)"
+candidate_status="$(/usr/bin/git -C "$SCRIPT_ROOT" status --porcelain --untracked-files=all 2>/dev/null || true)"
 if [[ -z "$candidate_status" ]]; then
   pass "candidate gate worktree is clean including non-ignored untracked files"
 else
@@ -86,10 +86,10 @@ else
     fail "production local Git boundary validation failed"
   fi
 
-  current_head="$(git -C "$ROOT" rev-parse HEAD 2>/dev/null || true)"
-  current_branch="$(git -C "$ROOT" symbolic-ref --quiet --short HEAD 2>/dev/null || true)"
-  approved_sha="$(git -C "$ROOT" rev-parse "$APPROVED_REF^{commit}" 2>/dev/null || true)"
-  origin_url="$(git -C "$ROOT" remote get-url origin 2>/dev/null || true)"
+  current_head="$(/usr/bin/git -C "$ROOT" rev-parse HEAD 2>/dev/null || true)"
+  current_branch="$(/usr/bin/git -C "$ROOT" symbolic-ref --quiet --short HEAD 2>/dev/null || true)"
+  approved_sha="$(/usr/bin/git -C "$ROOT" rev-parse "$APPROVED_REF^{commit}" 2>/dev/null || true)"
+  origin_url="$(/usr/bin/git -C "$ROOT" remote get-url origin 2>/dev/null || true)"
 
   case "$origin_url" in
     "https://github.com/$EXPECTED_REPO"|"https://github.com/$EXPECTED_REPO.git"|"git@github.com:$EXPECTED_REPO.git"|"ssh://git@github.com/$EXPECTED_REPO.git")
@@ -101,9 +101,9 @@ else
   esac
 
   if command -v timeout >/dev/null 2>&1; then
-    remote_line="$(timeout 20 env GIT_TERMINAL_PROMPT=0 git -C "$ROOT" ls-remote --exit-code origin "refs/heads/$REMOTE_BRANCH" 2>/dev/null | head -n1 || true)"
+    remote_line="$(timeout 20 env GIT_TERMINAL_PROMPT=0 /usr/bin/git -C "$ROOT" ls-remote --exit-code origin "refs/heads/$REMOTE_BRANCH" 2>/dev/null | head -n1 || true)"
   else
-    remote_line="$(env GIT_TERMINAL_PROMPT=0 git -C "$ROOT" ls-remote --exit-code origin "refs/heads/$REMOTE_BRANCH" 2>/dev/null | head -n1 || true)"
+    remote_line="$(env GIT_TERMINAL_PROMPT=0 /usr/bin/git -C "$ROOT" ls-remote --exit-code origin "refs/heads/$REMOTE_BRANCH" 2>/dev/null | head -n1 || true)"
   fi
   remote_sha="${remote_line%%[[:space:]]*}"
   if [[ -n "$EXPECTED" && "$remote_sha" == "$EXPECTED" ]]; then
@@ -124,14 +124,14 @@ else
     fail "current branch=$current_branch (expected $LOCAL_PROD_BRANCH)"
   fi
 
-  production_status="$(git -C "$ROOT" status --porcelain --untracked-files=all 2>/dev/null || true)"
+  production_status="$(/usr/bin/git -C "$ROOT" status --porcelain --untracked-files=all 2>/dev/null || true)"
   if [[ -z "$production_status" ]]; then
     pass "production worktree is clean including non-ignored untracked files"
   else
     fail "production worktree has tracked/untracked changes"
   fi
 
-  if [[ -n "$EXPECTED" && -n "$current_head" ]]     && git -C "$ROOT" merge-base --is-ancestor "$current_head" "$EXPECTED" 2>/dev/null; then
+  if [[ -n "$EXPECTED" && -n "$current_head" ]]     && /usr/bin/git -C "$ROOT" merge-base --is-ancestor "$current_head" "$EXPECTED" 2>/dev/null; then
     pass "approved commit is a fast-forward descendant of current production"
   else
     fail "approved commit is not a proven fast-forward descendant"

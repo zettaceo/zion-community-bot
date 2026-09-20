@@ -38,6 +38,13 @@ class ExecutablePathBoundaryTests(unittest.TestCase):
         self.assertIn('["/usr/bin/git", "ls-files", "-z"]', secret_scan)
         self.assertIn("['/usr/bin/git', 'rev-parse', 'HEAD']", rehearsal)
 
+    def test_release_shells_use_absolute_git_for_git_operations(self) -> None:
+        for relative in CRITICAL_SHELL_SCRIPTS:
+            with self.subTest(relative=relative):
+                text = (ROOT / relative).read_text(encoding="utf-8")
+                if "git " in text or "git -C" in text:
+                    self.assertIn("/usr/bin/git", text)
+
     def test_validation_uses_absolute_git_for_sensitive_inventory(self) -> None:
         text = (ROOT / "scripts" / "validate.sh").read_text(encoding="utf-8")
         self.assertIn("/usr/bin/git ls-files", text)

@@ -46,11 +46,11 @@ echo "[1/8] Validando fronteira Git e SHA aprovado..."
 "$SYSTEM_PYTHON" -I "$ROOT/scripts/check-git-release-boundary.py" \
   --root "$ROOT"
 
-CURRENT_HEAD="$(GIT_NO_REPLACE_OBJECTS=1 git rev-parse HEAD)"
-CURRENT_BRANCH="$(GIT_NO_REPLACE_OBJECTS=1 git symbolic-ref --quiet --short HEAD)"
-APPROVED_SHA="$(GIT_NO_REPLACE_OBJECTS=1 git rev-parse "$APPROVED_REF^{commit}")"
-ORIGIN_URL="$(GIT_NO_REPLACE_OBJECTS=1 git remote get-url origin)"
-WORKTREE_STATUS="$(GIT_NO_REPLACE_OBJECTS=1 git status --porcelain --untracked-files=all)"
+CURRENT_HEAD="$(GIT_NO_REPLACE_OBJECTS=1 /usr/bin/git rev-parse HEAD)"
+CURRENT_BRANCH="$(GIT_NO_REPLACE_OBJECTS=1 /usr/bin/git symbolic-ref --quiet --short HEAD)"
+APPROVED_SHA="$(GIT_NO_REPLACE_OBJECTS=1 /usr/bin/git rev-parse "$APPROVED_REF^{commit}")"
+ORIGIN_URL="$(GIT_NO_REPLACE_OBJECTS=1 /usr/bin/git remote get-url origin)"
+WORKTREE_STATUS="$(GIT_NO_REPLACE_OBJECTS=1 /usr/bin/git status --porcelain --untracked-files=all)"
 
 if [[ "$CURRENT_HEAD" != "$EXPECTED" ]]; then
   echo "ERRO: HEAD de produção difere de ZION_DEPLOY_COMMIT." >&2
@@ -81,13 +81,13 @@ esac
 if command -v timeout >/dev/null 2>&1; then
   REMOTE_LINE="$(
     timeout 20 env GIT_TERMINAL_PROMPT=0 \
-      git ls-remote --exit-code origin "refs/heads/$REMOTE_BRANCH" \
+      /usr/bin/git ls-remote --exit-code origin "refs/heads/$REMOTE_BRANCH" \
       2>/dev/null | head -n1 || true
   )"
 else
   REMOTE_LINE="$(
     env GIT_TERMINAL_PROMPT=0 \
-      git ls-remote --exit-code origin "refs/heads/$REMOTE_BRANCH" \
+      /usr/bin/git ls-remote --exit-code origin "refs/heads/$REMOTE_BRANCH" \
       2>/dev/null | head -n1 || true
   )"
 fi
@@ -173,11 +173,11 @@ PY
 echo "[5/8] Revalidando inputs imediatamente antes do sudo..."
 "$SYSTEM_PYTHON" -I "$ROOT/scripts/check-git-release-boundary.py" \
   --root "$ROOT"
-if [[ "$(GIT_NO_REPLACE_OBJECTS=1 git rev-parse HEAD)" != "$EXPECTED" ]]; then
+if [[ "$(GIT_NO_REPLACE_OBJECTS=1 /usr/bin/git rev-parse HEAD)" != "$EXPECTED" ]]; then
   echo "ERRO: HEAD mudou durante o bootstrap do dashboard." >&2
   exit 2
 fi
-if [[ -n "$(GIT_NO_REPLACE_OBJECTS=1 git status --porcelain --untracked-files=all)" ]]; then
+if [[ -n "$(GIT_NO_REPLACE_OBJECTS=1 /usr/bin/git status --porcelain --untracked-files=all)" ]]; then
   echo "ERRO: worktree mudou durante o bootstrap do dashboard." >&2
   exit 2
 fi
