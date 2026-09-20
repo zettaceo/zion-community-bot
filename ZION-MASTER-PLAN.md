@@ -1,415 +1,432 @@
 # ZION — MASTER PLAN
 
-Status: implementation baseline for ZION v1  
+Status: **architectural source of truth + implementation status**  
+Scope: Z-SWAP Community OS  
 AI provider: **Mistral AI**  
-Principle: **AI interprets; deterministic policy or authorized humans execute irreversible moderation.**
+Core principle: **AI interprets; deterministic policy or authorized humans execute irreversible moderation.**
 
-## Mission
+> This document defines the target system and records the current implementation state.  
+> It does **not** mean development code is deployed to production.
 
-ZION is the community operating system for Z-SWAP. It is not only a Telegram moderation bot.
+## 0. Status semantics
 
-Its target responsibilities are:
+Every roadmap item uses one of four states:
 
-1. Guardian — safety and deterministic moderation.
-2. Support — answer questions from approved knowledge.
-3. Community — onboarding, reports, announcements and member assistance.
-4. Intelligence — Mistral-based classification, Q&A and future summarization.
-5. Operations — health, audit, incidents, admin commands and observability.
+- **DONE** — the intended capability exists in code, is covered by tests and has an operational contract.
+- **PARTIAL** — a useful production-shaped core exists, but one or more explicit closure criteria remain.
+- **TODO** — agreed scope, not yet implemented.
+- **FUTURE** — intentionally outside the current release horizon.
 
-## Invariants
+A percentage is not a source of truth. The status and closure criteria below are.
 
-1. Criticism is allowed and is not automatically classified as FUD.
-2. AI never independently deletes, mutes or bans in v1.
-3. Every punitive action must have a deterministic rule or identified human actor.
-4. Every relevant action must be auditable.
-5. Secrets must not be logged.
-6. User message bodies should not be persisted unless a future feature has an explicit necessity and retention policy.
-7. The Guardian must continue when Mistral is unavailable.
-8. Private chat does not confer administrator privilege.
-9. Product answers must be grounded in approved Z-SWAP knowledge.
-10. Unknown product facts are acknowledged as unknown rather than invented.
+### Current capability snapshot
 
-## Architecture
+Across the 25 functional capabilities in this plan:
+
+- **18 DONE**
+- **7 PARTIAL**
+- **0 TODO**
+- **0 fully FUTURE**
+
+Future sub-capabilities still exist inside several DONE/PARTIAL areas.
+
+## 1. What ZION is
+
+ZION is the **community operating system for Z-SWAP**, not merely a Telegram moderation bot.
+
+Its five central responsibilities are:
+
+| Function | Role |
+|---|---|
+| **Guardian** | protect the community |
+| **Support** | answer and guide users from approved facts |
+| **Community** | onboard, organize and engage members |
+| **Intelligence** | interpret context and detect patterns |
+| **Operations** | help authorized administrators operate the community |
+
+The safety boundary is non-negotiable:
+
+> **AI may interpret. Objective rules or authorized humans decide irreversible actions.**
+
+AI output alone does not grant authority to delete, mute or ban.
+
+## 2. Source-of-truth hierarchy
+
+The repository uses separate documents for separate kinds of truth:
+
+1. **Product/architecture intent:** `ZION-MASTER-PLAN.md`
+2. **Moderation behavior:** `docs/POLICIES.md`
+3. **Security boundary:** `docs/SECURITY.md`
+4. **Operational procedures:** `docs/OPERATIONS.md`
+5. **Deployment/release controls:** `docs/DEPLOYMENT-MODEL.md`, release-gate audit documents
+6. **Approved support facts:** `knowledge/`
+7. **Executable truth:** code + tests
+
+Historical Block audit documents are evidence of how a capability was reached; they do not override the current executable contract.
+
+## 3. Conceptual architecture
+
+Target architecture:
 
 ```text
-Telegram / future channels
-        |
-        v
-Event ingestion
-        |
-        +--> Deterministic Guardian
-        |      flood
-        |      links/domains
-        |      wallet-secret protection
-        |      containment
-        |      lockdown
-        |
-        +--> Mistral Intelligence
-        |      /ask
-        |      observe-only classification
-        |      future summarization
-        |
-        v
-Policy boundary
-        |
-        v
-Action engine
- delete / warn / mute / ban / escalate / reply
-        |
-        v
-SQLite persistence
- users / strikes / incidents / actions / AI events / settings
-        |
-        v
-Admin + health + audit
+                    ZION
+                     │
+          ┌──────────┴──────────┐
+          │                     │
+      TELEGRAM              FUTURE CHANNELS
+                         Discord / Web / App
+          │
+          ▼
+┌───────────────────────────────┐
+│      1. EVENT INGESTION       │
+│ messages / joins / links      │
+│ commands / reports / events   │
+└──────────────┬────────────────┘
+               ▼
+┌───────────────────────────────┐
+│    2. DETERMINISTIC CORE      │
+│ flood / links / secrets       │
+│ strikes / permissions / bans  │
+│ rate limits / allowlists      │
+└──────────────┬────────────────┘
+               ▼
+┌───────────────────────────────┐
+│       3. AI INTELLIGENCE      │
+│ context / intent / Q&A        │
+│ classification / summaries    │
+│ translation / pattern hints   │
+└──────────────┬────────────────┘
+               ▼
+┌───────────────────────────────┐
+│        4. POLICY ENGINE       │
+│ rules / risk / confidence     │
+│ escalation / approval         │
+└──────────────┬────────────────┘
+               ▼
+┌───────────────────────────────┐
+│       5. ACTION ENGINE        │
+│ delete / mute / ban / warn    │
+│ reply / notify / escalate     │
+└──────────────┬────────────────┘
+               ▼
+┌───────────────────────────────┐
+│      6. MEMORY & DATA         │
+│ users / incidents / FAQ       │
+│ strikes / audit / settings    │
+└──────────────┬────────────────┘
+               ▼
+┌───────────────────────────────┐
+│     7. ADMIN / OBSERVABILITY  │
+│ dashboard / alerts / metrics  │
+│ configuration / audit         │
+└───────────────────────────────┘
 ```
 
-## Operating states
+### Current module mapping
 
-- NORMAL
-- ELEVATED
-- ATTACK
-- LOCKDOWN
-- DEGRADED_AI
-- DEGRADED_NETWORK
-- MAINTENANCE
-- SAFE_MODE
+| Conceptual layer | Current implementation |
+|---|---|
+| Event ingestion | `zion/telegram_app.py` |
+| Deterministic core | `zion/guardian.py`, `docs/POLICIES.md` |
+| AI intelligence | `zion/ai_service.py`, `zion/mistral.py`, `zion/knowledge.py` |
+| Policy boundary | deterministic Guardian rules + operator authorization + observe-only AI |
+| Actions | Telegram action handlers + transactional ledger writes |
+| Memory/data | `zion/db.py` SQLite/WAL |
+| Admin/observability | `zion/health.py`, admin commands, `zion/admin_dashboard.py` |
 
-The modular line actively implements NORMAL, ELEVATED and LOCKDOWN behavior. ATTACK and the remaining states are modeled for controlled future transitions.
+The destination architecture does **not** require a mechanical rewrite into an `app/` folder tree. Separation of responsibilities and testable boundaries are the requirement.
 
-## Guardian
+## 4. Capability implementation matrix
 
-Implemented baseline:
+| # | Capability | Status | Current evidence | Closure criteria |
+|---:|---|---|---|---|
+| 1 | Guardian / community security | **PARTIAL** | `guardian.py`; flood, strikes, mute/ban escalation, links/domains, Unicode/IDNA, raid/chat burst, secret exposure, containment, lockdown; Guardian tests | add reviewed official-identity/wallet scam signals, shortener/known-scam handling where justified, and complete ATTACK automation policy |
+| 2 | Identity and reputation | **PARTIAL** | `users`, `user_events`, strikes, incidents, containments, `/user` | explicit username-history representation and separate positive-contribution indicators without social-score collapse |
+| 3 | Intelligent welcome | **DONE** | bilingual onboarding, rules/security notice, join persistence, raid-aware onboarding | future staged onboarding is optional enhancement |
+| 4 | Z-SWAP support | **DONE** | grounded `/ask`, approved knowledge only, explicit unknown fallback, knowledge-gap escalation | expand factual corpus as product evolves |
+| 5 | Knowledge base / RAG | **DONE** | local approved Markdown, lexical retrieval, section/source labels, bounded gaps, `/reloadkb` | embeddings/version registry/freshness metadata are future upgrades, not baseline blockers |
+| 6 | AI layer | **PARTIAL** | classification, Q&A, summaries, translation, human-review signal, token budget, circuit breaker, accounting | richer emerging-topic/pattern analysis and a more explicit task router/review queue |
+| 7 | Contextual moderator | **DONE** | criticism is explicitly allowed; AI classification is observe-only; harassment/scam categories escalate | continue false-positive measurement |
+| 8 | Human escalation | **DONE** | incidents contain category/severity/source/evidence; operator incident commands and resolution | richer UI queue belongs to admin-panel work |
+| 9 | Community Assistant | **DONE** | help/rules/status, grounded support, summary, translation, reports, document/source assistance | add future channels only when justified |
+| 10 | Community Manager | **DONE** | announcements, polls, one-shot schedules, recurring schedules, AMA, 24h brief, knowledge gaps | richer editorial approval/templates are optional enhancement |
+| 11 | Scam sentinel | **PARTIAL** | domain allow/block, Unicode/IDNA, suspicious links, secret/seed-like content protection, AI scam/phishing/impersonation signals, lockdown | official usernames/wallet registry and additional deterministic high-confidence scam intelligence |
+| 12 | Incident response | **DONE** | persistent incident IDs, timestamps, evidence, actions, status lifecycle, operator review | optional richer correlation UI |
+| 13 | Admin commands | **DONE** | health/guardian/AI/stats/brief/gaps/incidents/strikes/user/state/warn/mute/ban/unban/domain/lockdown/schedule/AMA/diagnostics/reload | commands may grow, baseline control surface exists |
+| 14 | Administrative panel | **PARTIAL** | read-only localhost dashboard with DB/integrity/state/health counters | authenticated management UI for users/incidents/domains/policies/config only if operationally justified |
+| 15 | Observability | **PARTIAL** | uptime, SQLite integrity/schema/WAL/SHM/size, disk, Wi-Fi, Telegram update lag, AI latency/accounting/circuit, alerts, scheduler/delivery state | CPU/memory process metrics and/or structured metrics exporter if needed |
+| 16 | Self-health | **DONE** | health snapshots, diagnostics, integrity checks, low-disk checks, AI/network/Telegram telemetry, operator alerts | keep host acceptance tested |
+| 17 | Safe degradation | **DONE** | AI failure does not grant punitive authority; circuit breaker; scheduled delivery health gate; Guardian deterministic; network/Wi-Fi recovery; fail-closed DB paths | remote-service fallback may be added only if a remote DB is adopted |
+| 18 | Professional persistence | **DONE** | versioned SQLite/WAL schema, migrations, integrity, backups, idempotency, retention, transactional actions | PostgreSQL/Supabase remains FUTURE until evidence justifies migration |
+| 19 | Security by design | **DONE** | secret-safe logging, `.env` boundary, admin authorization, rate limits, input normalization, systemd hardening, process lock, release gates | continue release/security review per change |
+| 20 | Multi-language | **DONE** | PT-BR/EN onboarding/help plus AI reply-in-user-language and explicit translation | expand official bilingual knowledge coverage |
+| 21 | Controlled memory | **DONE** | factual users/events/strikes/incidents/actions/settings/gaps; bounded retention; no opaque opinion score | review retention whenever new data is added |
+| 22 | Anti-abuse of AI | **DONE** | prompt-injection boundaries, untrusted JSON/text framing, no AI punitive tools, output validation, rate/budget controls | adversarial prompt tests continue |
+| 23 | Policy system | **PARTIAL** | `docs/POLICIES.md`, Guardian rule modules, settings, severity/escalation logic, operating state | first-class versioned policy registry + per-policy observe/action mode + explicit policy version on every action |
+| 24 | Action Ledger | **DONE** | persistent `actions` table; actor/action/reason/evidence/result linkage across moderation/admin/operations | policy-version field can be added with capability #23 |
+| 25 | Simulation before production | **DONE** | AI moderation observe-only; new high-risk rules are developed/tested before activation; release gates keep development separate from production | maintain this as a release invariant |
 
-- persistent users;
-- persistent recent-message window;
-- persistent strikes;
-- persistent containments;
-- flood escalation;
-- deletion of tracked recent flood messages;
-- Telegram mute;
-- repeat-flood ban;
-- link/domain policy;
-- high-confidence possible wallet-secret exposure removal;
-- action ledger;
-- incident ledger;
-- manual lockdown.
+Representative test evidence includes:
 
-## Identity and reputation
+- `tests/test_guardian.py`
+- `tests/test_guardian_surface.py`
+- `tests/test_raid_guardian.py`
+- `tests/test_moderation.py`
+- `tests/test_db.py`
+- `tests/test_persistence_v11.py`
+- `tests/test_transaction_atomicity.py`
+- `tests/test_ai.py`
+- `tests/test_mistral_boundaries.py`
+- `tests/test_knowledge.py`
+- `tests/test_community_commands.py`
+- `tests/test_health.py`
+- `tests/test_block4_operations.py`
+- `tests/test_dashboard.py`
+- `tests/test_block5_remote_ops.py`
 
-ZION stores factual operational history, not a single social-credit score.
+## 5. Operating states
 
-User summary includes:
-- observed message count;
-- active strikes;
-- incident count;
-- active containment.
+The canonical state enum is implemented in `zion/models.py`:
 
-Future reputation features must retain separate evidence categories rather than compressing a member into one opaque score.
+| State | Status | Current behavior / gap |
+|---|---|---|
+| `NORMAL` | **DONE** | ordinary operation |
+| `ELEVATED` | **DONE** | temporary tightening after deterministic raid/distributed-burst conditions |
+| `ATTACK` | **PARTIAL** | modeled and affects deterministic thresholds; complete automatic transition/exit policy remains |
+| `LOCKDOWN` | **DONE** | explicit operator-controlled containment |
+| `DEGRADED_AI` | **PARTIAL** | modeled; AI circuit/accounting degradation exists, but full state-transition lifecycle is not centralized |
+| `DEGRADED_NETWORK` | **PARTIAL** | modeled; network/Wi-Fi recovery exists outside a complete state-transition lifecycle |
+| `MAINTENANCE` | **PARTIAL** | modeled; deployment procedures exist, but maintenance-state orchestration is not complete |
+| `SAFE_MODE` | **PARTIAL** | fail-closed behavior exists for critical health/data failures; full system-wide state semantics can be tightened |
 
-## Mistral AI
+No state grants additional punitive power to AI.
 
-Provider is fixed to Mistral for the current design.
+## 6. Brain versus police
 
-Default endpoint:
-`POST https://api.mistral.ai/v1/chat/completions`
+### Deterministic code may
 
-Default model:
-`mistral-small-latest`
+- delete when an objective policy permits;
+- mute;
+- apply strikes;
+- ban for objective repeat-offense rules;
+- block a configured domain;
+- rate-limit flood;
+- remove high-confidence protected-secret exposure;
+- enforce lockdown.
 
-Environment:
-- `MISTRAL_API_KEY`
-- `MISTRAL_API_URL`
-- `MISTRAL_MODEL`
-- `ZION_AI_ENABLED`
-- `ZION_AI_OBSERVE`
+### AI may
 
-Use cases:
-- grounded support Q&A;
-- observe-only moderation classification;
-- explicit summarization and translation;
-- knowledge-gap discovery;
-- operator intelligence.
+- interpret;
+- classify;
+- answer;
+- summarize;
+- translate;
+- detect context;
+- flag possible scam/phishing/impersonation;
+- recommend human review;
+- retrieve and use approved knowledge.
 
-Cost/abuse controls:
-- per-user explicit AI request limiter;
-- separate per-user observe-mode limiter;
-- global concurrency semaphore;
-- configurable daily token budget;
-- persistent circuit breaker after consecutive provider failures;
-- AI disabled by default.
+### AI + human approval
 
-The API key never belongs in Git.
+Ambiguous harassment, manipulation, contested moderation, interpersonal conflict and cases without an objective deterministic rule remain human-review territory.
 
-## Knowledge / RAG
+## 7. Code architecture
 
-v1 ships a local Markdown knowledge base and lexical retrieval.
+The original destination sketch proposed many small packages. The current modular line already removed the single-file architecture risk:
 
-This intentionally avoids an external vector database in the first modular release.
+```text
+bot.py                    thin runtime entrypoint
+zion/config.py            configuration boundary
+zion/models.py            states and decision models
+zion/telegram_app.py      Telegram orchestration + command surface
+zion/guardian.py          deterministic Guardian
+zion/db.py                persistence / migrations / transactions
+zion/ai_service.py        AI policy, budgets, accounting, circuit
+zion/mistral.py           provider boundary and prompts
+zion/knowledge.py         approved knowledge retrieval
+zion/health.py            self-health / diagnostics
+zion/admin_dashboard.py   read-only localhost dashboard
+zion/logging_safe.py      log redaction
+zion/process_lock.py      single-process guard
+```
 
-Contract:
-- approved facts only;
-- source sections supplied to Mistral;
-- if retrieval cannot support an answer, ZION says it cannot confirm;
-- unanswered explicit support questions can become knowledge gaps;
-- knowledge-gap samples are sanitized and retained for a bounded period;
-- `/reloadkb` reloads Markdown after an admin edit.
+### Remaining modularization criterion
 
-Future:
-- embeddings;
-- versioned source registry;
-- freshness dates;
-- source citations in Telegram replies;
-- Supabase/pgvector if justified.
+`telegram_app.py` is still the largest orchestration surface. Split it further only when a cohesive boundary (commands, scheduler, onboarding, operational alerts, actions) can move with its own tests. Do not refactor solely to reproduce a directory diagram.
 
-## Admin command surface
+## 8. Data model
 
-### Privilege model
+Current SQLite entities already cover most of the target model:
 
-ZION separates chat moderators from explicit operators.
+| Target concept | Current implementation | Status |
+|---|---|---|
+| users | `users` | **DONE** |
+| user events | `user_events` | **DONE** |
+| strikes | `strikes` | **DONE** |
+| incidents | `incidents` | **DONE** |
+| actions | `actions` | **DONE** |
+| message metadata | `recent_messages` | **PARTIAL** — intentionally minimal |
+| domains | `domains` | **DONE** |
+| policies | docs/settings/code rules | **PARTIAL** — no versioned policy registry yet |
+| admins | `ZION_ADMIN_USER_IDS` + Telegram chat-admin checks | **PARTIAL** — no DB admin entity by design |
+| reports | incident category `user_report` | **DONE** for operational need |
+| knowledge | approved Markdown + knowledge gaps | **DONE** baseline |
+| AI events | `ai_events` | **DONE** |
+| health | computed diagnostics + alerts | **DONE** operationally; no health-history table |
+| settings | `settings` | **DONE** |
+| scheduled/recurring | `scheduled_messages`, `recurring_messages` | **DONE** |
+| AMA | `ama_sessions`, `ama_questions` | **DONE** |
 
-Telegram group administrators may perform chat-local moderation/community actions. Global/system policy and telemetry require a user ID explicitly configured in `ZION_ADMIN_USER_IDS`.
+Additional operational tables include containments, idempotency keys and schema migrations.
 
+### FUTURE storage
 
-Public/basic:
-- `/start`
-- `/rules`
-- `/status`
-- `/id`
-- `/ask`
-- `/summary`
-- `/translate`
-- `/report`
+PostgreSQL/Supabase/pgvector is **not** required merely because it appeared in the original future design. Migrate only when multi-process, remote query, scale, analytics or backup requirements justify the added network dependency. Local survival remains a first-class requirement.
 
-Admin:
-- `/health`
-- `/guardian`
-- `/aistatus`
-- `/stats`
-- `/brief`
-- `/gaps`
-- `/resolvegap`
-- `/incidents`
-- `/incident`
-- `/resolveincident`
-- `/strikes`
-- `/user`
-- `/state`
-- `/warn`
-- `/mute`
-- `/ban`
-- `/unban`
-- `/announce`
-- `/poll`
-- `/lockdown`
-- `/unlock`
-- `/allowdomain`
-- `/blockdomain`
-- `/schedule`
-- `/reloadkb`
+## 9. AI architecture
 
-## Community operations
+Current AI surface is already task-separated even though it is exposed through one service:
 
-v1 includes a persistent announcement scheduler.
+```text
+user/content
+   |
+   +--> grounded support answer
+   +--> observe-only moderation classify
+   +--> summarize
+   +--> translate
+   |
+   +--> budget / accounting / circuit / rate gates
+   |
+   +--> human incident escalation when required
+```
 
-An administrator can schedule a Telegram message with an explicit ISO-8601 timezone.
+### PARTIAL target
 
-The scheduler loop checks due messages without requiring the optional python-telegram-bot JobQueue dependency.
+A future explicit router may add emerging-topic analysis, engagement analysis and richer operator intelligence. Each route must receive only the data/tools it needs.
 
-Future:
-- recurring announcements;
-- polls;
-- AMA collection;
-- daily/weekly briefs;
-- unanswered-question mining;
-- admin approval queues.
+No future router may turn untrusted user text into administrative authority.
 
-## Data model
+## 10. ZION personality
 
-SQLite v1 tables:
+The implemented Mistral system prompt defines ZION as:
 
-- users
-- user_events
-- strikes
-- containments
-- recent_messages
-- incidents
-- actions
-- domains
-- settings
-- ai_events
-- scheduled_messages
+> **precise, serene, technical and protective.**
 
-Migration to PostgreSQL/Supabase remains possible because data access is centralized in `zion/db.py`.
+Behavioral requirements:
 
-## Observability
+- not childish;
+- not aggressive;
+- not a salesperson;
+- not a fanboy;
+- not a censor of criticism;
+- explicit when official evidence is insufficient;
+- never invent product facts;
+- never request seed phrases, private keys, passwords or tokens.
 
-v1 exposes:
-- database health;
-- process uptime;
-- operating state;
-- configured Mistral state;
-- Wi-Fi interface presence;
-- free disk;
-- user/strike/incident/action/AI-event counts.
+The implemented grounded fallback is intentionally equivalent to:
 
-System-level resilience already includes:
-- systemd process supervision;
-- indefinite DNS readiness gate without boot restart churn;
-- USB Wi-Fi Guardian;
-- persistent Mistral circuit breaker.
+> “I did not find enough official information to confirm that.”
 
-Future observability:
-- latency percentiles;
-- Telegram update lag;
-- Mistral availability window;
-- cost/token budgets;
-- disk thresholds;
-- alert delivery;
-- structured metrics exporter.
+## 11. Roadmap phases
 
-## Threat model
+The original roadmap names stages **0 through 6** (seven numbered stages).
 
-Primary threats:
-- flood/spam;
-- phishing/scams;
-- admin impersonation;
-- secret exposure;
+| Phase | Current status | What closes the remaining gap |
+|---|---|---|
+| **0 — Foundation** | **DONE** | maintain release/host evidence |
+| **1 — Guardian** | **PARTIAL** | close capability #1/#11 scam and ATTACK-policy gaps |
+| **2 — Data** | **DONE** for local architecture | remote DB remains optional FUTURE |
+| **3 — Intelligence** | **PARTIAL** | richer router/pattern intelligence and review workflow |
+| **4 — Community OS** | **DONE** baseline | future channel/editorial enhancements |
+| **5 — Operations** | **PARTIAL** | admin management UI + remaining observability only if justified |
+| **6 — Autonomous Operations** | **PARTIAL / deliberately constrained** | policy-versioning, observe-first evidence, kill switches and explicit approval for each autonomous class |
+
+The project is no longer “between Phase 0 and Phase 1.” That historical statement is obsolete.
+
+## 12. Controlled autonomy requirements
+
+Any new autonomous behavior must satisfy all of these before action mode:
+
+1. explicit named policy;
+2. deterministic or tightly bounded authority;
+3. observe-only trial first;
+4. measurable false-positive review;
+5. audit/action ledger record;
+6. policy version or equivalent immutable evidence;
+7. kill switch;
+8. human escalation path;
+9. safe degradation when AI/network/database is impaired;
+10. deliberate production activation separate from code merge.
+
+## 13. Threat model
+
+Primary threats include:
+
+- flood/spam and coordinated raids;
+- phishing/scams and lookalike domains;
+- administrator impersonation;
+- wallet/seed/private-key exposure;
 - prompt injection;
-- stolen Telegram/Mistral credentials;
+- stolen Telegram/Mistral/SSH credentials;
 - compromised admin account;
-- bot API outage;
-- DNS/network outage;
-- database corruption;
+- Telegram/provider/DNS/network outage;
+- SQLite corruption or wrong-database operation;
+- disk exhaustion;
+- duplicated scheduler delivery;
 - abusive automation;
-- false-positive moderation.
+- false-positive moderation;
+- local Git/release-state tampering;
+- secret/config contamination during deployment.
 
-Controls:
-- deterministic enforcement;
-- AI observe-only;
-- secret redaction;
-- explicit admin authorization;
-- local persistence;
-- action ledger;
-- rate limiting;
-- safe degradation;
-- systemd recovery;
-- Wi-Fi recovery;
-- CI/tests before deployment.
+Current controls include deterministic enforcement, observe-only AI, secret redaction, explicit admin authorization, local transactional persistence, action/incident ledgers, rate limits, circuit breakers, health gates, systemd recovery, Wi-Fi recovery, release/runtime/environment/Git boundaries and CI.
 
-## Delivery phases
+## 14. Current release boundary
 
-### Phase 0 — Foundation
-Implemented:
-- systemd;
-- DNS readiness;
-- secret-safe logging;
-- persistent local state;
-- Wi-Fi Guardian.
+The **development** line contains Blocks 1–5. That does not mean production has been upgraded.
 
-### Phase 1 — Guardian
-Implemented in modular v1:
-- SQLite persistence;
-- flood/strike/containment engine;
-- links;
-- wallet-secret protection;
-- incidents/actions;
-- admin moderation;
-- lockdown.
+Production release work is governed separately by:
 
-v1.1 development additionally normalizes Unicode/IDNA domains and detects distributed chat bursts. Distributed-burst detection changes temporary operating state only; it does not punish an individual by itself.
+- `docs/DEPLOYMENT-MODEL.md`
+- `docs/GITHUB-DEPLOY-GATES.md`
+- `docs/V1.1-RELEASE-AUDIT.md`
+- `docs/V1.1-FIRST-UPGRADE.md`
 
-### Phase 2 — Data
-Implemented baseline:
-- normalized local schema;
-- user history;
-- incidents;
-- action ledger;
-- AI events;
-- runtime settings;
-- legacy JSON migration.
+External host/control-plane checks must never be marked DONE merely because repository CI is green.
 
-Future:
-- PostgreSQL/Supabase migration after operational evidence justifies it.
+## 15. Priority backlog derived from this plan
 
-### Phase 3 — Intelligence
-Implemented baseline:
-- Mistral client;
-- grounded /ask;
-- observe-only classifier;
-- hashed AI-event input;
-- concurrency and per-user request controls.
+The remaining product work, in dependency order, is:
 
-v1.1 development:
-- section-level source labels in grounded support replies;
-- stronger prompt-injection boundaries around official context and user questions;
-- existing knowledge-gap discovery retained and audited.
+1. finish and integrate the v1.1 release gate without deploying;
+2. complete external GitHub branch/ruleset protection;
+3. perform real Acer/Tailscale/SSH/runtime/DB acceptance;
+4. execute the controlled v1 → v1.1 release only after explicit authorization;
+5. complete versioned policy-engine semantics (#23);
+6. close Guardian/scam intelligence gaps (#1/#11);
+7. complete operating-state lifecycle semantics;
+8. decide whether richer admin UI/metrics are operationally justified;
+9. only then expand controlled autonomy.
 
-Future:
-- embeddings;
-- richer human-review queue.
+Do not start advanced autonomy merely to increase feature count.
 
-### Phase 4 — Community OS
-Implemented baseline:
-- onboarding;
-- reports;
-- knowledge support;
-- scheduled messages.
+## 16. Definition of ZION complete
 
-v1.1 development:
-- recurring content scheduling;
-- AMA collection workflow with bounded question retention;
-- richer bilingual PT-BR/EN onboarding/help;
-- polls and one-shot scheduling remain available.
+The target described by this plan is complete when:
 
-Future:
-- richer editorial templates and approval queues.
+- every capability above is DONE or explicitly moved to FUTURE with a written reason;
+- all irreversible actions have deterministic or identified-human authority;
+- AI remains bounded and auditable;
+- product answers are grounded;
+- criticism remains protected;
+- incidents/actions can reconstruct important moderation decisions;
+- health and degraded behavior are explicit;
+- production deployment/rollback is reproducible;
+- host/control-plane acceptance has real evidence;
+- autonomous policies have observe-only evidence and kill switches;
+- the production release matches the reviewed repository state.
 
-### Phase 5 — Operations
-Implemented baseline:
-- /health;
-- /stats;
-- /incidents;
-- /user;
-- local read-only operations dashboard bound to localhost;
-- local runbooks;
-- CI validation.
+Until then, “complete” refers only to a named block/phase/capability, never to the entire ZION system.
 
-v1.1 development:
-- SQLite quick-check and database-size diagnostics;
-- Telegram update-lag sampling;
-- Mistral latency aggregation;
-- configurable low-disk warning threshold;
-- deduplicated operator alerts;
-- private Tailscale + SSH runbook.
+---
 
-Future:
-- authenticated remote admin UI only if justified;
-- structured metrics exporter.
-
-### Phase 6 — Controlled autonomy
-Not authorized by default.
-
-Any future autonomous action must:
-1. have an explicit policy;
-2. start in observe-only;
-3. measure false positives;
-4. maintain an audit record;
-5. provide a kill switch;
-6. define human escalation;
-7. degrade safely when AI/network/database fail.
-
-## Definition of done for modular v1
-
-- modular package compiles;
-- unit tests pass;
-- secrets remain excluded/redacted;
-- legacy state can migrate;
-- current systemd entrypoint remains `bot.py`;
-- Guardian works without Mistral;
-- Mistral remains disabled until explicitly configured;
-- AI observe mode cannot perform punitive actions;
-- admin private-chat access requires explicit ID;
-- deployment script validates before restart.
-
-This document is the architectural source of truth for the ZION modular line. v1.1 changes remain development-only until explicitly reviewed and deployed.
+This file is the architectural and roadmap source of truth for ZION. Update its status matrix only in the same reviewed change that supplies the corresponding code/tests/evidence.
