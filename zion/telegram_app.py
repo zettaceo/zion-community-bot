@@ -2942,22 +2942,26 @@ async def _enforce_flood(
         if await delete_message_safe(context, chat.id, message_id):
             deleted_count += 1
 
-    incident_id = rt.db.create_incident(
-        chat_id=chat.id,
-        user_id=user.id,
-        category="flood",
-        severity=(
-            Severity.HIGH
-            if flood.should_ban
-            else Severity.MEDIUM
-        ),
-        source="guardian",
-        evidence={
-            "strike_count": flood.strike_count,
-            "tracked_messages": len(flood.message_ids),
-            "deleted_messages": deleted_count,
-        },
-    )
+    incident_id = flood.incident_id
+    if not incident_id:
+        # Backward-compatible fallback for callers/tests that construct a
+        # FloodDecision directly instead of using Guardian.record_message().
+        incident_id = rt.db.create_incident(
+            chat_id=chat.id,
+            user_id=user.id,
+            category="flood",
+            severity=(
+                Severity.HIGH
+                if flood.should_ban
+                else Severity.MEDIUM
+            ),
+            source="guardian",
+            evidence={
+                "strike_count": flood.strike_count,
+                "tracked_messages": len(flood.message_ids),
+                "planned_action": "ban" if flood.should_ban else "mute",
+            },
+        )
 
     if flood.should_ban:
         success = await ban_user_safe(context, chat.id, user.id)
@@ -2983,6 +2987,7 @@ async def _enforce_flood(
         metadata={
             "strike_count": flood.strike_count,
             "duration_seconds": flood.mute_seconds,
+            "deleted_messages": deleted_count,
         },
     )
 

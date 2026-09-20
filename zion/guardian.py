@@ -264,12 +264,32 @@ class Guardian:
                 ts,
             )
 
+            incident_id = self.db.create_incident(
+                chat_id=chat_id,
+                user_id=user_id,
+                category="flood",
+                severity=(
+                    Severity.HIGH
+                    if should_ban
+                    else Severity.MEDIUM
+                ),
+                source="guardian",
+                evidence={
+                    "strike_count": strike_count,
+                    "tracked_messages": len(message_ids),
+                    "planned_action": "ban" if should_ban else "mute",
+                    "enforcement_pending": True,
+                },
+                now=ts,
+            )
+
             return FloodDecision(
                 triggered=True,
                 strike_count=strike_count,
                 mute_seconds=mute_seconds,
                 should_ban=should_ban,
                 message_ids=message_ids,
+                incident_id=incident_id,
             )
 
     def evaluate_chat_burst(

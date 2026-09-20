@@ -42,6 +42,7 @@ class FloodDecision:
     mute_seconds: int = 0
     should_ban: bool = False
     message_ids: list[int] = field(default_factory=list)
+    incident_id: str | None = None
 
 
 @dataclass(slots=True)

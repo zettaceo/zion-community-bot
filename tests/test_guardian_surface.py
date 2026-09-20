@@ -534,6 +534,45 @@ class ModerationDurabilityTests(unittest.TestCase):
             str(detail["evidence_json"]),
         )
 
+
+    def test_flood_incident_is_durable_before_external_enforcement(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            settings = replace(
+                make_settings(root),
+                flood_max_messages=2,
+                flood_ban_after_strikes=1,
+            )
+            db = ZionDB(settings.db_path)
+            db.initialize()
+            try:
+                guardian = Guardian(settings, db)
+                guardian.record_message(
+                    chat_id=10,
+                    user_id=20,
+                    message_id=1,
+                    now=3000.0,
+                )
+                decision = guardian.record_message(
+                    chat_id=10,
+                    user_id=20,
+                    message_id=2,
+                    now=3001.0,
+                )
+
+                self.assertTrue(decision.triggered)
+                self.assertTrue(decision.should_ban)
+                self.assertIsNotNone(decision.incident_id)
+                incident = db.get_incident(str(decision.incident_id))
+                self.assertIsNotNone(incident)
+                self.assertEqual(incident["category"], "flood")
+                self.assertIn(
+                    '"enforcement_pending":true',
+                    str(incident["evidence_json"]),
+                )
+            finally:
+                db.close()
+
     def test_pending_flood_ban_has_persistent_local_containment(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
