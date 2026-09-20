@@ -227,6 +227,10 @@ class Block4OperationsTests(unittest.TestCase):
 
                 source = inspect.getsource(scheduler_loop)
                 self.assertLess(
+                    source.index("if delivery_guard_changed"),
+                    source.index("if not delivery_guard_ok:"),
+                )
+                self.assertLess(
                     source.index("if not delivery_guard_ok:"),
                     source.index("due_scheduled_messages"),
                 )
