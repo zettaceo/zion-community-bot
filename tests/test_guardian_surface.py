@@ -309,6 +309,44 @@ class AuthorizationAndPrivateBoundaryTests(unittest.TestCase):
         self.assertEqual(bot.member_calls, 2)
         self.assertTrue(update.effective_message.replies)
 
+
+    def test_negative_admin_cache_prevents_command_api_amplification(self) -> None:
+        bot = FakeBot(ChatMemberStatus.MEMBER)
+        context = FakeContext(self.runtime, bot)
+        update = make_update(
+            user_id=2,
+            chat_type="supergroup",
+            text="/ban",
+            message_id=4,
+        )
+
+        self.assertFalse(asyncio.run(require_admin(update, context)))
+        self.assertFalse(asyncio.run(require_admin(update, context)))
+        self.assertEqual(bot.member_calls, 1)
+
+    def test_cached_demoted_admin_loses_command_guard_exemption(self) -> None:
+        bot = FakeBot(ChatMemberStatus.ADMINISTRATOR)
+        context = FakeContext(self.runtime, bot)
+        update = make_update(
+            user_id=2,
+            chat_type="supergroup",
+            text="/ask https://evil.example/path",
+            message_id=5,
+        )
+
+        self.assertTrue(asyncio.run(is_admin(update, context)))
+        self.assertEqual(bot.member_calls, 1)
+        bot.status = ChatMemberStatus.MEMBER
+
+        with self.assertRaises(ApplicationHandlerStop):
+            asyncio.run(command_guard_handler(update, context))
+
+        self.assertEqual(bot.member_calls, 2)
+        self.assertEqual(
+            bot.deleted,
+            [(update.effective_chat.id, update.effective_message.message_id)],
+        )
+
     def test_private_command_skips_group_link_policy(self) -> None:
         bot = FakeBot()
         context = FakeContext(self.runtime, bot)

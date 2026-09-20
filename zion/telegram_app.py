@@ -302,6 +302,7 @@ async def is_admin(
     context: ContextTypes.DEFAULT_TYPE,
     *,
     use_cache: bool = True,
+    revalidate_cached_admin: bool = False,
 ) -> bool:
     if not update.effective_user or not update.effective_chat:
         return False
@@ -330,7 +331,8 @@ async def is_admin(
 
     cached = rt.admin_cache.get(key)
     if use_cache and cached and now < cached[1]:
-        return cached[0]
+        if not (revalidate_cached_admin and cached[0]):
+            return cached[0]
 
     try:
         member = await context.bot.get_chat_member(
@@ -357,10 +359,14 @@ async def require_admin(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
 ) -> bool:
-    # Privileged chat-local commands revalidate Telegram role instead of
-    # trusting the short moderation cache. A recently demoted administrator
-    # must not keep command authority until ADMIN_CACHE_SECONDS expires.
-    if await is_admin(update, context, use_cache=False):
+    # Positive cached privilege is revalidated before granting a privileged
+    # chat-local command. Negative cache entries remain useful against API
+    # amplification from members repeatedly invoking admin commands.
+    if await is_admin(
+        update,
+        context,
+        revalidate_cached_admin=True,
+    ):
         return True
 
     if update.effective_message:
@@ -3126,7 +3132,11 @@ async def command_guard_handler(
     if chat.type == "private":
         return
 
-    if await is_admin(update, context):
+    if await is_admin(
+        update,
+        context,
+        revalidate_cached_admin=True,
+    ):
         return
 
     if rt.db.get_operating_state() == OperatingState.LOCKDOWN:
