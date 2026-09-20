@@ -114,7 +114,9 @@ ZION_REMOTE_NETWORK_PROVEN=YES \
 
 This proves, among other things:
 
-- exact `origin/zion-v1` SHA match;
+- expected GitHub `origin` repository identity;
+- exact local `origin/zion-v1` SHA match;
+- a read-only `git ls-remote` check that the live GitHub `zion-v1` head equals the approved SHA;
 - local production branch identity;
 - clean tracked worktree;
 - fast-forward relationship from current production;
@@ -131,6 +133,7 @@ Before cutover, validate the approved release in a detached temporary worktree:
 
 ```bash
 ZION_DEPLOY_COMMIT="$ZION_DEPLOY_COMMIT" \
+ZION_GITHUB_GATES_PROVEN=YES \
   bash scripts/verify-approved-release.sh
 ```
 
@@ -171,10 +174,11 @@ After the fast-forward succeeds:
 ZION_EXPECTED_COMMIT="$ZION_DEPLOY_COMMIT" \
 ZION_PREVIOUS_COMMIT="$PREVIOUS_HEAD" \
 ZION_APPROVED_REF=origin/zion-v1 \
+ZION_GITHUB_GATES_PROVEN=YES \
   bash scripts/apply-zion-v1.sh
 ```
 
-`apply-zion-v1.sh` now refuses to deploy without an exact expected SHA matching both current HEAD and the approved production ref. It also records the previous commit, when supplied, in the pre-deploy backup metadata.
+`apply-zion-v1.sh` now refuses to deploy without an exact expected SHA matching current HEAD and the approved production ref, verifies the expected GitHub origin and live production branch head before its own mutation stages, and requires the GitHub-governance attestation. It also records the previous commit, when supplied, in the pre-deploy backup metadata.
 
 ## Post-deploy acceptance
 
