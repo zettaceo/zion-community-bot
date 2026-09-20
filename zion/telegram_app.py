@@ -2596,28 +2596,64 @@ async def welcome_handler(
     rt = runtime(context)
     record_update_lag(update, context)
     chat_id = update.effective_chat.id
+    members = [
+        member
+        for member in (
+            getattr(update.effective_message, "new_chat_members", None)
+            or []
+        )
+        if not getattr(member, "is_bot", False)
+    ]
+    if not members:
+        return
 
-    for member in update.effective_message.new_chat_members:
-        if member.is_bot:
-            continue
+    now = time.time()
+    update_id = getattr(update, "update_id", None)
 
+    try:
         with rt.db.transaction():
-            rt.db.upsert_user(
-                chat_id=chat_id,
-                user_id=member.id,
-                username=member.username,
-                first_name=member.first_name,
-                language_code=member.language_code,
-            )
-            rt.db.record_user_event(
-                chat_id,
-                member.id,
-                "joined",
-            )
+            if update_id is not None:
+                claimed = rt.db.claim_idempotency_key(
+                    f"telegram_welcome:{int(update_id)}",
+                    ttl_seconds=(
+                        rt.settings.idempotency_retention_days * 86400
+                    ),
+                    now=now,
+                )
+                if not claimed:
+                    logger.warning(
+                        "Welcome update duplicado suprimido | update_id=%s",
+                        update_id,
+                    )
+                    return
 
-        await update.effective_message.reply_text(
+            for member in members:
+                rt.db.upsert_user(
+                    chat_id=chat_id,
+                    user_id=member.id,
+                    username=getattr(member, "username", None),
+                    first_name=getattr(member, "first_name", None),
+                    language_code=getattr(member, "language_code", None),
+                    now=now,
+                )
+                rt.db.record_user_event(
+                    chat_id,
+                    member.id,
+                    "joined",
+                    now=now,
+                )
+    except Exception as exc:
+        logger.error(
+            "Falha ao persistir onboarding/raid counters: %s",
+            type(exc).__name__,
+        )
+        return
+
+    if len(members) == 1:
+        member = members[0]
+        welcome_text = (
             f"⚡ Bem-vindo(a) / Welcome, "
-            f"{member.first_name or 'novo membro'}!\n\n"
+            f"{getattr(member, 'first_name', None) or 'novo membro'}!\n\n"
             "PT-BR: Você entrou na comunidade Z-SWAP. "
             "Leia /rules, consulte /help e use /report para sinalizar problemas.\n"
             "EN: Welcome to the Z-SWAP community. "
@@ -2625,8 +2661,25 @@ async def welcome_handler(
             "🔐 Nunca compartilhe / Never share seed phrase, private key, "
             "password, token or API key."
         )
+    else:
+        welcome_text = (
+            f"⚡ {len(members)} novos membros / new members chegaram.\n\n"
+            "PT-BR: Bem-vindos à comunidade Z-SWAP. "
+            "Leiam /rules e /help.\n"
+            "EN: Welcome to the Z-SWAP community. "
+            "Read /rules and /help.\n\n"
+            "🔐 Nunca compartilhe / Never share seed phrase, private key, "
+            "password, token or API key."
+        )
 
-    now = time.time()
+    try:
+        await update.effective_message.reply_text(welcome_text)
+    except Exception as exc:
+        logger.warning(
+            "Falha ao enviar onboarding: %s",
+            type(exc).__name__,
+        )
+
     joins = rt.db.count_user_events(
         chat_id=chat_id,
         event_type="joined",
@@ -2673,15 +2726,22 @@ async def welcome_handler(
                 },
             )
 
-        await context.bot.send_message(
-            chat_id=chat_id,
-            text=(
-                "🛡️ ZION: volume anormal de entradas detectado.\n"
-                "Estado ELEVATED ativado temporariamente.\n"
-                "O limite de flood foi endurecido; nenhuma punição "
-                "por IA foi habilitada."
-            ),
-        )
+        try:
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=(
+                    "🛡️ ZION: volume anormal de entradas detectado.\n"
+                    "Estado ELEVATED ativado temporariamente.\n"
+                    "O limite de flood foi endurecido; nenhuma punição "
+                    "por IA foi habilitada."
+                ),
+            )
+        except Exception as exc:
+            logger.warning(
+                "Falha ao publicar alerta de mass join: %s",
+                type(exc).__name__,
+            )
+
 
 
 async def _observe_with_ai(
