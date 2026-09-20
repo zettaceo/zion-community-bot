@@ -2,10 +2,12 @@
 set -euo pipefail
 
 ROOT="/home/zetta/zion-community-bot"
+PYTHON="$ROOT/.venv/bin/python"
 SRC="$ROOT/systemd/zion-dashboard.service"
 DST="/etc/systemd/system/zion-dashboard.service"
 STATE_DIR="/home/zetta/.local/state/zion-community-bot"
 DB="$ROOT/zion.db"
+UNIT_WIFI_INTERFACE="wlx78bdbc575d1c"
 
 cd "$ROOT"
 
@@ -17,6 +19,35 @@ if [[ ! -f "$SRC" ]]; then
   echo "ERRO: $SRC não existe." >&2
   exit 1
 fi
+if [[ ! -x "$PYTHON" ]]; then
+  echo "ERRO: runtime Python ausente: $PYTHON" >&2
+  exit 1
+fi
+
+"$PYTHON" - <<'PY'
+from pathlib import Path
+
+from zion.config import Settings
+
+settings = Settings.from_env()
+expected_db = Path(
+    "/home/zetta/zion-community-bot/zion.db"
+).resolve(strict=False)
+actual_db = settings.db_path.expanduser().resolve(strict=False)
+
+if actual_db != expected_db:
+    raise RuntimeError(
+        "zion-dashboard.service DB path diverge from bot config: "
+        f"bot={actual_db} dashboard={expected_db}"
+    )
+if settings.wifi_interface != "wlx78bdbc575d1c":
+    raise RuntimeError(
+        "zion-dashboard.service Wi-Fi interface diverge from bot config: "
+        f"bot={settings.wifi_interface} "
+        "dashboard=wlx78bdbc575d1c"
+    )
+PY
+
 if [[ ! -f "$DB" ]]; then
   echo "ERRO: $DB não existe. O dashboard é read-only e não cria banco." >&2
   exit 1
