@@ -47,8 +47,27 @@ def _status_payload(
         Path("/sys/class/net") / wifi_interface
     ).exists()
 
-    integrity_ok, integrity_result = db.integrity_check()
-    db_size_mb = int(db.file_size_bytes() / 1024 / 1024)
+    integrity = db.verify_integrity(full=False)
+    integrity_ok = bool(integrity["ok"])
+    database_messages = list(
+        integrity.get("database_messages", ["unknown"])
+    )
+    integrity_result = (
+        str(database_messages[0])
+        if database_messages
+        else "unknown"
+    )
+    foreign_keys_ok = bool(
+        integrity.get("foreign_keys_ok", False)
+    )
+    foreign_key_violations = list(
+        integrity.get("foreign_key_violations", [])
+    )
+    db_sizes = db.file_sizes_bytes()
+    db_size_mb = int(db_sizes["total"] / 1024 / 1024)
+    db_file_mb = int(db_sizes["database"] / 1024 / 1024)
+    wal_size_mb = int(db_sizes["wal"] / 1024 / 1024)
+    shm_size_mb = int(db_sizes["shm"] / 1024 / 1024)
     db_read_ok = True
 
     try:
@@ -70,7 +89,12 @@ def _status_payload(
         "operating_state": operating_state,
         "database": "ok" if database_ok else "fail",
         "sqlite_integrity": integrity_result,
+        "sqlite_foreign_keys_ok": foreign_keys_ok,
+        "sqlite_foreign_key_violations": foreign_key_violations[:20],
         "database_size_mb": db_size_mb,
+        "database_file_mb": db_file_mb,
+        "wal_size_mb": wal_size_mb,
+        "shm_size_mb": shm_size_mb,
         "wifi_interface_present": wifi_present,
         "disk_free_mb": disk_free_mb,
         "dashboard_uptime_seconds": int(
@@ -117,7 +141,8 @@ th, td {{ text-align: left; padding: .55rem; border-bottom: 1px solid #252b36; }
 <p>State: {html.escape(str(payload["operating_state"]))}</p>
 <p>Database: {html.escape(str(payload["database"]))}</p>
 <p>SQLite integrity: {html.escape(str(payload["sqlite_integrity"]))}</p>
-<p>Database size: {html.escape(str(payload["database_size_mb"]))} MB</p>
+<p>SQLite FK integrity: {html.escape(str(payload["sqlite_foreign_keys_ok"]))}</p>
+<p>SQLite total/db/WAL/SHM: {html.escape(str(payload["database_size_mb"]))}/{html.escape(str(payload["database_file_mb"]))}/{html.escape(str(payload["wal_size_mb"]))}/{html.escape(str(payload["shm_size_mb"]))} MB</p>
 <p>Wi-Fi interface: {html.escape(str(payload["wifi_interface_present"]))}</p>
 <p>Free disk: {html.escape(str(payload["disk_free_mb"]))} MB</p>
 </div>
