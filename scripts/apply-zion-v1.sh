@@ -219,6 +219,11 @@ if [[ -L "$BACKUP_DIR" ]]; then
 fi
 mkdir -p "$BACKUP_DIR"
 chmod 700 "$BACKUP_DIR"
+BACKUP_REAL="$(readlink -f -- "$BACKUP_DIR" 2>/dev/null || true)"
+if [[ "$BACKUP_REAL" != "$BACKUP_DIR" ]]; then
+  echo "ERRO: caminho de backup resolve por symlink/alias: $BACKUP_REAL" >&2
+  exit 1
+fi
 if [[ "$(stat -c '%U' "$BACKUP_DIR")" != "$EXPECTED_USER" ]]; then
   echo "ERRO: diretório de backup deve pertencer a $EXPECTED_USER." >&2
   exit 1
