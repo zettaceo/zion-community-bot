@@ -1069,7 +1069,8 @@ async def diagnostics_command(
         f"Alert dedup persistence: "
         f"{'DIRTY' if rt.health_alert_persistence_dirty else 'OK'}\n"
         f"SQLite schema: v{diag['schema_version']} "
-        f"[{'OK' if diag['schema_version_read_ok'] else 'UNAVAILABLE'}]\n"
+        f"(supported={diag['schema_version_supported']}) "
+        f"[{'OK' if diag['schema_version_ok'] else 'WARNING'}]\n"
         f"SQLite PRAGMAs: {pragma_state} ({pragma_issues})\n"
         f"SQLite application_id: "
         f"{pragmas['application_id']} "
@@ -3959,6 +3960,8 @@ async def operational_alert_cycle(
 
     if not diagnostics.get("schema_version_read_ok", False):
         issues.append("sqlite_schema_version_unavailable")
+    elif not diagnostics.get("schema_version_ok", False):
+        issues.append("sqlite_schema_version_mismatch")
     if not diagnostics.get("sqlite_pragma_read_ok", False):
         issues.append("sqlite_pragmas_unavailable")
     else:
@@ -4060,6 +4063,7 @@ async def operational_alert_cycle(
         "sqlite_database_file_missing",
         "sqlite_foreign_key_violation",
         "sqlite_schema_version_unavailable",
+        "sqlite_schema_version_mismatch",
         "sqlite_pragmas_unavailable",
         "sqlite_not_wal",
         "sqlite_foreign_keys_off",
