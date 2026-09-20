@@ -183,13 +183,17 @@ def detect_sensitive_content(text: str) -> SensitiveContentDecision:
         return SensitiveContentDecision()
 
     tail = match.group(2).strip()
-    words = re.findall(r"[A-Za-zÀ-ÿ0-9_'-]+", tail)
+    words = re.findall(
+        r"[^\W\d_]+(?:['-][^\W\d_]+)*",
+        tail,
+        flags=re.UNICODE,
+    )
 
     plausible_seed_prefix = (
         len(words) >= 12
         and all(
             word.replace("'", "").replace("-", "").isalpha()
-            and 2 <= len(word) <= 32
+            and 1 <= len(word) <= 32
             for word in words[:12]
         )
     )
