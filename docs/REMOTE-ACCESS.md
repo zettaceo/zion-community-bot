@@ -160,13 +160,14 @@ Authoritative template:
 
 `ops/sshd/99-zion-remote.conf`
 
-The guarded installer refuses to run unless the operator explicitly attests that key access was proven.
+The guarded installer refuses to run unless the operator explicitly attests that **both** public-key login and the out-of-band ED25519 host fingerprint were proven.
 
 From a proven Tailscale SSH session:
 
 ```bash
 cd /home/zetta/zion-community-bot
 ZION_REMOTE_ACCESS_PROVEN=YES \
+ZION_HOSTKEY_PROVEN=YES \
   bash scripts/apply-ssh-hardening.sh
 ```
 
@@ -175,6 +176,7 @@ From a physical console instead:
 ```bash
 cd /home/zetta/zion-community-bot
 ZION_REMOTE_ACCESS_PROVEN=YES \
+ZION_HOSTKEY_PROVEN=YES \
 ZION_PHYSICAL_CONSOLE=YES \
   bash scripts/apply-ssh-hardening.sh
 ```
@@ -202,10 +204,11 @@ ssh zion-server
 
 Only after the second session succeeds may the bootstrap session be closed.
 
-Then run strict host verification:
+Then run strict host verification. Because proving the *effective* sshd policy can require access to root-owned host keys, refresh sudo credentials first; the preflight itself uses only non-interactive read-only `sudo -n sshd -T` if the unprivileged check cannot prove the configuration:
 
 ```bash
 cd /home/zetta/zion-community-bot
+sudo -v
 bash scripts/remote-access-preflight.sh
 ```
 
@@ -241,7 +244,7 @@ Strict gate:
 bash scripts/remote-access-preflight.sh
 ```
 
-The script checks Tailscale presence/address, sshd state, authorized-key permissions/ownership, the ZION sshd drop-in, effective sshd controls, host-key fingerprint availability and listening surface.
+The script checks Tailscale presence/address, sshd state, authorized-key permissions/ownership, root-owned single-link ZION sshd drop-in permissions, effective sshd controls (including StrictModes, AuthorizedKeysFile and forwarding restrictions), host-key fingerprint availability and listening surface.
 
 Router/NAT and Tailnet control-plane policy remain explicit manual checks.
 
