@@ -139,11 +139,15 @@ Knowledge-gap samples older than the configured retention are deleted. Resolved/
 - UTC-day token usage, configured budget and remaining budget;
 - Mistral circuit-breaker state and provider failure count.
 
+It also reports scheduler RUNNING/STOPPED state, hourly housekeeping status, passive WAL checkpoint status, temporary-state maintenance status and the delivery-safety preflight. Failed disk/schema/latency probes are shown as unavailable instead of being rendered as healthy defaults.
+
 It never prints API keys, Telegram tokens, provider headers, prompts or user message bodies.
 
 The hourly scheduler deduplicates operational alerts so unchanged conditions do not create repeated notifications. A notification is only marked as delivered after at least one operator Telegram send succeeds. If every delivery attempt fails, the issue remains eligible for retry. This is intentionally not an exactly-once guarantee: a crash after Telegram accepts a notification but before local deduplication state is persisted may produce a later duplicate.
 
-Housekeeping and passive WAL checkpoint failures are isolated from the health-alert path. Maintenance failure therefore does not suppress operational monitoring.
+Housekeeping and passive WAL checkpoint failures are isolated from the health-alert path. Independent housekeeping steps are isolated from each other, so one failed retention operation does not skip all later cleanup steps.
+
+Before scheduled or recurring sends, ZION performs a delivery-safety preflight that quarantines stale unknown delivery claims. If that quarantine step itself fails, the scheduler fails closed for external scheduled delivery on that iteration and surfaces `delivery_safety_preflight_failed`. A newly observed delivery-safety failure triggers an immediate operator alert attempt; the normal hourly cycle remains the bounded retry path.
 
 ## AMA retention
 
