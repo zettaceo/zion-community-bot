@@ -408,6 +408,7 @@ class V11ReleaseGateTests(unittest.TestCase):
     def test_ci_and_runtime_use_audited_dependency_lock(self) -> None:
         ci = self.read(".github/workflows/ci.yml")
         runtime = self.read("scripts/check-runtime.py")
+        prepare = self.read("scripts/prepare-release-runtime.sh")
         lock = self.read("requirements.lock")
 
         self.assertIn("pip --isolated install", ci)
