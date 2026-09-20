@@ -184,7 +184,9 @@ test "$(git rev-parse origin/zion-v1)" = "$ZION_DEPLOY_COMMIT"
 
 sudo systemctl stop zion.service
 
-git merge --ff-only "$ZION_DEPLOY_COMMIT"
+GIT_NO_REPLACE_OBJECTS=1 \
+git -c core.hooksPath=/dev/null \
+  merge --ff-only "$ZION_DEPLOY_COMMIT"
 ```
 
 If the fast-forward fails, do **not** improvise with reset/rebase/force. The worktree is still on the previous release; restart the old service and investigate.
