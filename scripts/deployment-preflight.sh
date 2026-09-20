@@ -75,9 +75,11 @@ else
   fail "candidate local Git boundary validation failed"
 fi
 
+PYTHON_ENV_CLEAN=false
 if [[ -x "$SYSTEM_PYTHON" ]] \
   && "$SYSTEM_PYTHON" -I "$SCRIPT_ROOT/scripts/check-python-release-env.py" \
     >/dev/null; then
+  PYTHON_ENV_CLEAN=true
   pass "release Python environment is clean"
 else
   fail "release shell contains forbidden PYTHON* environment variables"
@@ -220,7 +222,9 @@ else
   fail "runtime/current is missing or invalid"
 fi
 
-if [[ -d "$RUNTIME_DIR" && ! -L "$RUNTIME_DIR" ]] \
+if [[ "$PYTHON_ENV_CLEAN" != true ]]; then
+  fail "staged candidate runtime validation skipped because Python environment is contaminated"
+elif [[ -d "$RUNTIME_DIR" && ! -L "$RUNTIME_DIR" ]] \
   && [[ -x "$RUNTIME_DIR/bin/python" ]] \
   && [[ -f "$RUNTIME_DIR/release-sha.txt" ]] \
   && [[ "$(cat "$RUNTIME_DIR/release-sha.txt" 2>/dev/null || true)" == "$EXPECTED" ]]; then
