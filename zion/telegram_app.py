@@ -3158,6 +3158,29 @@ async def moderation_handler(
     ):
         return
 
+    update_id = getattr(update, "update_id", None)
+    if update_id is not None:
+        try:
+            claimed = rt.db.claim_idempotency_key(
+                f"telegram_moderation:{int(update_id)}",
+                ttl_seconds=(
+                    rt.settings.idempotency_retention_days * 86400
+                ),
+            )
+        except Exception as exc:
+            logger.error(
+                "Falha no gate de idempotência da moderação: %s",
+                type(exc).__name__,
+            )
+            return
+
+        if not claimed:
+            logger.warning(
+                "Update de moderação duplicado suprimido | update_id=%s",
+                update_id,
+            )
+            return
+
     admin = await is_admin(update, context)
 
     if rt.db.get_operating_state() == OperatingState.LOCKDOWN and not admin:
