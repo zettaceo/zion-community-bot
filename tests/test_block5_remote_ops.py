@@ -129,8 +129,8 @@ class Block5RemoteOperationsTests(unittest.TestCase):
             "merge-base --is-ancestor",
             "ZION_GITHUB_GATES_PROVEN",
             "ZION_REMOTE_NETWORK_PROVEN",
-            "actions\\\\.runner\\\\.",
-            "Runner\\\\.Listener",
+            "actions\\.runner\\.",
+            "Runner\\.Listener",
             "remote-access-preflight.sh",
             "No production file was modified.",
         )
@@ -240,7 +240,7 @@ class Block5RemoteOperationsTests(unittest.TestCase):
         self.assertIn("StrictHostKeyChecking yes", text)
         self.assertNotIn("StrictHostKeyChecking accept-new", text)
         self.assertIn("second independent session", text)
-        self.assertIn("Do not treat \`ssh-keyscan\` by itself as identity proof", text)
+        self.assertIn("Do not treat `ssh-keyscan` by itself as identity proof", text)
 
     def test_deployment_model_rejects_unpinned_and_self_hosted_release(
         self,
@@ -261,7 +261,7 @@ class Block5RemoteOperationsTests(unittest.TestCase):
 
         self.assertIn("repository-admin action required", text)
         self.assertIn("require a pull request", text)
-        self.assertIn("require GitHub Actions status check \`validate\`", text)
+        self.assertIn("require GitHub Actions status check `validate`", text)
         self.assertIn("block force pushes", text)
         self.assertIn("block branch deletion", text)
 
@@ -270,7 +270,7 @@ class Block5RemoteOperationsTests(unittest.TestCase):
 
         self.assertIn("runs-on: ubuntu-latest", text)
         self.assertNotIn("runs-on: self-hosted", text)
-        self.assertIn("permissions:\\n  contents: read", text)
+        self.assertIn("permissions:\n  contents: read", text)
 
 
 if __name__ == "__main__":
