@@ -180,6 +180,44 @@ def reject_local_ignore_and_attribute_overrides(root: Path) -> None:
             )
 
 
+def reject_insecure_https_transport_config(root: Path) -> None:
+    ssl_verify = git(
+        root,
+        "config",
+        "--show-origin",
+        "--type=bool",
+        "--get-regexp",
+        r"^http(\..*)?\.sslverify$",
+        allow_no_match=True,
+    )
+    disabled_verify = [
+        line
+        for line in ssl_verify.splitlines()
+        if line.strip() and line.rsplit(None, 1)[-1].lower() == "false"
+    ]
+    if disabled_verify:
+        raise RuntimeError(
+            "Git HTTPS TLS verification must not be disabled for release"
+        )
+
+    for pattern, label in (
+        (r"^http(\..*)?\.sslcainfo$", "http.*.sslCAInfo"),
+        (r"^http(\..*)?\.sslcapath$", "http.*.sslCAPath"),
+    ):
+        configured = git(
+            root,
+            "config",
+            "--show-origin",
+            "--get-regexp",
+            pattern,
+            allow_no_match=True,
+        )
+        if configured:
+            raise RuntimeError(
+                f"{label} override is not allowed for release"
+            )
+
+
 def reject_index_visibility_overrides(root: Path) -> None:
     entries = git(
         root,
@@ -268,6 +306,7 @@ def validate(root: Path) -> None:
         )
 
     reject_local_ignore_and_attribute_overrides(root)
+    reject_insecure_https_transport_config(root)
     reject_index_visibility_overrides(root)
 
     url_rewrites = git(
@@ -336,8 +375,8 @@ def validate(root: Path) -> None:
     print(
         "git release boundary: OK | "
         "hooks=none replace_refs=none grafts=none shallow=false "
-        "local_ignores=none index_visibility=normal "
-        "ignored_importable_code=none"
+        "local_ignores=none https_tls=system-trust "
+        "index_visibility=normal ignored_importable_code=none"
     )
 
 
