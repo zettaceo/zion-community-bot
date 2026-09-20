@@ -9,6 +9,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from zion.ai_service import sanitize_for_ai
+from zion.health import _private_file
 from zion.logging_safe import (
     PrivateRotatingFileHandler,
     SecretSafeFormatter,
@@ -36,6 +37,39 @@ class SecurityTests(unittest.TestCase):
 
             with self.assertRaises(RuntimeError):
                 configure_logging(link)
+
+    def test_hardlinked_log_target_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            target = root / "target.log"
+            target.write_text("outside", encoding="utf-8")
+            link = root / "zion.log"
+            link.hardlink_to(target)
+
+            with self.assertRaisesRegex(RuntimeError, "hard links"):
+                configure_logging(link)
+
+            self.assertEqual(
+                target.read_text(encoding="utf-8"),
+                "outside",
+            )
+
+    def test_sensitive_file_health_rejects_links(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            regular = root / "regular"
+            regular.write_text("ok", encoding="utf-8")
+            regular.chmod(0o600)
+            self.assertTrue(_private_file(regular))
+
+            symlink = root / "symlink"
+            symlink.symlink_to(regular)
+            self.assertFalse(_private_file(symlink))
+
+            hardlink = root / "hardlink"
+            hardlink.hardlink_to(regular)
+            self.assertFalse(_private_file(regular))
+            self.assertFalse(_private_file(hardlink))
 
     def test_rotated_log_files_remain_private(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

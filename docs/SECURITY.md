@@ -170,6 +170,8 @@ Scheduled Telegram sends use an atomic SQLite claim before network I/O. Because 
 
 ## SQLite trust and integrity boundary
 
+Mutable runtime files are also a filesystem trust boundary. Existing SQLite database/WAL/SHM files and the active log must be regular, single-link files; symlinks and hardlinks are rejected. The log descriptor is opened with `O_NOFOLLOW` where supported and validated with `fstat` before use. Health reporting treats linked sensitive files as unsafe.
+
 ZION assigns its SQLite database the application ID `0x5A494F4E` ("ZION"). This prevents a configuration mistake from silently treating an unrelated non-empty SQLite file as the bot database.
 
 The database runs with foreign-key enforcement enabled and SQLite `trusted_schema` disabled. Startup fails closed when quick structural integrity or relational foreign-key integrity fails.

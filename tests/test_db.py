@@ -29,6 +29,30 @@ class DatabaseTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             ZionDB(link)
 
+    def test_hardlinked_database_path_is_rejected(self) -> None:
+        target = Path(self.temp.name) / "hardlink-target.db"
+        target.write_bytes(b"external")
+        link = Path(self.temp.name) / "hardlinked.db"
+        link.hardlink_to(target)
+
+        with self.assertRaisesRegex(RuntimeError, "hard links"):
+            ZionDB(link)
+
+    def test_hardlinked_sqlite_sidecars_are_rejected(self) -> None:
+        for suffix in ("-wal", "-shm"):
+            with self.subTest(suffix=suffix):
+                root = Path(self.temp.name)
+                database = root / f"candidate{suffix.replace('-', '')}.db"
+                target = root / f"outside{suffix.replace('-', '')}"
+                target.write_bytes(b"external")
+                sidecar = Path(str(database) + suffix)
+                sidecar.hardlink_to(target)
+
+                with self.assertRaisesRegex(RuntimeError, "hard links"):
+                    ZionDB(database)
+
+                sidecar.unlink()
+
     def test_database_permissions_are_private(self) -> None:
         mode = stat.S_IMODE(self.path.stat().st_mode)
         self.assertEqual(mode, 0o600)

@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import sqlite3
+import stat
 import threading
 import time
 import uuid
@@ -263,6 +264,22 @@ def _json(value: dict[str, Any] | None) -> str:
     return json.dumps(value or {}, ensure_ascii=False, separators=(",", ":"))
 
 
+def _assert_runtime_file_boundary(path: Path) -> None:
+    try:
+        info = path.lstat()
+    except FileNotFoundError:
+        return
+
+    if not stat.S_ISREG(info.st_mode):
+        raise RuntimeError(
+            f"ZION runtime database file must be regular: {path}"
+        )
+    if info.st_nlink != 1:
+        raise RuntimeError(
+            f"ZION runtime database file must not have hard links: {path}"
+        )
+
+
 class ZionDB:
     def __init__(
         self,
@@ -275,10 +292,20 @@ class ZionDB:
         self.readonly = readonly
         self.busy_timeout_ms = max(0, int(busy_timeout_ms))
 
-        if self.path.is_symlink():
-            raise RuntimeError("ZION database path must not be a symlink.")
+        if self.path.parent.is_symlink():
+            raise RuntimeError(
+                "ZION database directory must not be a symlink."
+            )
         if not readonly:
             self.path.parent.mkdir(parents=True, exist_ok=True)
+
+        for candidate in (
+            self.path,
+            Path(str(self.path) + "-wal"),
+            Path(str(self.path) + "-shm"),
+        ):
+            _assert_runtime_file_boundary(candidate)
+
         self._lock = threading.RLock()
 
         timeout_seconds = self.busy_timeout_ms / 1000
@@ -314,6 +341,7 @@ class ZionDB:
             Path(str(self.path) + "-wal"),
             Path(str(self.path) + "-shm"),
         ):
+            _assert_runtime_file_boundary(candidate)
             if not candidate.exists():
                 continue
             try:
