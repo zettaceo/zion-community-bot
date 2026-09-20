@@ -4331,8 +4331,10 @@ async def hourly_operations_cycle(
 
 
 async def scheduler_loop(application: Application) -> None:
-    last_housekeeping_monotonic = 0.0
-    last_health_check_monotonic = 0.0
+    # Preserve the previous startup contract: maintenance and health run
+    # on the first scheduler iteration regardless of host uptime.
+    last_housekeeping_monotonic = float("-inf")
+    last_health_check_monotonic = float("-inf")
 
     while True:
         try:
