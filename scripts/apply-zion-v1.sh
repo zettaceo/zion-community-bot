@@ -50,11 +50,15 @@ if [[ -f "$SERVICE_DST" ]] \
 fi
 
 DASHBOARD_INSTALLED=false
+DASHBOARD_SHOULD_START=false
 if [[ -f "$DASHBOARD_DST" ]]; then
   DASHBOARD_INSTALLED=true
   if /usr/bin/systemctl is-active --quiet zion-dashboard.service; then
     echo "ERRO: dashboard instalado deve estar parado no mesmo cutover." >&2
     exit 1
+  fi
+  if /usr/bin/systemctl is-enabled --quiet zion-dashboard.service 2>/dev/null; then
+    DASHBOARD_SHOULD_START=true
   fi
 fi
 
@@ -586,7 +590,7 @@ fi
 
 sudo /usr/bin/systemctl daemon-reload
 sudo /usr/bin/systemctl enable zion.service >/dev/null
-if [[ "$DASHBOARD_INSTALLED" == true ]]; then
+if [[ "$DASHBOARD_SHOULD_START" == true ]]; then
   sudo /usr/bin/systemctl enable zion-dashboard.service >/dev/null
 fi
 
@@ -615,7 +619,7 @@ if ! /usr/bin/systemctl is-active --quiet zion.service; then
   exit 1
 fi
 
-if [[ "$DASHBOARD_INSTALLED" == true ]]; then
+if [[ "$DASHBOARD_SHOULD_START" == true ]]; then
   sudo /usr/bin/systemctl start zion-dashboard.service
   for _ in $(seq 1 10); do
     if /usr/bin/systemctl is-active --quiet zion-dashboard.service; then
