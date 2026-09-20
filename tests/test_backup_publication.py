@@ -135,5 +135,11 @@ class BackupPublicationTests(unittest.TestCase):
         self.assertIn('stat -c', script)
         self.assertIn('A .env NÃO foi duplicada', script)
         self.assertNotRegex(script, r'(?:cp|install|copy2)\s+[^\n]*["/]\.env')
-        self.assertLess(script.index('metadata = db.backup_to(target)'),
-                        script.index('systemctl stop zion.service'))
+        self.assertIn(
+            'apply exige zion.service já parado',
+            script,
+        )
+        self.assertLess(
+            script.index('metadata = db.backup_to(target)'),
+            script.index('Trocando runtime/current atomicamente'),
+        )
