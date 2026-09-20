@@ -48,6 +48,7 @@ def make_settings(root: Path) -> Settings:
         db_warn_mb=512,
         wal_warn_mb=128,
         update_lag_warn_seconds=120,
+        health_check_interval_seconds=60,
         health_alert_repeat_seconds=21600,
         schedule_max_attempts=5,
         schedule_retry_seconds=60,
