@@ -537,6 +537,43 @@ class Block4OperationsTests(unittest.TestCase):
             finally:
                 rt.close()
 
+    def test_diagnostics_marks_remaining_ai_budget_unavailable_on_accounting_failure(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            settings = self._settings(
+                root,
+                ai_enabled=True,
+                mistral_api_key="synthetic-key-material",
+                ai_daily_token_budget=0,
+            )
+            rt = Runtime(settings)
+            rt.ai._accounting_healthy = False
+
+            message = FakeMessage()
+            update = SimpleNamespace(
+                effective_user=SimpleNamespace(id=1),
+                effective_message=message,
+            )
+            context = SimpleNamespace(
+                application=SimpleNamespace(
+                    bot_data={"zion_runtime": rt}
+                )
+            )
+
+            try:
+                asyncio.run(diagnostics_command(update, context))
+                output = message.replies[0]
+                self.assertIn("AI accounting: FAIL-CLOSED", output)
+                self.assertIn(
+                    "AI tokens UTC used/budget/remaining: 0/unlimited/unavailable",
+                    output,
+                )
+                self.assertNotIn("synthetic-key-material", output)
+            finally:
+                rt.close()
+
     def test_update_lag_sample_is_bounded_and_nonnegative(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
