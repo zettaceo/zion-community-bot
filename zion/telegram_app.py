@@ -3344,6 +3344,7 @@ async def moderation_handler(
                 source="guardian",
                 evidence={
                     "domains": links.unauthorized_domains,
+                    "unsupported_schemes": links.unsupported_schemes,
                     "message_id": message.message_id,
                 },
             )
@@ -3356,7 +3357,10 @@ async def moderation_handler(
                 actor_id=None,
                 reason="unauthorized_link",
                 success=deleted,
-                metadata={"domains": links.unauthorized_domains},
+                metadata={
+                    "domains": links.unauthorized_domains,
+                    "unsupported_schemes": links.unsupported_schemes,
+                },
             )
         try:
             await context.bot.send_message(
