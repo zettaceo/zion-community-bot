@@ -184,6 +184,45 @@ class Block4OperationsTests(unittest.TestCase):
             finally:
                 rt.close()
 
+    def test_incident_persistence_retries_even_when_alert_is_deduplicated(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            rt = Runtime(self._settings(root))
+            rt.housekeeping_last_error = "RuntimeError"
+            app = FakeApplication(rt)
+            original_create_incident = rt.db.create_incident
+            calls = 0
+
+            def flaky_create_incident(*args, **kwargs):
+                nonlocal calls
+                calls += 1
+                if calls == 1:
+                    raise RuntimeError("synthetic incident write failure")
+                return original_create_incident(*args, **kwargs)
+
+            rt.db.create_incident = flaky_create_incident
+            try:
+                asyncio.run(operational_alert_cycle(app, rt))
+                self.assertEqual(app.bot.attempts, 1)
+                self.assertIsNone(rt.health_incident_signature)
+
+                asyncio.run(operational_alert_cycle(app, rt))
+                self.assertEqual(
+                    app.bot.attempts,
+                    1,
+                    "notification should remain deduplicated after delivery",
+                )
+                self.assertEqual(calls, 2)
+                self.assertEqual(
+                    rt.health_incident_signature,
+                    "housekeeping_failed",
+                )
+                self.assertIsNotNone(rt.health_incident_id)
+            finally:
+                rt.close()
+
     def test_failed_notifications_do_not_duplicate_health_incidents(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
