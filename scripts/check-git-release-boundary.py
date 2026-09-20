@@ -40,15 +40,31 @@ def reject_git_environment() -> None:
         "GIT_CONFIG",
         "GIT_CONFIG_GLOBAL",
         "GIT_CONFIG_SYSTEM",
+        "GIT_CONFIG_PARAMETERS",
         "GIT_CONFIG_COUNT",
+        "GIT_INDEX_FILE",
+        "GIT_NAMESPACE",
         "GIT_SSH",
         "GIT_SSH_COMMAND",
         "GIT_SSL_NO_VERIFY",
     )
-    present = sorted(
-        name for name in dangerous
+    present = {
+        name
+        for name in dangerous
         if os.environ.get(name) not in (None, "")
+    }
+    present.update(
+        name
+        for name, value in os.environ.items()
+        if (
+            value not in (None, "")
+            and (
+                name.startswith("GIT_CONFIG_KEY_")
+                or name.startswith("GIT_CONFIG_VALUE_")
+            )
+        )
     )
+    present = sorted(present)
     if present:
         raise RuntimeError(
             "release shell contains forbidden Git environment variables: "
@@ -77,6 +93,32 @@ def validate(root: Path) -> None:
     if hooks_path:
         raise RuntimeError(
             "core.hooksPath is configured; release requires default hooks boundary"
+        )
+
+    url_rewrites = git(
+        root,
+        "config",
+        "--show-origin",
+        "--get-regexp",
+        r"^url\..*\.insteadof$",
+        allow_no_match=True,
+    )
+    if url_rewrites:
+        raise RuntimeError(
+            "Git url.*.insteadOf rewrite is not allowed for release"
+        )
+
+    uploadpack = git(
+        root,
+        "config",
+        "--show-origin",
+        "--get-all",
+        "remote.origin.uploadpack",
+        allow_no_match=True,
+    )
+    if uploadpack:
+        raise RuntimeError(
+            "remote.origin.uploadpack override is not allowed for release"
         )
 
     default_hooks = Path(
