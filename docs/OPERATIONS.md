@@ -1,10 +1,23 @@
 # ZION Operations Runbook
 
+## Production filesystem boundary
+
+The v1.1 production service treats these areas differently:
+
+```text
+/home/zetta/zion-community-bot/                         code + .env, read-only to service
+/home/zetta/.local/share/zion-community-bot/runtimes/  versioned Python runtimes, read-only to service
+/home/zetta/.local/state/zion-community-bot/           mutable DB/log/lock/state, writable
+/home/zetta/.local/share/zion-community-bot/deploy-backups/ verified rollback evidence, not writable by service
+```
+
+The service must not need write permission to its code, release scripts, `.env` or Python environment.
+
 ## Audited runtime dependencies
 
 Production release validation uses the exact package set in `requirements.lock`. A runtime that merely falls inside the broader `requirements.txt` ranges is not sufficient for the audited v1.1 release.
 
-`scripts/check-runtime.py` verifies the lock and `python -m pip check` verifies dependency consistency. Package changes require a reviewed lock update and a new CI pass; do not mutate the production virtualenv during the cutover window.
+`scripts/prepare-release-runtime.sh` builds/verifies the approved SHA runtime before downtime. `scripts/check-runtime.py` verifies the lock, rejects unexpected distributions and `python -m pip check` verifies dependency consistency. Package changes require a reviewed lock update and a new CI pass; do not mutate the runtime used by the currently running service.
 
 ## Controlled update flow
 
