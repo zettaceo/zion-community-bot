@@ -80,6 +80,8 @@ Before cutover, `scripts/prepare-release-runtime.sh` creates/verifies a runtime 
 
 `scripts/check-runtime.py` requires Python 3.12.x, every locked distribution at the exact version, no unexpected distributions other than venv bootstrap tooling, and `pip check` consistency.
 
+For the first v1 → v1.1 cutover, an online staged runtime is **not** the final trust boundary because the legacy service runs as the same Unix user without the v1.1 read-only runtime sandbox. The online build is used for readiness/preflight only. After the legacy service is stopped, `ZION_REBUILD_RUNTIME_AFTER_STOP=YES` forces the candidate runtime to be discarded and rebuilt from the hash-pinned lock before the production worktree is fast-forwarded. Later v1.1 services cannot write the runtime tree through their systemd sandbox.
+
 The active service uses only:
 
 ```text
@@ -119,7 +121,7 @@ Use the exact candidate SHA in a detached temporary worktree and follow:
 
 `docs/V1.1-FIRST-UPGRADE.md`
 
-The candidate preflight binds its own worktree HEAD to the approved SHA while inspecting the unchanged production root.
+The candidate preflight binds its own worktree HEAD to the approved SHA while inspecting the unchanged production root. The detached candidate is retained until the legacy service stops so the final runtime can be rebuilt from that exact SHA without trusting a runtime staged while the old same-UID bot was still active.
 
 ## Remote/network gate
 
