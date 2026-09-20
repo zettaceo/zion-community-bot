@@ -15,7 +15,7 @@ Environment=ZION_DASHBOARD_DB_PATH=/home/zetta/.local/state/zion-community-bot/z
 Environment=ZION_DASHBOARD_WIFI_INTERFACE=wlx78bdbc575d1c
 Environment=ZION_DASHBOARD_BIND=127.0.0.1
 Environment=ZION_DASHBOARD_PORT=8765
-Environment=ZION_DASHBOARD_LOG_PATH=/home/zetta/.local/state/zion-community-bot/zion-dashboard.log
+Environment=ZION_DASHBOARD_LOG_PATH=/home/zetta/.local/state/zion-community-bot/dashboard/zion-dashboard.log
 
 ExecStart=/home/zetta/.local/share/zion-community-bot/runtimes/current/bin/python -m zion.admin_dashboard
 Restart=on-failure
@@ -38,8 +38,9 @@ RestrictRealtime=true
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 ReadOnlyPaths=/home/zetta/zion-community-bot
 ReadOnlyPaths=/home/zetta/.local/share/zion-community-bot/runtimes
+ReadOnlyPaths=/home/zetta/.local/state/zion-community-bot
 InaccessiblePaths=/home/zetta/.local/share/zion-community-bot/deploy-backups
-ReadWritePaths=/home/zetta/.local/state/zion-community-bot
+ReadWritePaths=/home/zetta/.local/state/zion-community-bot/dashboard
 
 [Install]
 WantedBy=multi-user.target
