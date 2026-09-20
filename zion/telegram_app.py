@@ -4253,6 +4253,7 @@ async def hourly_operations_cycle(
 
 async def scheduler_loop(application: Application) -> None:
     last_housekeeping = 0.0
+    last_health_check = 0.0
 
     while True:
         try:
@@ -4268,7 +4269,7 @@ async def scheduler_loop(application: Application) -> None:
                 or rt.state_maintenance_last_error
             )
 
-            ran_hourly_operations = False
+            ran_operational_check = False
             if now - last_housekeeping >= 3600:
                 await hourly_operations_cycle(
                     application,
@@ -4276,9 +4277,23 @@ async def scheduler_loop(application: Application) -> None:
                     now=now,
                 )
                 last_housekeeping = now
-                ran_hourly_operations = True
+                last_health_check = now
+                ran_operational_check = True
+            elif (
+                now - last_health_check
+                >= rt.settings.health_check_interval_seconds
+            ):
+                try:
+                    await operational_alert_cycle(application, rt)
+                except Exception:
+                    logger.exception(
+                        "Falha no ciclo periódico de saúde operacional."
+                    )
+                finally:
+                    last_health_check = now
+                ran_operational_check = True
 
-            if preflight_has_error and not ran_hourly_operations:
+            if preflight_has_error and not ran_operational_check:
                 try:
                     await operational_alert_cycle(application, rt)
                 except Exception:
