@@ -6,6 +6,9 @@ SYSTEM_PYTHON="/usr/bin/python3"
 PROD_ROOT="/home/zetta/zion-community-bot"
 PROD_ENV="$PROD_ROOT/.env"
 SERVICE="zion.service"
+INSTALLED_SERVICE="/etc/systemd/system/zion.service"
+STATE_DIR="/home/zetta/.local/state/zion-community-bot"
+STATE_DB="$STATE_DIR/zion.db"
 EXPECTED_COMMIT="${ZION_EXPECTED_COMMIT:-}"
 APPROVED_REF="origin/zion-v1"
 RUNTIME_BASE="/home/zetta/.local/share/zion-community-bot/runtimes"
@@ -84,6 +87,13 @@ echo "[4/8] Candidate systemd unit..."
 /usr/bin/systemd-analyze verify "$ROOT/systemd/zion.service"
 echo "systemd_unit=OK"
 
+PROD_SERVICE_STATE_LAYOUT=false
+if [[ -f "$INSTALLED_SERVICE" ]] \
+  && grep -Fq "ZION_DB_PATH=$STATE_DB" "$INSTALLED_SERVICE"; then
+  PROD_SERVICE_STATE_LAYOUT=true
+fi
+echo "production_state_layout=$PROD_SERVICE_STATE_LAYOUT"
+
 echo
 echo "[5/8] Production config + candidate knowledge readiness (read-only)..."
 "$PYTHON" "$ROOT/scripts/check-env-boundary.py" \
@@ -94,6 +104,8 @@ echo "[5/8] Production config + candidate knowledge readiness (read-only)..."
 PROD_ENV="$PROD_ENV" \
 PROD_ROOT="$PROD_ROOT" \
 CANDIDATE_ROOT="$ROOT" \
+PROD_SERVICE_STATE_LAYOUT="$PROD_SERVICE_STATE_LAYOUT" \
+STATE_DIR="$STATE_DIR" \
 "$PYTHON" - <<'PY'
 import os
 import stat
@@ -123,18 +135,26 @@ if info.st_nlink != 1:
 
 load_dotenv(env_path, override=True)
 
-# Settings is imported from the detached candidate worktree, but
-# root-relative runtime defaults must model the real production root.
-os.environ.setdefault("ZION_DB_PATH", str(prod_root / "zion.db"))
-os.environ.setdefault(
-    "ZION_STATE_FILE",
-    str(prod_root / "zion_state.json"),
-)
+# Settings is imported from the detached candidate worktree.
+# Model the *currently installed* production unit, not merely .env defaults.
+state_dir = Path(os.environ["STATE_DIR"]).resolve()
+if os.environ["PROD_SERVICE_STATE_LAYOUT"] == "true":
+    os.environ["ZION_DB_PATH"] = str(state_dir / "zion.db")
+    os.environ["ZION_STATE_FILE"] = str(state_dir / "zion_state.json")
+    os.environ["ZION_LOG_PATH"] = str(state_dir / "zion.log")
+    os.environ["ZION_RUNTIME_LOCK_PATH"] = str(state_dir / "runtime.lock")
+else:
+    os.environ.setdefault("ZION_DB_PATH", str(prod_root / "zion.db"))
+    os.environ.setdefault(
+        "ZION_STATE_FILE",
+        str(prod_root / "zion_state.json"),
+    )
+    os.environ.setdefault("ZION_LOG_PATH", str(prod_root / "zion.log"))
+
 os.environ.setdefault(
     "ZION_KNOWLEDGE_DIR",
     str(prod_root / "knowledge"),
 )
-os.environ.setdefault("ZION_LOG_PATH", str(prod_root / "zion.log"))
 
 from zion.config import Settings
 from zion.knowledge import KnowledgeBase
@@ -192,15 +212,23 @@ fi
   -p ExecMainStartTimestamp
 
 PROD_DB_PATH="$(
-  PROD_ENV="$PROD_ENV" PROD_ROOT="$PROD_ROOT" "$PYTHON" - <<'PY'
+  PROD_ENV="$PROD_ENV" \
+  PROD_ROOT="$PROD_ROOT" \
+  PROD_SERVICE_STATE_LAYOUT="$PROD_SERVICE_STATE_LAYOUT" \
+  STATE_DIR="$STATE_DIR" \
+  "$PYTHON" - <<'PY'
 import os
 from pathlib import Path
 from dotenv import load_dotenv
 
 env_path = Path(os.environ["PROD_ENV"])
 prod_root = Path(os.environ["PROD_ROOT"]).resolve()
+state_dir = Path(os.environ["STATE_DIR"]).resolve()
 load_dotenv(env_path, override=True)
-os.environ.setdefault("ZION_DB_PATH", str(prod_root / "zion.db"))
+if os.environ["PROD_SERVICE_STATE_LAYOUT"] == "true":
+    os.environ["ZION_DB_PATH"] = str(state_dir / "zion.db")
+else:
+    os.environ.setdefault("ZION_DB_PATH", str(prod_root / "zion.db"))
 
 from zion.config import Settings
 print(Settings.from_env().db_path.expanduser().resolve(strict=False))
@@ -246,6 +274,8 @@ COPY_LEGACY="$TMP_ROOT/zion_state.json"
 
 PROD_ENV="$PROD_ENV" \
 PROD_ROOT="$PROD_ROOT" \
+PROD_SERVICE_STATE_LAYOUT="$PROD_SERVICE_STATE_LAYOUT" \
+STATE_DIR="$STATE_DIR" \
 COPY_DB="$COPY_DB" \
 COPY_LEGACY="$COPY_LEGACY" \
 "$PYTHON" - <<'PY'
@@ -257,12 +287,17 @@ from dotenv import load_dotenv
 
 env_path = Path(os.environ["PROD_ENV"])
 prod_root = Path(os.environ["PROD_ROOT"]).resolve()
+state_dir = Path(os.environ["STATE_DIR"]).resolve()
 load_dotenv(env_path, override=True)
-os.environ.setdefault("ZION_DB_PATH", str(prod_root / "zion.db"))
-os.environ.setdefault(
-    "ZION_STATE_FILE",
-    str(prod_root / "zion_state.json"),
-)
+if os.environ["PROD_SERVICE_STATE_LAYOUT"] == "true":
+    os.environ["ZION_DB_PATH"] = str(state_dir / "zion.db")
+    os.environ["ZION_STATE_FILE"] = str(state_dir / "zion_state.json")
+else:
+    os.environ.setdefault("ZION_DB_PATH", str(prod_root / "zion.db"))
+    os.environ.setdefault(
+        "ZION_STATE_FILE",
+        str(prod_root / "zion_state.json"),
+    )
 
 from zion.config import Settings
 from zion.db import ZION_APPLICATION_ID, ZionDB
