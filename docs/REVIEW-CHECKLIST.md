@@ -69,6 +69,7 @@ Repository / GitHub:
 - [ ] `zion-v1` requires PR + `validate` and blocks force-push/deletion.
 - [ ] `zion-v1.1-dev` has the intended development protection.
 - [ ] No unexpected branch-protection/ruleset bypass actor exists.
+- [ ] Acer Git credential, if present, is read/fetch-only and cannot push.
 - [ ] Production host has no privileged GitHub Actions self-hosted runner.
 - [ ] Production release identity is one exact 40-character `origin/zion-v1` SHA.
 
@@ -78,7 +79,9 @@ Remote access:
 - [ ] Router/NAT has no TCP/22 port-forward to the Acer.
 - [ ] Tailnet policy permits only intended principals.
 - [ ] Dedicated Android private SSH key never left the client.
+- [ ] Every retained `authorized_keys` entry has a known owner/device and current reason.
 - [ ] Acer ED25519 host fingerprint was verified out of band.
+- [ ] Tailscale SSH/Funnel/Serve are not enabled unless separately reviewed.
 - [ ] `~/.ssh` is 0700 and `authorized_keys` is 0600, regular and correctly owned.
 - [ ] Public-key login succeeded before sshd hardening.
 - [ ] `scripts/apply-ssh-hardening.sh` completed with `sshd -t` green.
