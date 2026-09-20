@@ -982,6 +982,11 @@ async def diagnostics_command(
             if p95_lag > rt.settings.update_lag_warn_seconds
             else "OK"
         )
+    lag_age_text = (
+        "n/a"
+        if lag_sample_age is None
+        else f"{lag_sample_age:.0f}s"
+    )
     pragma_state = "OK" if diag["sqlite_pragmas_ok"] else "WARNING"
     pragma_issues = (
         ",".join(diag["sqlite_pragma_issues"])
@@ -1079,8 +1084,7 @@ async def diagnostics_command(
         f"{'PRESENT' if diag['wifi_interface_present'] else 'MISSING'}\n"
         f"Telegram update lag latest/p95/n: "
         f"{latest_lag:.2f}s/{p95_lag:.2f}s/{lag_count} "
-        f"[{lag_state}; age="
-        f"{'n/a' if lag_sample_age is None else f'{lag_sample_age:.0f}s'}]\n"
+        f"[{lag_state}; age={lag_age_text}]\n"
         f"AI latency 24h avg/p95: "
         f"{latency['avg_ms']}ms/{latency['p95_ms']}ms "
         f"(n={latency['count']}) "
