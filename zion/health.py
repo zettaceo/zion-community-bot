@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import shutil
+import stat
 import time
 from pathlib import Path
 
@@ -10,12 +11,18 @@ from .models import HealthSnapshot, OperatingState
 
 
 def _private_file(path: Path) -> bool:
-    if not path.exists():
-        return True
     try:
-        return (path.stat().st_mode & 0o077) == 0
+        info = path.lstat()
+    except FileNotFoundError:
+        return True
     except OSError:
         return False
+
+    return (
+        stat.S_ISREG(info.st_mode)
+        and info.st_nlink == 1
+        and (info.st_mode & 0o077) == 0
+    )
 
 
 class HealthService:
