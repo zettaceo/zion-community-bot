@@ -280,6 +280,26 @@ class ModerationPipelineTests(unittest.TestCase):
             self.context.bot.deleted,
         )
 
+    def test_link_entity_overflow_fails_closed(self) -> None:
+        entities = [
+            SimpleNamespace(
+                type="text_link",
+                url=f"https://host{index}.example/path",
+            )
+            for index in range(21)
+        ]
+        message = SimpleNamespace(
+            entities=entities,
+            caption_entities=[],
+            parse_entity=lambda entity: "",
+            parse_caption_entity=lambda entity: "",
+        )
+
+        domains, schemes = telegram_entity_link_evidence(message)
+
+        self.assertEqual(len(domains), 20)
+        self.assertIn("too-many-link-entities", schemes)
+
     def test_unparseable_url_entity_fails_closed(self) -> None:
         url_entity = SimpleNamespace(
             type="url",
