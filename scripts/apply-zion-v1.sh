@@ -1,14 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT="/home/zetta/zion-community-bot"
+ROOT="${ZION_PROD_ROOT:-/home/zetta/zion-community-bot}"
 PYTHON="$ROOT/.venv/bin/python"
 SERVICE_SRC="$ROOT/systemd/zion.service"
 SERVICE_DST="/etc/systemd/system/zion.service"
 BACKUP_DIR="$ROOT/backups"
 STATE_DIR="/home/zetta/.local/state/zion-community-bot"
 EXPECTED_COMMIT="${ZION_EXPECTED_COMMIT:-}"
-APPROVED_REF="${ZION_APPROVED_REF:-origin/zion-v1}"
+REMOTE_BRANCH="${ZION_PRODUCTION_REMOTE_BRANCH:-zion-v1}"
+APPROVED_REF="${ZION_APPROVED_REF:-origin/$REMOTE_BRANCH}"
+EXPECTED_REPO="${ZION_EXPECTED_GITHUB_REPO:-zettaceo/zion-community-bot}"
 PREVIOUS_COMMIT="${ZION_PREVIOUS_COMMIT:-}"
 
 cd "$ROOT"
@@ -37,6 +39,32 @@ if [[ "$CURRENT_HEAD" != "$EXPECTED_COMMIT" ]]; then
   exit 1
 fi
 
+if [[ "${ZION_GITHUB_GATES_PROVEN:-}" != "YES" ]]; then
+  echo "ERRO: ZION_GITHUB_GATES_PROVEN=YES é obrigatório após verificar proteção/CI no GitHub." >&2
+  exit 1
+fi
+
+ORIGIN_URL="$(git remote get-url origin 2>/dev/null || true)"
+case "$ORIGIN_URL" in
+  "https://github.com/$EXPECTED_REPO"|"https://github.com/$EXPECTED_REPO.git"|"git@github.com:$EXPECTED_REPO.git"|"ssh://git@github.com/$EXPECTED_REPO.git")
+    ;;
+  *)
+    echo "ERRO: origin não aponta para o repositório GitHub esperado." >&2
+    exit 1
+    ;;
+esac
+
+if command -v timeout >/dev/null 2>&1; then
+  REMOTE_LINE="$(timeout 20 env GIT_TERMINAL_PROMPT=0 git ls-remote --exit-code origin "refs/heads/$REMOTE_BRANCH" 2>/dev/null | head -n1 || true)"
+else
+  REMOTE_LINE="$(env GIT_TERMINAL_PROMPT=0 git ls-remote --exit-code origin "refs/heads/$REMOTE_BRANCH" 2>/dev/null | head -n1 || true)"
+fi
+REMOTE_SHA="${REMOTE_LINE%%[[:space:]]*}"
+if [[ "$REMOTE_SHA" != "$EXPECTED_COMMIT" ]]; then
+  echo "ERRO: HEAD remoto ao vivo de $REMOTE_BRANCH não corresponde ao commit esperado." >&2
+  exit 1
+fi
+
 APPROVED_SHA="$(git rev-parse "$APPROVED_REF^{commit}" 2>/dev/null || true)"
 if [[ "$APPROVED_SHA" != "$EXPECTED_COMMIT" ]]; then
   echo "ERRO: $APPROVED_REF não aponta para ZION_EXPECTED_COMMIT." >&2
@@ -50,6 +78,10 @@ if [[ -n "$PREVIOUS_COMMIT" ]]; then
   fi
   if ! git cat-file -e "$PREVIOUS_COMMIT^{commit}" 2>/dev/null; then
     echo "ERRO: ZION_PREVIOUS_COMMIT não existe localmente." >&2
+    exit 1
+  fi
+  if ! git merge-base --is-ancestor "$PREVIOUS_COMMIT" "$CURRENT_HEAD"; then
+    echo "ERRO: ZION_PREVIOUS_COMMIT não é ancestral do release atual." >&2
     exit 1
   fi
 fi
