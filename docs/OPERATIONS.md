@@ -1,5 +1,11 @@
 # ZION Operations Runbook
 
+## Audited runtime dependencies
+
+Production release validation uses the exact package set in `requirements.lock`. A runtime that merely falls inside the broader `requirements.txt` ranges is not sufficient for the audited v1.1 release.
+
+`scripts/check-runtime.py` verifies the lock and `python -m pip check` verifies dependency consistency. Package changes require a reviewed lock update and a new CI pass; do not mutate the production virtualenv during the cutover window.
+
 ## Controlled update flow
 
 Do not run a manual second polling process while systemd is running.
