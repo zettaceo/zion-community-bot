@@ -14,7 +14,7 @@ EXPECTED="${ZION_DEPLOY_COMMIT:-}"
 REMOTE_BRANCH="zion-v1"
 APPROVED_REF="origin/zion-v1"
 EXPECTED_REPO="zettaceo/zion-community-bot"
-LOCAL_PROD_BRANCH="${ZION_LOCAL_PROD_BRANCH:-zion-v1-prod}"
+LOCAL_PROD_BRANCH="zion-v1-prod"
 EXPECTED_USER="${ZION_REMOTE_USER:-zetta}"
 ENV_FILE="$ROOT/.env"
 
