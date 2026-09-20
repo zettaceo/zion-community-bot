@@ -315,6 +315,11 @@ class V11ReleaseGateTests(unittest.TestCase):
         self.assertIn("python3", prepare)
         self.assertIn("-m venv", prepare)
         self.assertIn("-r \"$ROOT/requirements.lock\"", prepare)
+        self.assertIn("pip --isolated install", prepare)
+        self.assertIn("--no-deps", prepare)
+        self.assertIn("--only-binary=:all:", prepare)
+        self.assertIn("--index-url https://pypi.org/simple", prepare)
+        self.assertIn('chmod -R a-w "$TMP_RUNTIME"', prepare)
 
         self.assertIn(
             'RUNTIME_DIR="$RUNTIME_BASE/$EXPECTED"',
@@ -338,9 +343,13 @@ class V11ReleaseGateTests(unittest.TestCase):
         runtime = self.read("scripts/check-runtime.py")
         lock = self.read("requirements.lock")
 
-        self.assertIn("pip install -r requirements.lock", ci)
+        self.assertIn("pip --isolated install", ci)
+        self.assertIn("--no-deps", ci)
+        self.assertIn("--only-binary=:all:", ci)
+        self.assertIn("--index-url https://pypi.org/simple", ci)
+        self.assertIn("-r requirements.lock", ci)
         self.assertIn("cache-dependency-path: requirements.lock", ci)
-        self.assertNotIn("pip install -r requirements.txt", ci)
+        self.assertNotIn("requirements.txt", ci)
         self.assertIn("verify_runtime_lock()", runtime)
         self.assertIn(
             "runtime package differs from audited lock",
@@ -360,6 +369,56 @@ class V11ReleaseGateTests(unittest.TestCase):
         )
         for item in expected:
             self.assertIn(item, lock)
+
+    def test_apply_uses_installed_service_layout_as_db_authority(self) -> None:
+        apply = self.read("scripts/apply-zion-v1.sh")
+        predeploy = self.read("scripts/predeploy-v11.sh")
+
+        self.assertIn("PREVIOUS_SERVICE_STATE_LAYOUT", apply)
+        self.assertIn(
+            'grep -Fq "ZION_DB_PATH=$TARGET_DB" "$SERVICE_DST"',
+            apply,
+        )
+        self.assertIn(
+            "source = target_db if state_layout else settings.db_path.expanduser()",
+            apply,
+        )
+        self.assertIn("PROD_SERVICE_STATE_LAYOUT", predeploy)
+        self.assertIn(
+            'grep -Fq "ZION_DB_PATH=$STATE_DB" "$INSTALLED_SERVICE"',
+            predeploy,
+        )
+
+    def test_apply_revalidates_state_env_and_worktree_at_cutover(self) -> None:
+        text = self.read("scripts/apply-zion-v1.sh")
+
+        self.assertIn('STATE_REAL="$(readlink -f -- "$STATE_DIR"', text)
+        self.assertIn(
+            'if [[ "$STATE_REAL" != "$STATE_DIR" ]]',
+            text,
+        )
+        self.assertIn("source_db must not be a symlink", text)
+        self.assertIn("target_db must not be a symlink", text)
+        self.assertIn('sha256sum -c "$DEST/env.sha256"', text)
+        self.assertIn("HEAD mudou durante o cutover", text)
+        self.assertIn("worktree mudou durante o cutover", text)
+        self.assertIn("runtime/current mudou durante o cutover", text)
+
+    def test_installed_dashboard_participates_in_same_cutover(self) -> None:
+        text = self.read("scripts/apply-zion-v1.sh")
+
+        self.assertIn('DASHBOARD_INSTALLED=false', text)
+        self.assertIn(
+            "dashboard instalado deve estar parado no mesmo cutover",
+            text,
+        )
+        self.assertIn("zion-dashboard.service.installed", text)
+        self.assertIn('"$DASHBOARD_SRC" \\', text)
+        self.assertIn("systemctl start zion-dashboard.service", text)
+        self.assertIn(
+            "zion-dashboard.service não ficou ativo",
+            text,
+        )
 
     def test_deployment_preflight_report_only_remains_read_only(self) -> None:
         script = ROOT / "scripts" / "deployment-preflight.sh"
