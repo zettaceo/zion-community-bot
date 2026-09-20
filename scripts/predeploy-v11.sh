@@ -3,9 +3,9 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PYTHON="${ZION_RUNTIME_PYTHON:-$ROOT/.venv/bin/python}"
-PROD_ROOT="${ZION_PROD_ROOT:-/home/zetta/zion-community-bot}"
+PROD_ROOT="/home/zetta/zion-community-bot"
 PROD_ENV="$PROD_ROOT/.env"
-SERVICE="${ZION_SERVICE:-zion.service}"
+SERVICE="zion.service"
 EXPECTED_COMMIT="${ZION_EXPECTED_COMMIT:-}"
 APPROVED_REF="origin/zion-v1"
 
