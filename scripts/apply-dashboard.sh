@@ -43,6 +43,7 @@ fi
 cd "$ROOT"
 
 echo "[1/8] Validando fronteira Git e SHA aprovado..."
+"$SYSTEM_PYTHON" -I "$ROOT/scripts/check-python-release-env.py"
 "$SYSTEM_PYTHON" -I "$ROOT/scripts/check-git-release-boundary.py" \
   --root "$ROOT"
 
