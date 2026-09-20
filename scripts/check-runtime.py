@@ -83,8 +83,11 @@ def main() -> None:
 
     python_version = sys.version_info[:3]
     require(
-        python_version >= (3, 10, 0),
-        f"Python >=3.10 required; found {sys.version.split()[0]}",
+        python_version[:2] == (3, 12),
+        (
+            "audited ZION v1.1 runtime requires Python 3.12.x; "
+            f"found {sys.version.split()[0]}"
+        ),
     )
 
     ptb_raw = package_version("python-telegram-bot")
