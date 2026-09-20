@@ -30,10 +30,22 @@ class SystemdContractTests(unittest.TestCase):
             "RestrictSUIDSGID=true",
             "LockPersonality=true",
             "RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6",
-            "ReadWritePaths=/home/zetta/zion-community-bot",
+            "ReadOnlyPaths=/home/zetta/zion-community-bot",
+            (
+                "ReadOnlyPaths=/home/zetta/.local/share/"
+                "zion-community-bot/runtimes"
+            ),
             (
                 "ReadWritePaths=/home/zetta/.local/state/"
                 "zion-community-bot"
+            ),
+            (
+                "/home/zetta/.local/share/zion-community-bot/"
+                "runtimes/current/bin/python"
+            ),
+            (
+                "ZION_DB_PATH=/home/zetta/.local/state/"
+                "zion-community-bot/zion.db"
             ),
         )
         for value in required:
@@ -51,6 +63,24 @@ class SystemdContractTests(unittest.TestCase):
         )
         self.assertIn("ProtectSystem=strict", text)
         self.assertIn("NoNewPrivileges=true", text)
+        self.assertIn(
+            (
+                "ZION_DASHBOARD_DB_PATH=/home/zetta/.local/state/"
+                "zion-community-bot/zion.db"
+            ),
+            text,
+        )
+        self.assertIn(
+            (
+                "/home/zetta/.local/share/zion-community-bot/"
+                "runtimes/current/bin/python"
+            ),
+            text,
+        )
+        self.assertIn(
+            "ReadOnlyPaths=/home/zetta/zion-community-bot",
+            text,
+        )
         self.assertIn(
             (
                 "ReadWritePaths=/home/zetta/.local/state/"
