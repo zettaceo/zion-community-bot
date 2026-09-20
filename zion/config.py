@@ -127,6 +127,7 @@ class Settings:
     db_warn_mb: int
     wal_warn_mb: int
     update_lag_warn_seconds: int
+    health_check_interval_seconds: int
     health_alert_repeat_seconds: int
     schedule_max_attempts: int
     schedule_retry_seconds: int
@@ -323,6 +324,11 @@ class Settings:
                 "ZION_UPDATE_LAG_WARN_SECONDS",
                 120,
                 10,
+            ),
+            health_check_interval_seconds=_int(
+                "ZION_HEALTH_CHECK_INTERVAL_SECONDS",
+                60,
+                20,
             ),
             health_alert_repeat_seconds=_int(
                 "ZION_HEALTH_ALERT_REPEAT_SECONDS",
