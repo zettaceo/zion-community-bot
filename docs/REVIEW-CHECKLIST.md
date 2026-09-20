@@ -60,3 +60,38 @@ Never paste the API key into chat or logs.
 - [ ] `/lockdown` and `/unlock` are admin-only.
 - [ ] No real secret appears in journal or `zion.log`.
 - [ ] SQLite DB is ignored by Git.
+
+
+## Block 5 — remote operations acceptance
+
+Repository / GitHub:
+
+- [ ] `zion-v1` requires PR + `validate` and blocks force-push/deletion.
+- [ ] `zion-v1.1-dev` has the intended development protection.
+- [ ] No unexpected branch-protection/ruleset bypass actor exists.
+- [ ] Production host has no privileged GitHub Actions self-hosted runner.
+- [ ] Production release identity is one exact 40-character `origin/zion-v1` SHA.
+
+Remote access:
+
+- [ ] Tailscale device identity is verified.
+- [ ] Router/NAT has no TCP/22 port-forward to the Acer.
+- [ ] Tailnet policy permits only intended principals.
+- [ ] Dedicated Android private SSH key never left the client.
+- [ ] Acer ED25519 host fingerprint was verified out of band.
+- [ ] `~/.ssh` is 0700 and `authorized_keys` is 0600, regular and correctly owned.
+- [ ] Public-key login succeeded before sshd hardening.
+- [ ] `scripts/apply-ssh-hardening.sh` completed with `sshd -t` green.
+- [ ] Effective sshd disables root/password/keyboard-interactive auth and forwarding.
+- [ ] Second independent SSH session succeeded before bootstrap session closed.
+- [ ] Strict `scripts/remote-access-preflight.sh` exits zero.
+
+Deployment:
+
+- [ ] `scripts/deployment-preflight.sh` passes with real external-control attestations.
+- [ ] `scripts/verify-approved-release.sh` validates the exact production SHA while old service remains online.
+- [ ] Previous production SHA is recorded before cutover.
+- [ ] Local `zion-v1-prod` fast-forwards only; no reset/rebase/force during normal deploy.
+- [ ] Pre-deploy SQLite backup is verified and SHA-256 recorded.
+- [ ] Post-deploy host + Telegram acceptance passes.
+- [ ] Rollback procedure and backup location are known before the service is stopped.
