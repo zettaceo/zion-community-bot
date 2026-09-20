@@ -255,7 +255,7 @@ class Block4OperationsTests(unittest.TestCase):
 
                 source = inspect.getsource(scheduler_loop)
                 self.assertLess(
-                    source.index("if delivery_guard_changed"),
+                    source.index("if preflight_has_error"),
                     source.index("if not delivery_guard_ok:"),
                 )
                 self.assertLess(
@@ -575,6 +575,64 @@ class Block4OperationsTests(unittest.TestCase):
                 )
             finally:
                 rt.close()
+
+    def test_operational_health_check_cadence_is_not_hourly(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            settings = self._settings(root)
+
+            self.assertEqual(settings.health_check_interval_seconds, 60)
+            self.assertLess(settings.health_check_interval_seconds, 3600)
+            self.assertLess(
+                settings.health_check_interval_seconds,
+                settings.health_alert_repeat_seconds,
+            )
+
+            source = inspect.getsource(scheduler_loop)
+            self.assertIn("last_health_check", source)
+            self.assertIn("health_check_interval_seconds", source)
+
+    def test_missing_sqlite_file_fails_runtime_health(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            actual_db_path = root / "actual.db"
+            db = ZionDB(actual_db_path)
+            db.initialize()
+            settings = replace(
+                self._settings(root),
+                db_path=root / "missing.db",
+            )
+            health = HealthService(settings, db)
+
+            try:
+                snapshot = health.snapshot()
+                diagnostics = health.diagnostics()
+                self.assertFalse(snapshot.db_ok)
+                self.assertFalse(diagnostics["db_file_present"])
+            finally:
+                db.close()
+
+    def test_dashboard_fails_when_database_file_disappears(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = root / "zion.db"
+            db = ZionDB(path)
+            db.initialize()
+            db.close()
+
+            readonly = ZionDB(path, readonly=True)
+            try:
+                readonly.path = root / "missing.db"
+                payload = _status_payload(
+                    readonly,
+                    root_dir=root,
+                    wifi_interface="lo",
+                    started_monotonic=time.monotonic(),
+                )
+                self.assertEqual(payload["database"], "fail")
+                self.assertFalse(payload["database_file_present"])
+            finally:
+                readonly.close()
 
     def test_dashboard_rejects_wrong_application_id(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
