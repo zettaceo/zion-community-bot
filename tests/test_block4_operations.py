@@ -962,6 +962,37 @@ class Block4OperationsTests(unittest.TestCase):
             finally:
                 readonly.close()
 
+    def test_dashboard_rejects_unsupported_schema_version(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = root / "zion.db"
+            db = ZionDB(path)
+            db.initialize()
+            db.close()
+
+            raw = sqlite3.connect(path)
+            try:
+                raw.execute(
+                    "UPDATE schema_migrations SET version=999 WHERE version=2"
+                )
+                raw.commit()
+            finally:
+                raw.close()
+
+            readonly = ZionDB(path, readonly=True)
+            try:
+                payload = _status_payload(
+                    readonly,
+                    root_dir=root,
+                    wifi_interface="lo",
+                    started_monotonic=time.monotonic(),
+                )
+                self.assertEqual(payload["database"], "fail")
+                self.assertFalse(payload["sqlite_schema_version_ok"])
+                self.assertEqual(payload["sqlite_schema_version"], 999)
+            finally:
+                readonly.close()
+
     def test_dashboard_rejects_wrong_application_id(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
