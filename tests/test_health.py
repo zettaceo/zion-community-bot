@@ -5,6 +5,7 @@ import tempfile
 import unittest
 from dataclasses import replace
 from pathlib import Path
+from unittest.mock import patch
 
 from tests.helpers import make_settings
 from zion.db import ZION_APPLICATION_ID, ZionDB
@@ -23,6 +24,47 @@ class HealthTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.db.close()
         self.temp.cleanup()
+
+    def test_integrity_cache_tracks_health_check_cadence(self) -> None:
+        settings = replace(
+            self.settings,
+            health_check_interval_seconds=60,
+        )
+        health = HealthService(settings, self.db)
+        health._integrity_checked_at = 100.0
+        calls = 0
+        original = self.db.verify_integrity
+
+        def counted(*args, **kwargs):
+            nonlocal calls
+            calls += 1
+            return original(*args, **kwargs)
+
+        self.db.verify_integrity = counted
+        try:
+            with patch(
+                "zion.health.time.monotonic",
+                return_value=159.0,
+            ):
+                health._integrity_status()
+            self.assertEqual(calls, 0)
+
+            with patch(
+                "zion.health.time.monotonic",
+                return_value=160.0,
+            ):
+                health._integrity_status()
+            self.assertEqual(calls, 1)
+        finally:
+            self.db.verify_integrity = original
+
+    def test_integrity_cache_never_exceeds_five_minutes(self) -> None:
+        settings = replace(
+            self.settings,
+            health_check_interval_seconds=900,
+        )
+        health = HealthService(settings, self.db)
+        self.assertEqual(health._integrity_cache_seconds, 300)
 
     def test_private_sensitive_files_are_healthy(self) -> None:
         env_path = self.root / ".env"
