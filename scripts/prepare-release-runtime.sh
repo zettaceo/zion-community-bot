@@ -9,6 +9,7 @@ PROD_ROOT="/home/zetta/zion-community-bot"
 SYSTEM_PYTHON="/usr/bin/python3"
 EXPECTED_USER="zetta"
 EXPECTED="${ZION_DEPLOY_COMMIT:-}"
+REBUILD_AFTER_STOP="${ZION_REBUILD_RUNTIME_AFTER_STOP:-NO}"
 
 RUNTIME_PARENT="/home/zetta/.local/share/zion-community-bot"
 RUNTIME_BASE="$RUNTIME_PARENT/runtimes"
@@ -25,6 +26,10 @@ fi
 
 if [[ ! "$EXPECTED" =~ ^[0-9a-fA-F]{40}$ ]]; then
   echo "ERRO: ZION_DEPLOY_COMMIT deve ser SHA completo." >&2
+  exit 2
+fi
+if [[ "$REBUILD_AFTER_STOP" != "NO" && "$REBUILD_AFTER_STOP" != "YES" ]]; then
+  echo "ERRO: ZION_REBUILD_RUNTIME_AFTER_STOP deve ser YES ou NO." >&2
   exit 2
 fi
 
@@ -142,6 +147,36 @@ else
   CURRENT_TARGET="$LEGACY_RUNTIME"
 fi
 
+if [[ "$REBUILD_AFTER_STOP" == "YES" ]]; then
+  if /usr/bin/systemctl is-active --quiet zion.service; then
+    echo "ERRO: rebuild final do runtime exige zion.service parado." >&2
+    exit 2
+  fi
+  if [[ "$CURRENT_TARGET" != "$LEGACY_RUNTIME" ]]; then
+    echo "ERRO: rebuild pós-stop é exclusivo do primeiro cutover legado." >&2
+    exit 2
+  fi
+  if [[ -f "$INSTALLED_SERVICE" ]] \
+    && grep -Fq "ZION_DB_PATH=$STATE_DB" "$INSTALLED_SERVICE"; then
+    echo "ERRO: serviço instalado já usa layout v1.1; rebuild legado recusado." >&2
+    exit 2
+  fi
+
+  if [[ -e "$RUNTIME_DIR" || -L "$RUNTIME_DIR" ]]; then
+    if [[ -L "$RUNTIME_DIR" || ! -d "$RUNTIME_DIR" ]]; then
+      echo "ERRO: runtime candidato a reconstruir não é diretório regular." >&2
+      exit 2
+    fi
+    RUNTIME_REAL="$(readlink -f -- "$RUNTIME_DIR" 2>/dev/null || true)"
+    if [[ "$RUNTIME_REAL" != "$RUNTIME_DIR" ]]; then
+      echo "ERRO: runtime candidato a reconstruir resolve por alias/symlink." >&2
+      exit 2
+    fi
+    find "$RUNTIME_DIR" -type d -exec chmod u+w {} +
+    rm -rf --one-file-system -- "$RUNTIME_DIR"
+  fi
+fi
+
 if [[ -e "$RUNTIME_DIR" || -L "$RUNTIME_DIR" ]]; then
   if [[ -L "$RUNTIME_DIR" || ! -d "$RUNTIME_DIR" ]]; then
     echo "ERRO: runtime candidato existente não é diretório regular." >&2
@@ -209,4 +244,5 @@ fi
 echo "release runtime: OK (created) | sha=$EXPECTED"
 echo "runtime_path=$RUNTIME_DIR"
 echo "current_runtime_before=$CURRENT_TARGET"
+echo "runtime_rebuild_after_stop=$REBUILD_AFTER_STOP"
 echo "runtime/current was NOT switched to the candidate."
