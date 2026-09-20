@@ -155,6 +155,14 @@ class V11ReleaseGateTests(unittest.TestCase):
         )
         self.assertIn(f'BACKUP_DIR="{backup_path}"', text)
         self.assertIn("ProtectSystem=strict", unit)
+        self.assertIn(
+            "ReadOnlyPaths=/home/zetta/zion-community-bot",
+            unit,
+        )
+        self.assertNotIn(
+            "ReadWritePaths=/home/zetta/zion-community-bot",
+            unit,
+        )
         self.assertNotIn(
             "ReadWritePaths=/home/zetta/.local/share/zion-community-bot",
             unit,
@@ -177,11 +185,16 @@ class V11ReleaseGateTests(unittest.TestCase):
             text,
         )
 
-    def test_dashboard_installer_refuses_config_divergence(self) -> None:
+    def test_dashboard_installer_uses_isolated_runtime_and_state(self) -> None:
         text = self.read("scripts/apply-dashboard.sh")
 
         self.assertIn(
-            "zion-dashboard.service DB path diverge from bot config",
+            "/home/zetta/.local/share/zion-community-bot/"
+            "runtimes/current/bin/python",
+            text,
+        )
+        self.assertIn(
+            'DB="$STATE_DIR/zion.db"',
             text,
         )
         self.assertIn(
@@ -290,6 +303,35 @@ class V11ReleaseGateTests(unittest.TestCase):
             )
         }
         self.assertFalse(configured - allowlisted)
+
+    def test_release_runtime_is_prepared_per_exact_sha(self) -> None:
+        prepare = self.read("scripts/prepare-release-runtime.sh")
+        deployment = self.read("scripts/deployment-preflight.sh")
+        predeploy = self.read("scripts/predeploy-v11.sh")
+        apply = self.read("scripts/apply-zion-v1.sh")
+
+        self.assertIn('RUNTIME_DIR="$RUNTIME_BASE/$EXPECTED"', prepare)
+        self.assertIn("runtime/current was NOT switched", prepare)
+        self.assertIn("python3", prepare)
+        self.assertIn("-m venv", prepare)
+        self.assertIn("-r \"$ROOT/requirements.lock\"", prepare)
+
+        self.assertIn(
+            'RUNTIME_DIR="$RUNTIME_BASE/$EXPECTED"',
+            deployment,
+        )
+        self.assertIn(
+            'RUNTIME_BASE/$EXPECTED_COMMIT/bin/python',
+            predeploy,
+        )
+        self.assertIn(
+            'RUNTIME_DIR="$RUNTIME_BASE/$EXPECTED_COMMIT"',
+            apply,
+        )
+        self.assertIn(
+            'mv -Tf "$TMP_CURRENT" "$CURRENT_RUNTIME"',
+            apply,
+        )
 
     def test_ci_and_runtime_use_audited_dependency_lock(self) -> None:
         ci = self.read(".github/workflows/ci.yml")
