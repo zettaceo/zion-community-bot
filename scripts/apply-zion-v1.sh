@@ -7,6 +7,11 @@ SERVICE_SRC="$ROOT/systemd/zion.service"
 SERVICE_DST="/etc/systemd/system/zion.service"
 BACKUP_DIR="$ROOT/backups"
 STATE_DIR="/home/zetta/.local/state/zion-community-bot"
+EXPECTED_COMMIT="${ZION_EXPECTED_COMMIT:-}"
+APPROVED_REF="origin/zion-v1"
+EXPECTED_REPO="zettaceo/zion-community-bot"
+PREVIOUS_COMMIT="${ZION_PREVIOUS_COMMIT:-}"
+LOCAL_PROD_BRANCH="zion-v1-prod"
 
 cd "$ROOT"
 
@@ -17,6 +22,11 @@ if [[ ! -x "$PYTHON" ]]; then
 fi
 
 echo "[2/13] Conferindo worktree e commit..."
+CURRENT_BRANCH="$(git symbolic-ref --quiet --short HEAD 2>/dev/null || true)"
+if [[ "$CURRENT_BRANCH" != "$LOCAL_PROD_BRANCH" ]]; then
+  echo "ERRO: branch local=$CURRENT_BRANCH; esperado=$LOCAL_PROD_BRANCH." >&2
+  exit 1
+fi
 if ! git diff --quiet || ! git diff --cached --quiet; then
   echo "ERRO: existem alterações rastreadas não commitadas." >&2
   exit 1
@@ -25,14 +35,56 @@ fi
 CURRENT_HEAD="$(git rev-parse HEAD)"
 echo "HEAD=$CURRENT_HEAD"
 
-if [[ -n "${ZION_EXPECTED_COMMIT:-}" ]] \
-  && [[ "$CURRENT_HEAD" != "$ZION_EXPECTED_COMMIT" ]]; then
+if [[ ! "$EXPECTED_COMMIT" =~ ^[0-9a-fA-F]{40}$ ]]; then
+  echo "ERRO: ZION_EXPECTED_COMMIT é obrigatório e deve ser SHA completo." >&2
+  exit 1
+fi
+if [[ "$CURRENT_HEAD" != "$EXPECTED_COMMIT" ]]; then
   echo "ERRO: HEAD diferente de ZION_EXPECTED_COMMIT." >&2
+  exit 1
+fi
+
+if [[ "${ZION_GITHUB_GATES_PROVEN:-}" != "YES" ]]; then
+  echo "ERRO: ZION_GITHUB_GATES_PROVEN=YES é obrigatório após verificar proteção/CI no GitHub." >&2
+  exit 1
+fi
+
+ORIGIN_URL="$(git remote get-url origin 2>/dev/null || true)"
+case "$ORIGIN_URL" in
+  "https://github.com/$EXPECTED_REPO"|"https://github.com/$EXPECTED_REPO.git"|"git@github.com:$EXPECTED_REPO.git"|"ssh://git@github.com/$EXPECTED_REPO.git")
+    ;;
+  *)
+    echo "ERRO: origin não aponta para o repositório GitHub esperado." >&2
+    exit 1
+    ;;
+esac
+
+APPROVED_SHA="$(git rev-parse "$APPROVED_REF^{commit}" 2>/dev/null || true)"
+if [[ -z "$APPROVED_SHA" ]] || ! git merge-base --is-ancestor "$EXPECTED_COMMIT" "$APPROVED_REF" 2>/dev/null; then
+  echo "ERRO: ZION_EXPECTED_COMMIT não pertence ao histórico local aprovado de $APPROVED_REF." >&2
+  exit 1
+fi
+
+if [[ ! "$PREVIOUS_COMMIT" =~ ^[0-9a-fA-F]{40}$ ]]; then
+  echo "ERRO: ZION_PREVIOUS_COMMIT é obrigatório e deve ser SHA completo." >&2
+  exit 1
+fi
+if [[ "$PREVIOUS_COMMIT" == "$CURRENT_HEAD" ]]; then
+  echo "ERRO: ZION_PREVIOUS_COMMIT não pode ser igual ao release atual." >&2
+  exit 1
+fi
+if ! git cat-file -e "$PREVIOUS_COMMIT^{commit}" 2>/dev/null; then
+  echo "ERRO: ZION_PREVIOUS_COMMIT não existe localmente." >&2
+  exit 1
+fi
+if ! git merge-base --is-ancestor "$PREVIOUS_COMMIT" "$CURRENT_HEAD"; then
+  echo "ERRO: ZION_PREVIOUS_COMMIT não é ancestral do release atual." >&2
   exit 1
 fi
 
 echo "[3/13] Conferindo compatibilidade do runtime..."
 "$PYTHON" "$ROOT/scripts/check-runtime.py"
+"$PYTHON" -m pip check
 
 echo "[4/13] Validando código, testes, shell e segredos..."
 bash "$ROOT/scripts/validate.sh"
@@ -149,14 +201,24 @@ mkdir -p "$DEST"
 chmod 700 "$DEST"
 
 printf '%s\n' "$CURRENT_HEAD" > "$DEST/git-head.txt"
+printf '%s\n' "$APPROVED_REF" > "$DEST/approved-ref.txt"
+printf '%s\n' "$APPROVED_SHA" > "$DEST/approved-sha.txt"
+if [[ -n "$PREVIOUS_COMMIT" ]]; then
+  printf '%s\n' "$PREVIOUS_COMMIT" > "$DEST/rollback-head.txt"
+fi
 git status --short --branch > "$DEST/git-status.txt"
 stat -c 'mode=%a owner=%U group=%G' "$ROOT/.env" > "$DEST/env-metadata.txt"
 sha256sum "$ROOT/.env" > "$DEST/env.sha256"
 chmod 600 \
   "$DEST/git-head.txt" \
+  "$DEST/approved-ref.txt" \
+  "$DEST/approved-sha.txt" \
   "$DEST/git-status.txt" \
   "$DEST/env-metadata.txt" \
   "$DEST/env.sha256"
+if [[ -f "$DEST/rollback-head.txt" ]]; then
+  chmod 600 "$DEST/rollback-head.txt"
+fi
 
 if [[ -f "$SERVICE_DST" ]]; then
   cp -a "$SERVICE_DST" "$DEST/zion.service.installed"

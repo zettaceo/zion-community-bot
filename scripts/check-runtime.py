@@ -45,10 +45,12 @@ def main() -> None:
     ptb_raw = package_version("python-telegram-bot")
     dotenv_raw = package_version("python-dotenv")
     httpx_raw = package_version("httpx")
+    idna_raw = package_version("idna")
 
     ptb = parse_version(ptb_raw)
     dotenv = parse_version(dotenv_raw)
     httpx = parse_version(httpx_raw)
+    idna = parse_version(idna_raw)
 
     require(
         21 <= ptb[0] < 23,
@@ -61,6 +63,10 @@ def main() -> None:
     require(
         httpx[0] == 0 and httpx >= (0, 27, 0),
         f"httpx must be >=0.27,<1; found {httpx_raw}",
+    )
+    require(
+        idna[0] == 3,
+        f"idna must be >=3,<4; found {idna_raw}",
     )
 
     sqlite_version = parse_version(sqlite3.sqlite_version)
@@ -76,7 +82,8 @@ def main() -> None:
         "runtime compatibility: OK | "
         f"python={sys.version.split()[0]} | "
         f"ptb={ptb_raw} | dotenv={dotenv_raw} | "
-        f"httpx={httpx_raw} | sqlite={sqlite3.sqlite_version}"
+        f"httpx={httpx_raw} | idna={idna_raw} | "
+        f"sqlite={sqlite3.sqlite_version}"
     )
 
 
