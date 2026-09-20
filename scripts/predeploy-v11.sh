@@ -16,6 +16,8 @@ EXPECTED_COMMIT="${ZION_EXPECTED_COMMIT:-}"
 FIRST_CUTOVER_POST_STOP="${ZION_FIRST_CUTOVER_POST_STOP:-NO}"
 APPROVED_REF="origin/zion-v1"
 RUNTIME_BASE="/home/zetta/.local/share/zion-community-bot/runtimes"
+CURRENT_RUNTIME="$RUNTIME_BASE/current"
+LEGACY_RUNTIME="$PROD_ROOT/.venv"
 PYTHON="${ZION_RUNTIME_PYTHON:-$RUNTIME_BASE/$EXPECTED_COMMIT/bin/python}"
 
 TMP_ROOT="$(mktemp -d /tmp/zion-v11-predeploy.XXXXXX)"
@@ -235,6 +237,16 @@ else
   fi
   if [[ "$PROD_SERVICE_STATE_LAYOUT" == true ]]; then
     echo "ERRO: gate pós-stop especial só é permitido no primeiro cutover legado." >&2
+    exit 1
+  fi
+  if [[ ! -f "$INSTALLED_SERVICE" || -L "$INSTALLED_SERVICE" ]] \
+    || ! grep -Fq "ExecStart=$LEGACY_RUNTIME/bin/python " "$INSTALLED_SERVICE"; then
+    echo "ERRO: unit instalada não comprova o primeiro cutover legado." >&2
+    exit 1
+  fi
+  if [[ ! -L "$CURRENT_RUNTIME" ]] \
+    || [[ "$(readlink -f -- "$CURRENT_RUNTIME" 2>/dev/null || true)" != "$LEGACY_RUNTIME" ]]; then
+    echo "ERRO: runtime/current não preserva a origem legada no gate pós-stop." >&2
     exit 1
   fi
   echo "production_service=STOPPED_FOR_FIRST_CUTOVER_VERIFICATION"
