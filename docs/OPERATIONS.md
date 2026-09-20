@@ -126,16 +126,24 @@ Knowledge-gap samples older than the configured retention are deleted. Resolved/
 
 ## v1.1 diagnostics
 
-`/diagnostics` reports:
-- SQLite quick-check status;
-- SQLite/WAL/SHM aggregate size;
+`/diagnostics` is operator-only and reports:
+- SQLite quick-check and foreign-key integrity;
+- runtime PRAGMA verification and invariant drift;
+- SQLite total/DB/WAL/SHM sizes;
 - free disk and low-disk threshold state;
 - sensitive runtime file permissions;
 - configured Wi-Fi interface presence;
 - recent Telegram update-lag latest/p95 sample;
-- successful Mistral latency average/p95 over 24 hours.
+- successful Mistral latency average/p95 over 24 hours;
+- AI accounting health;
+- UTC-day token usage, configured budget and remaining budget;
+- Mistral circuit-breaker state and provider failure count.
 
-The hourly scheduler deduplicates operational alerts so unchanged conditions do not create repeated notifications.
+It never prints API keys, Telegram tokens, provider headers, prompts or user message bodies.
+
+The hourly scheduler deduplicates operational alerts so unchanged conditions do not create repeated notifications. A notification is only marked as delivered after at least one operator Telegram send succeeds. If every delivery attempt fails, the issue remains eligible for retry. This is intentionally not an exactly-once guarantee: a crash after Telegram accepts a notification but before local deduplication state is persisted may produce a later duplicate.
+
+Housekeeping and passive WAL checkpoint failures are isolated from the health-alert path. Maintenance failure therefore does not suppress operational monitoring.
 
 ## AMA retention
 
