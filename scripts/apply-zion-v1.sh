@@ -5,13 +5,19 @@ ROOT="/home/zetta/zion-community-bot"
 PYTHON="$ROOT/.venv/bin/python"
 SERVICE_SRC="$ROOT/systemd/zion.service"
 SERVICE_DST="/etc/systemd/system/zion.service"
-BACKUP_DIR="$ROOT/backups"
+BACKUP_DIR="/home/zetta/.local/share/zion-community-bot/deploy-backups"
 STATE_DIR="/home/zetta/.local/state/zion-community-bot"
+EXPECTED_USER="zetta"
 EXPECTED_COMMIT="${ZION_EXPECTED_COMMIT:-}"
 APPROVED_REF="origin/zion-v1"
 EXPECTED_REPO="zettaceo/zion-community-bot"
 PREVIOUS_COMMIT="${ZION_PREVIOUS_COMMIT:-}"
 LOCAL_PROD_BRANCH="zion-v1-prod"
+
+if [[ "$(id -un)" != "$EXPECTED_USER" ]]; then
+  echo "ERRO: execute o deploy como $EXPECTED_USER." >&2
+  exit 1
+fi
 
 cd "$ROOT"
 
@@ -111,10 +117,19 @@ env_path = settings.root_dir / ".env"
 if not env_path.is_file() or env_path.is_symlink():
     raise RuntimeError(".env ausente ou symlink")
 
-mode = stat.S_IMODE(env_path.stat().st_mode)
+info = env_path.stat()
+mode = stat.S_IMODE(info.st_mode)
 if mode & 0o077:
     raise RuntimeError(
         f".env possui permissões excessivas: {oct(mode)}"
+    )
+if env_path.owner() != "zetta":
+    raise RuntimeError(
+        f".env deve pertencer a zetta: {env_path.owner()}"
+    )
+if info.st_nlink != 1:
+    raise RuntimeError(
+        ".env não pode possuir hard links"
     )
 
 if not settings.telegram_token:
@@ -192,12 +207,20 @@ sudo /usr/bin/install \
   "$STATE_DIR"
 
 echo "[8/13] Criando e verificando backup antes de parar ZION..."
+if [[ -L "$BACKUP_DIR" ]]; then
+  echo "ERRO: diretório de backup não pode ser symlink." >&2
+  exit 1
+fi
 mkdir -p "$BACKUP_DIR"
 chmod 700 "$BACKUP_DIR"
+if [[ "$(stat -c '%U' "$BACKUP_DIR")" != "$EXPECTED_USER" ]]; then
+  echo "ERRO: diretório de backup deve pertencer a $EXPECTED_USER." >&2
+  exit 1
+fi
 
-STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
+STAMP="$(date -u +%Y%m%dT%H%M%SZ)-$BASHPID"
 DEST="$BACKUP_DIR/$STAMP"
-mkdir -p "$DEST"
+mkdir "$DEST"
 chmod 700 "$DEST"
 
 printf '%s\n' "$CURRENT_HEAD" > "$DEST/git-head.txt"
