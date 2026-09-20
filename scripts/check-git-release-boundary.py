@@ -190,6 +190,37 @@ def reject_ignored_importable_code(root: Path) -> None:
         )
 
 
+def reject_release_index_flags(root: Path) -> None:
+    entries = git(
+        root,
+        "ls-files",
+        "-v",
+        "-z",
+    )
+    suspicious: list[str] = []
+    for raw in entries.split("\0"):
+        if not raw:
+            continue
+        if len(raw) < 3 or raw[1] != " ":
+            raise RuntimeError(
+                "unexpected git ls-files -v output while validating release index"
+            )
+        tag = raw[0]
+        path = raw[2:]
+        if tag == "S" or tag.islower():
+            suspicious.append(f"{tag}:{path}")
+
+    if suspicious:
+        preview = ",".join(sorted(suspicious)[:12])
+        if len(suspicious) > 12:
+            preview += f",...(+{len(suspicious) - 12})"
+        raise RuntimeError(
+            "Git index contains assume-unchanged/skip-worktree entries; "
+            "release worktree cannot prove exact tracked content: "
+            + preview
+        )
+
+
 def validate(root: Path) -> None:
     reject_git_environment()
 
@@ -276,12 +307,13 @@ def validate(root: Path) -> None:
             "production release repository must not be shallow"
         )
 
+    reject_release_index_flags(root)
     reject_ignored_importable_code(root)
 
     print(
         "git release boundary: OK | "
         "hooks=none replace_refs=none grafts=none shallow=false "
-        "local_ignores=none ignored_importable_code=none"
+        "local_ignores=none index_flags=none ignored_importable_code=none"
     )
 
 
