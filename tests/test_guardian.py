@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 
 from tests.helpers import make_settings
@@ -11,6 +12,7 @@ from zion.guardian import (
     Guardian,
     detect_sensitive_content,
     extract_domains,
+    normalize_link_target,
     normalize_policy_domain,
 )
 
@@ -41,6 +43,84 @@ class GuardianTests(unittest.TestCase):
             normalize_policy_domain("not a domain"),
         )
 
+    def test_fullwidth_link_is_normalized(self) -> None:
+        domains = extract_domains(
+            "Veja ｈｔｔｐｓ：／／example.com/path"
+        )
+        self.assertEqual(domains, ["example.com"])
+
+    def test_zero_width_hostname_obfuscation_fails_closed(self) -> None:
+        decision = self.guardian.evaluate_links(
+            "Veja https://exa\u200bmple.com/path"
+        )
+        self.assertTrue(decision.should_delete)
+        self.assertIn(
+            "invisible-link-character",
+            decision.unsupported_schemes,
+        )
+
+    def test_nontransitional_idna_keeps_sharp_s_distinct(self) -> None:
+        self.assertEqual(
+            normalize_policy_domain("faß.de"),
+            "xn--fa-hia.de",
+        )
+
+    def test_visible_sharp_s_target_does_not_alias_ascii_allowlist(self) -> None:
+        decision = self.guardian.evaluate_links(
+            "https://faß.de/login"
+        )
+        self.assertTrue(decision.should_delete)
+        self.assertEqual(
+            decision.unauthorized_domains,
+            ["xn--fa-hia.de"],
+        )
+        self.assertEqual(decision.unsupported_schemes, [])
+
+    def test_unicode_lookalike_remains_distinct_punycode(self) -> None:
+        domain = normalize_policy_domain("еxample.com")
+        self.assertIsNotNone(domain)
+        self.assertNotEqual(domain, "example.com")
+        self.assertTrue(domain.startswith("xn--"))
+
+    def test_unsupported_clickable_scheme_is_classified(self) -> None:
+        domain, scheme = normalize_link_target(
+            "tg://resolve?domain=example"
+        )
+        self.assertIsNone(domain)
+        self.assertEqual(scheme, "tg")
+
+        decision = self.guardian.evaluate_links(
+            "",
+            unsupported_schemes=["tg"],
+        )
+        self.assertTrue(decision.should_delete)
+        self.assertEqual(decision.unsupported_schemes, ["tg"])
+
+    def test_malformed_http_target_fails_closed(self) -> None:
+        domain, scheme = normalize_link_target("https://")
+        self.assertIsNone(domain)
+        self.assertEqual(scheme, "invalid-https")
+
+        decision = self.guardian.evaluate_links(
+            "",
+            unsupported_schemes=[scheme],
+        )
+        self.assertTrue(decision.should_delete)
+
+    def test_visible_non_http_scheme_is_blocked(self) -> None:
+        decision = self.guardian.evaluate_links(
+            "abra tg://resolve?domain=example"
+        )
+        self.assertTrue(decision.should_delete)
+        self.assertEqual(decision.unsupported_schemes, ["tg"])
+
+    def test_visible_ftp_scheme_is_blocked(self) -> None:
+        decision = self.guardian.evaluate_links(
+            "download ftp://evil.example/file"
+        )
+        self.assertTrue(decision.should_delete)
+        self.assertEqual(decision.unsupported_schemes, ["ftp"])
+
     def test_extract_domains(self) -> None:
         domains = extract_domains(
             "Veja https://example.com/a e t.me/ZSwapCommunity"
@@ -57,6 +137,60 @@ class GuardianTests(unittest.TestCase):
             decision.unauthorized_domains,
             ["untrusted.example"],
         )
+
+    def test_allowed_domain_does_not_match_suffix_confusion(self) -> None:
+        settings = replace(
+            self.settings,
+            allow_links=True,
+            allowed_domains=frozenset({"example.com"}),
+        )
+        guardian = Guardian(settings, self.db)
+
+        good = guardian.evaluate_links(
+            "https://sub.example.com/path"
+        )
+        deceptive = guardian.evaluate_links(
+            "https://example.com.evil.test/path"
+        )
+
+        self.assertFalse(good.should_delete)
+        self.assertTrue(deceptive.should_delete)
+
+    def test_runtime_block_overrides_environment_allow(self) -> None:
+        settings = replace(
+            self.settings,
+            allow_links=True,
+            allowed_domains=frozenset({"example.com"}),
+        )
+        guardian = Guardian(settings, self.db)
+        self.db.set_domain("sub.example.com", "block", "test")
+
+        decision = guardian.evaluate_links(
+            "https://sub.example.com/path"
+        )
+        self.assertTrue(decision.should_delete)
+        self.assertEqual(
+            decision.unauthorized_domains,
+            ["sub.example.com"],
+        )
+
+    def test_specific_runtime_allow_can_override_parent_block(self) -> None:
+        self.db.set_domain("example.com", "block", "test")
+        self.db.set_domain(
+            "safe.example.com",
+            "allow",
+            "test",
+        )
+
+        safe = self.guardian.evaluate_links(
+            "https://safe.example.com/path"
+        )
+        blocked = self.guardian.evaluate_links(
+            "https://other.example.com/path"
+        )
+
+        self.assertFalse(safe.should_delete)
+        self.assertTrue(blocked.should_delete)
 
     def test_runtime_domain_allow(self) -> None:
         self.db.set_domain("trusted.example", "allow", "test")
@@ -87,20 +221,56 @@ class GuardianTests(unittest.TestCase):
             detect_sensitive_content(text).detected
         )
 
+    def test_multiline_seed_phrase_is_detected(self) -> None:
+        text = (
+            "seed phrase:\n"
+            "alpha beta gamma delta epsilon zeta\n"
+            "eta theta iota kappa lambda mu"
+        )
+        self.assertTrue(
+            detect_sensitive_content(text).detected
+        )
+
+    def test_seed_phrase_with_trailing_comment_is_detected(self) -> None:
+        text = (
+            "seed phrase: alpha beta gamma delta epsilon zeta "
+            "eta theta iota kappa lambda mu "
+            "please help me recover this wallet"
+        )
+        self.assertTrue(
+            detect_sensitive_content(text).detected
+        )
+
+    def test_zero_width_obfuscated_seed_label_is_detected(self) -> None:
+        text = (
+            "seed\u200b phrase: alpha beta gamma delta epsilon zeta "
+            "eta theta iota kappa lambda mu"
+        )
+        self.assertTrue(
+            detect_sensitive_content(text).detected
+        )
+
+    def test_unicode_mnemonic_words_are_detected(self) -> None:
+        text = (
+            "mnemonic: "
+            "あいこくしん あいさつ あいだ あおぞら あかちゃん "
+            "あきる あけがた あける あこがれる あさい あさひ "
+            "あしあと"
+        )
+        decision = detect_sensitive_content(text)
+        self.assertTrue(decision.detected)
+        self.assertEqual(decision.kind, "possible_wallet_secret")
 
     def test_labeled_base58_private_key_is_detected(self) -> None:
-        # Synthetic Base58-shaped material; not a real key.
-        value = "1" * 88
-        decision = detect_sensitive_content(
-            f"private key: {value}"
-        )
+        text = "private key: " + ("1" * 64)
+        decision = detect_sensitive_content(text)
         self.assertTrue(decision.detected)
         self.assertEqual(decision.kind, "possible_private_key")
 
     def test_labeled_byte_array_private_key_is_detected(self) -> None:
-        values = ",".join(str(index % 256) for index in range(64))
+        payload = ",".join(str(index) for index in range(64))
         decision = detect_sensitive_content(
-            f"private key: [{values}]"
+            f"private key: [{payload}]"
         )
         self.assertTrue(decision.detected)
         self.assertEqual(decision.kind, "possible_private_key")
@@ -108,6 +278,30 @@ class GuardianTests(unittest.TestCase):
     def test_unlabeled_base58_material_is_not_deleted(self) -> None:
         value = "1" * 88
         self.assertFalse(detect_sensitive_content(value).detected)
+
+    def test_elevated_threshold_never_becomes_weaker_than_normal(self) -> None:
+        settings = replace(
+            self.settings,
+            flood_max_messages=2,
+        )
+        guardian = Guardian(settings, self.db)
+        self.db.set_operating_state(OperatingState.ELEVATED)
+
+        first = guardian.record_message(
+            chat_id=99,
+            user_id=99,
+            message_id=1,
+            now=9000.0,
+        )
+        second = guardian.record_message(
+            chat_id=99,
+            user_id=99,
+            message_id=2,
+            now=9001.0,
+        )
+
+        self.assertFalse(first.triggered)
+        self.assertTrue(second.triggered)
 
     def test_elevated_state_tightens_flood_threshold(self) -> None:
         self.db.set_operating_state(OperatingState.ELEVATED)
@@ -133,8 +327,92 @@ class GuardianTests(unittest.TestCase):
         )
 
         self.assertFalse(first.triggered)
-        self.assertFalse(second.triggered)
-        self.assertTrue(third.triggered)
+        self.assertTrue(second.triggered)
+        self.assertFalse(third.triggered)
+
+    def test_repeated_objective_flood_reaches_ban_threshold(self) -> None:
+        settings = replace(
+            self.settings,
+            flood_max_messages=2,
+            flood_mute_levels=(1, 2),
+            flood_ban_after_strikes=2,
+            flood_strike_reset_seconds=3600,
+        )
+        guardian = Guardian(settings, self.db)
+
+        first_cycle_1 = guardian.record_message(
+            chat_id=10,
+            user_id=60,
+            message_id=1,
+            now=1000.0,
+        )
+        first_cycle_2 = guardian.record_message(
+            chat_id=10,
+            user_id=60,
+            message_id=2,
+            now=1001.0,
+        )
+        self.assertFalse(first_cycle_1.triggered)
+        self.assertTrue(first_cycle_2.triggered)
+        self.assertEqual(first_cycle_2.strike_count, 1)
+        self.assertFalse(first_cycle_2.should_ban)
+
+        second_cycle_1 = guardian.record_message(
+            chat_id=10,
+            user_id=60,
+            message_id=3,
+            now=1010.0,
+        )
+        second_cycle_2 = guardian.record_message(
+            chat_id=10,
+            user_id=60,
+            message_id=4,
+            now=1011.0,
+        )
+        self.assertFalse(second_cycle_1.triggered)
+        self.assertTrue(second_cycle_2.triggered)
+        self.assertEqual(second_cycle_2.strike_count, 2)
+        self.assertTrue(second_cycle_2.should_ban)
+
+    def test_expired_flood_strike_does_not_drive_later_ban(self) -> None:
+        settings = replace(
+            self.settings,
+            flood_max_messages=2,
+            flood_mute_levels=(1,),
+            flood_ban_after_strikes=2,
+            flood_strike_reset_seconds=60,
+        )
+        guardian = Guardian(settings, self.db)
+
+        guardian.record_message(
+            chat_id=11,
+            user_id=61,
+            message_id=1,
+            now=2000.0,
+        )
+        first = guardian.record_message(
+            chat_id=11,
+            user_id=61,
+            message_id=2,
+            now=2001.0,
+        )
+        self.assertEqual(first.strike_count, 1)
+
+        guardian.record_message(
+            chat_id=11,
+            user_id=61,
+            message_id=3,
+            now=2100.0,
+        )
+        later = guardian.record_message(
+            chat_id=11,
+            user_id=61,
+            message_id=4,
+            now=2101.0,
+        )
+        self.assertTrue(later.triggered)
+        self.assertEqual(later.strike_count, 1)
+        self.assertFalse(later.should_ban)
 
     def test_manual_warning_does_not_advance_flood_ban_counter(self) -> None:
         now = 3000.0
@@ -169,6 +447,38 @@ class GuardianTests(unittest.TestCase):
 
         self.assertTrue(result.triggered)
         self.assertEqual(result.strike_count, 1)
+
+    def test_flood_deletion_scope_excludes_old_legitimate_messages(self) -> None:
+        now = 12000.0
+        self.db.record_recent_message(
+            chat_id=10,
+            user_id=50,
+            message_id=1,
+            created_at=now - 60,
+        )
+
+        self.guardian.record_message(
+            chat_id=10,
+            user_id=50,
+            message_id=2,
+            now=now,
+        )
+        self.guardian.record_message(
+            chat_id=10,
+            user_id=50,
+            message_id=3,
+            now=now + 1,
+        )
+        result = self.guardian.record_message(
+            chat_id=10,
+            user_id=50,
+            message_id=4,
+            now=now + 2,
+        )
+
+        self.assertTrue(result.triggered)
+        self.assertEqual(result.message_ids, [2, 3, 4])
+        self.assertNotIn(1, result.message_ids)
 
     def test_flood_triggers_at_threshold(self) -> None:
         now = 1000.0
