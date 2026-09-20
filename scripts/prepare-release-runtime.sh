@@ -180,6 +180,7 @@ trap cleanup EXIT
   --disable-pip-version-check \
   --no-input \
   --no-deps \
+  --require-hashes \
   --only-binary=:all: \
   --index-url https://pypi.org/simple \
   -r "$ROOT/requirements.lock"
