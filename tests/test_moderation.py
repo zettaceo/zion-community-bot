@@ -287,7 +287,7 @@ class ModerationPipelineTests(unittest.TestCase):
         )
         update = fake_update(
             user_id=2,
-            text="https://example.com",
+            text="clique",
             message_id=83,
             update_id=5083,
         )
