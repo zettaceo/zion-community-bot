@@ -4247,8 +4247,15 @@ async def scheduler_loop(application: Application) -> None:
                 continue
 
             now = time.time()
+            previous_delivery_guard_error = rt.delivery_guard_last_error
             delivery_guard_ok = scheduler_safety_preflight(rt, now)
+            delivery_guard_changed = (
+                not delivery_guard_ok
+                and rt.delivery_guard_last_error
+                != previous_delivery_guard_error
+            )
 
+            ran_hourly_operations = False
             if now - last_housekeeping >= 3600:
                 await hourly_operations_cycle(
                     application,
@@ -4256,6 +4263,15 @@ async def scheduler_loop(application: Application) -> None:
                     now=now,
                 )
                 last_housekeeping = now
+                ran_hourly_operations = True
+
+            if delivery_guard_changed and not ran_hourly_operations:
+                try:
+                    await operational_alert_cycle(application, rt)
+                except Exception:
+                    logger.exception(
+                        "Falha no alerta imediato do delivery safety preflight."
+                    )
 
             if not delivery_guard_ok:
                 await asyncio.sleep(20)
