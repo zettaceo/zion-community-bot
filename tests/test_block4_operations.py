@@ -606,6 +606,10 @@ class Block4OperationsTests(unittest.TestCase):
                     "Scheduled delivery health gate: OPEN",
                     output,
                 )
+                self.assertIn(
+                    "Health check/repeat cadence: 60s/21600s",
+                    output,
+                )
                 self.assertNotIn("synthetic-key-material", output)
             finally:
                 rt.close()
