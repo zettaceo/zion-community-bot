@@ -37,6 +37,23 @@ class V11ReleaseGateTests(unittest.TestCase):
         )
         self.assertNotIn('$ROOT/scripts/predeploy-v11.sh', text)
 
+    def test_release_gates_reject_nonignored_untracked_files(self) -> None:
+        deployment = self.read("scripts/deployment-preflight.sh")
+        predeploy = self.read("scripts/predeploy-v11.sh")
+        apply = self.read("scripts/apply-zion-v1.sh")
+        first_upgrade = self.read("docs/V1.1-FIRST-UPGRADE.md")
+
+        for text in (deployment, predeploy, apply, first_upgrade):
+            self.assertIn(
+                "status --porcelain --untracked-files=all",
+                text,
+            )
+
+        self.assertIn("candidate_status=", deployment)
+        self.assertIn("production_status=", deployment)
+        self.assertIn("CANDIDATE_STATUS=", predeploy)
+        self.assertIn("WORKTREE_STATUS=", apply)
+
     def test_strict_deployment_preflight_requires_healthy_current_service(
         self,
     ) -> None:
