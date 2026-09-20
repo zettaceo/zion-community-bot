@@ -198,6 +198,12 @@ PREVIOUS_HEAD="$(git rev-parse HEAD)"
 test "$(git branch --show-current)" = "zion-v1-prod"
 test "$(git rev-parse origin/zion-v1)" = "$ZION_DEPLOY_COMMIT"
 
+DASHBOARD_LOAD_STATE="$(
+  systemctl show zion-dashboard.service -p LoadState --value 2>/dev/null || true
+)"
+if [[ -n "$DASHBOARD_LOAD_STATE" && "$DASHBOARD_LOAD_STATE" != "not-found" ]]; then
+  sudo systemctl stop zion-dashboard.service
+fi
 sudo systemctl stop zion.service
 
 GIT_NO_REPLACE_OBJECTS=1 \
@@ -291,6 +297,8 @@ The reviewed v1.1 systemd contract forces mutable state to:
 and marks the repository/runtime tree read-only.
 
 The main mutable artifacts are SQLite (including WAL/SHM), logs, legacy migration state when retained and the shared runtime lock. This prevents a compromised bot process from persisting by modifying repository code, release scripts, `.env` or its own Python environment.
+
+The currently installed root-owned `zion.service` is also the authority for where current production state lives: first-upgrade releases can read the legacy repository DB, while later v1.1 releases recognize the state-dir layout forced by the installed unit. This prevents future predeploy/backup logic from silently inspecting a stale legacy DB.
 
 ## Separation of duties
 
