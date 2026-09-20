@@ -59,11 +59,11 @@ LONG_SECRET_AFTER_LABEL_REGEX = re.compile(
 )
 
 INVISIBLE_SECURITY_CODEPOINTS = {
-    0x200B,  # zero width space
-    0x200C,  # zero width non-joiner
-    0x200D,  # zero width joiner
-    0x2060,  # word joiner
-    0xFEFF,  # zero width no-break space / BOM
+    0x200B,
+    0x200C,
+    0x200D,
+    0x2060,
+    0xFEFF,
 }
 
 ALLOWED_LINK_SCHEMES = frozenset({"http", "https"})
@@ -146,23 +146,20 @@ def _normalize_domain(raw_url: str) -> str | None:
         return None
 
     try:
-        ascii_host = idna.encode(
+        return idna.encode(
             host,
             uts46=True,
             transitional=False,
             std3_rules=True,
-        ).decode("ascii").lower()
+        ).decode("ascii").lower() or None
     except (idna.IDNAError, UnicodeError, ValueError):
         return None
-
-    return ascii_host or None
 
 
 def normalize_policy_domain(value: str) -> str | None:
     raw = _nfkc_text(value).strip()
     if not raw:
         return None
-
     domain, unsupported_scheme = normalize_link_target(raw)
     if unsupported_scheme is not None:
         return None
@@ -184,7 +181,6 @@ def extract_domains(text: str) -> list[str]:
 def extract_unsupported_schemes(text: str) -> list[str]:
     normalized_text = _nfkc_text(text)
     schemes: list[str] = []
-
     for raw in URL_REGEX.findall(normalized_text):
         domain, error = normalize_link_target(raw)
         if domain:
@@ -192,10 +188,7 @@ def extract_unsupported_schemes(text: str) -> list[str]:
         marker = error or "invalid-http-target"
         if marker not in schemes:
             schemes.append(marker)
-
-    for match in UNSUPPORTED_VISIBLE_SCHEME_REGEX.finditer(
-        normalized_text
-    ):
+    for match in UNSUPPORTED_VISIBLE_SCHEME_REGEX.finditer(normalized_text):
         scheme = match.group(1).lower()
         if scheme not in schemes:
             schemes.append(scheme)
@@ -212,7 +205,6 @@ def detect_sensitive_content(text: str) -> SensitiveContentDecision:
     text = _normalize_security_text(text)
     if not SENSITIVE_LABEL_REGEX.search(text):
         return SensitiveContentDecision()
-
     match = LONG_SECRET_AFTER_LABEL_REGEX.search(text)
     if not match:
         return SensitiveContentDecision()
@@ -223,16 +215,14 @@ def detect_sensitive_content(text: str) -> SensitiveContentDecision:
         tail,
         flags=re.UNICODE,
     )
-
-    plausible_seed_prefix = (
+    if (
         len(words) >= 12
         and all(
             word.replace("'", "").replace("-", "").isalpha()
             and 1 <= len(word) <= 32
             for word in words[:12]
         )
-    )
-    if plausible_seed_prefix:
+    ):
         return SensitiveContentDecision(
             detected=True,
             kind="possible_wallet_secret",
@@ -321,7 +311,6 @@ class Guardian:
                 message_id,
                 ts,
             )
-
             count = self.db.count_recent_messages(
                 chat_id,
                 user_id,
@@ -332,22 +321,13 @@ class Guardian:
             base_threshold = self.settings.flood_max_messages
             threshold = base_threshold
             if state == OperatingState.ELEVATED:
-                threshold = min(
-                    base_threshold,
-                    max(2, base_threshold - 2),
-                )
+                threshold = min(base_threshold, max(2, base_threshold - 2))
             elif state == OperatingState.ATTACK:
-                threshold = min(
-                    base_threshold,
-                    max(2, base_threshold // 2),
-                )
+                threshold = min(base_threshold, max(2, base_threshold // 2))
 
             if count < threshold:
                 return FloodDecision()
 
-            # Delete only messages that participated in the triggering window.
-            # Older legitimate traffic retained for purge bookkeeping must not
-            # be swept into a flood enforcement action.
             message_ids = self.db.recent_message_ids(
                 chat_id,
                 user_id,
@@ -369,28 +349,22 @@ class Guardian:
                 },
                 now=ts,
             )
-
             strike_count = self.db.count_active_strikes(
                 chat_id,
                 user_id,
                 ts,
                 reasons=("flood", "legacy_flood"),
             )
-
             level_index = min(
                 max(0, strike_count - 1),
                 len(self.settings.flood_mute_levels) - 1,
             )
             mute_seconds = self.settings.flood_mute_levels[level_index]
-
             should_ban = (
                 self.settings.flood_ban_after_strikes > 0
                 and strike_count >= self.settings.flood_ban_after_strikes
             )
 
-            # Persist containment and the incident before external Telegram
-            # enforcement. If the process dies before Telegram returns, local
-            # protection and evidence survive.
             self.db.set_containment(
                 chat_id,
                 user_id,
@@ -398,7 +372,6 @@ class Guardian:
                 "flood_pending_ban" if should_ban else "flood",
                 ts,
             )
-
             incident_id = self.db.create_incident(
                 chat_id=chat_id,
                 user_id=user_id,
@@ -413,7 +386,6 @@ class Guardian:
                 },
                 now=ts,
             )
-
             return FloodDecision(
                 triggered=True,
                 strike_count=strike_count,
@@ -423,7 +395,7 @@ class Guardian:
                 incident_id=incident_id,
             )
 
-    valuate_chat_burst(
+    def evaluate_chat_burst(
         self,
         chat_id: int,
         user_id: int | None = None,
@@ -547,7 +519,6 @@ class Guardian:
                 ".".join(labels[index:])
                 for index in range(max(1, len(labels) - 1))
             ]
-
             disposition = None
             for candidate in candidates:
                 disposition = self.db.domain_disposition(candidate)
@@ -559,7 +530,6 @@ class Guardian:
             if disposition == "block":
                 unauthorized.append(domain)
                 continue
-
             allowed_by_env = any(
                 domain_matches(domain, allowed)
                 for allowed in self.settings.allowed_domains
@@ -580,13 +550,12 @@ class Guardian:
                     else "link/domínio não autorizado"
                 ),
             )
-
         return LinkDecision(
             has_links=True,
             domains=domains,
         )
 
-    ensitive_content(
+    def sensitive_content(
         self,
         text: str,
     ) -> SensitiveContentDecision:
