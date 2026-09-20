@@ -54,17 +54,34 @@ def runtime_lock() -> dict[str, str]:
         line = raw_line.strip()
         if not line or line.startswith("#"):
             continue
-        if "==" not in line:
+        parts = line.split()
+        requirement = parts[0]
+        hashes = parts[1:]
+        if "==" not in requirement:
             raise RuntimeError(
                 f"invalid requirements.lock entry: {line}"
             )
-        name, expected = line.split("==", 1)
+        name, expected = requirement.split("==", 1)
         name = name.strip()
         expected = expected.strip()
         if not name or not expected or name in locked:
             raise RuntimeError(
                 f"invalid requirements.lock entry: {line}"
             )
+        if not hashes:
+            raise RuntimeError(
+                f"requirements.lock entry missing SHA-256 hash: {name}"
+            )
+        for item in hashes:
+            prefix = "--hash=sha256:"
+            digest = item[len(prefix):] if item.startswith(prefix) else ""
+            if (
+                len(digest) != 64
+                or any(char not in "0123456789abcdefABCDEF" for char in digest)
+            ):
+                raise RuntimeError(
+                    f"invalid requirements.lock SHA-256 hash: {name}"
+                )
         locked[name] = expected
 
     if not locked:
