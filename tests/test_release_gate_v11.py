@@ -225,6 +225,46 @@ class V11ReleaseGateTests(unittest.TestCase):
         self.assertIn("fast-forward", text)
         self.assertIn("zion-v1-prod", text)
 
+    def test_first_upgrade_prechecks_git_boundary_before_worktree_checkout(
+        self,
+    ) -> None:
+        text = self.read("docs/V1.1-FIRST-UPGRADE.md")
+
+        self.assertIn("BOOTSTRAP_CHECKER=", text)
+        self.assertIn(
+            'show "$ZION_DEPLOY_COMMIT:scripts/check-git-release-boundary.py"',
+            text,
+        )
+        self.assertIn(
+            '/usr/bin/python3 -I "$BOOTSTRAP_CHECKER" --root "$PROD_ROOT"',
+            text,
+        )
+        self.assertIn("/usr/bin/git -c core.hooksPath=/dev/null", text)
+        checker_run = text.index(
+            '/usr/bin/python3 -I "$BOOTSTRAP_CHECKER" --root "$PROD_ROOT"'
+        )
+        worktree_add = text.index(
+            'worktree add --detach "$CANDIDATE_ROOT" "$ZION_DEPLOY_COMMIT"'
+        )
+        self.assertLess(checker_run, worktree_add)
+        self.assertIn("GIT_CONFIG_NOSYSTEM=1", text)
+        self.assertIn("GIT_CONFIG_GLOBAL=/dev/null", text)
+
+    def test_release_tree_has_no_tracked_gitattributes_before_bootstrap(
+        self,
+    ) -> None:
+        tracked = subprocess.check_output(
+            ["/usr/bin/git", "ls-files", "-z"],
+            cwd=ROOT,
+        ).decode("utf-8").split("\0")
+        self.assertFalse(
+            any(
+                path == ".gitattributes" or path.endswith("/.gitattributes")
+                for path in tracked
+                if path
+            )
+        )
+
     def test_bootstrap_and_cutover_neutralize_git_hooks(self) -> None:
         first_upgrade = self.read("docs/V1.1-FIRST-UPGRADE.md")
         deploy_model = self.read("docs/DEPLOYMENT-MODEL.md")
