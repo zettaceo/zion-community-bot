@@ -439,6 +439,100 @@ class AITests(unittest.TestCase):
 
         self.assertEqual(ai._reserved_tokens, 0)
 
+    def test_failed_provider_charges_uncertain_estimate_to_daily_budget(
+        self,
+    ) -> None:
+        (self.root / "knowledge" / "official.md").write_text(
+            "# Guardian\nGuardian flood protection is active.\n",
+            encoding="utf-8",
+        )
+        knowledge = KnowledgeBase(self.settings.knowledge_dir)
+        settings = replace(
+            self.settings,
+            ai_enabled=True,
+            mistral_api_key="fake-key-for-test-only",
+            ai_daily_token_budget=5000,
+            ai_circuit_failures=10,
+        )
+        ai = AIService(settings, self.db, knowledge)
+
+        class FailingClient:
+            configured = True
+
+            async def answer(self, *, question: str, context: str):
+                raise TimeoutError("synthetic uncertain provider outcome")
+
+        ai.client = FailingClient()
+        answer = asyncio.run(
+            ai.answer(
+                chat_id=1,
+                user_id=2,
+                question="Guardian flood",
+            )
+        )
+
+        self.assertIn("indisponível", answer.text)
+        charged = ai.tokens_used_today()
+        self.assertGreater(charged, 0)
+        self.assertEqual(ai._reserved_tokens, 0)
+        self.assertIsNotNone(
+            self.db.get_setting("ai_uncertain_budget")
+        )
+
+        restored = AIService(settings, self.db, knowledge)
+        self.assertEqual(restored.tokens_used_today(), charged)
+
+    def test_old_uncertain_budget_day_does_not_count_today(self) -> None:
+        previous_day = self.ai._utc_day_number() - 1
+        self.db.set_setting(
+            "ai_uncertain_budget",
+            f"{previous_day}:9999",
+        )
+        self.assertEqual(self.ai.tokens_used_today(), 0)
+
+    def test_uncertain_budget_persistence_failure_is_fail_closed(self) -> None:
+        (self.root / "knowledge" / "official.md").write_text(
+            "# Guardian\nGuardian flood protection is active.\n",
+            encoding="utf-8",
+        )
+        knowledge = KnowledgeBase(self.settings.knowledge_dir)
+        settings = replace(
+            self.settings,
+            ai_enabled=True,
+            mistral_api_key="fake-key-for-test-only",
+            ai_daily_token_budget=5000,
+            ai_circuit_failures=10,
+        )
+        ai = AIService(settings, self.db, knowledge)
+
+        class FailingClient:
+            configured = True
+
+            async def answer(self, *, question: str, context: str):
+                raise TimeoutError("synthetic uncertain provider outcome")
+
+        ai.client = FailingClient()
+        original_set = self.db.set_setting
+
+        def fail_uncertain(key: str, value: str) -> None:
+            if key == "ai_uncertain_budget":
+                raise RuntimeError("synthetic accounting persistence failure")
+            original_set(key, value)
+
+        self.db.set_setting = fail_uncertain
+        try:
+            asyncio.run(
+                ai.answer(
+                    chat_id=1,
+                    user_id=2,
+                    question="Guardian flood",
+                )
+            )
+            self.assertFalse(ai.accounting_healthy)
+            self.assertFalse(ai.budget_available())
+        finally:
+            self.db.set_setting = original_set
+
     def test_budget_remaining_uses_recorded_tokens(self) -> None:
         self.db.record_ai_event(
             chat_id=1,
