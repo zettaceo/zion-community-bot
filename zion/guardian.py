@@ -296,7 +296,7 @@ class Guardian:
             message_ids = self.db.recent_message_ids(
                 chat_id,
                 user_id,
-                ts - self.settings.flood_purge_window_seconds,
+                ts - self.settings.flood_window_seconds,
             )
             self.db.clear_recent_messages(chat_id, user_id)
 
