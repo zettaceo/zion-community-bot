@@ -67,6 +67,22 @@ class SettingsTests(unittest.TestCase):
             self.assertIn("runtime_lock_inside_worktree", issues)
 
 
+    def test_configuration_issues_surface_incoherent_health_cadence(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            settings = replace(
+                make_settings(root),
+                health_check_interval_seconds=7200,
+                health_alert_repeat_seconds=3600,
+            )
+
+            self.assertIn(
+                "health_check_slower_than_alert_repeat",
+                settings.configuration_issues(),
+            )
+
     def test_allowed_domains_use_nontransitional_idna2008(self) -> None:
         with patch.dict(
             os.environ,
