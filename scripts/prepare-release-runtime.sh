@@ -156,9 +156,16 @@ if [[ "$REBUILD_AFTER_STOP" == "YES" ]]; then
     echo "ERRO: rebuild pós-stop é exclusivo do primeiro cutover legado." >&2
     exit 2
   fi
-  if [[ -f "$INSTALLED_SERVICE" ]] \
-    && grep -Fq "ZION_DB_PATH=$STATE_DB" "$INSTALLED_SERVICE"; then
+  if [[ ! -f "$INSTALLED_SERVICE" || -L "$INSTALLED_SERVICE" ]]; then
+    echo "ERRO: unit legada instalada ausente ou symlink." >&2
+    exit 2
+  fi
+  if grep -Fq "ZION_DB_PATH=$STATE_DB" "$INSTALLED_SERVICE"; then
     echo "ERRO: serviço instalado já usa layout v1.1; rebuild legado recusado." >&2
+    exit 2
+  fi
+  if ! grep -Fq "ExecStart=$LEGACY_RUNTIME/bin/python " "$INSTALLED_SERVICE"; then
+    echo "ERRO: unit instalada não comprova runtime legado esperado." >&2
     exit 2
   fi
 
