@@ -114,24 +114,39 @@ def _validated_usage_tokens(
     )
     total_tokens = parse_optional("total_tokens")
 
-    component_total = (
-        (input_tokens or 0)
-        + (output_tokens or 0)
-    )
+    if total_tokens is None:
+        if input_tokens is None or output_tokens is None:
+            raise RuntimeError(
+                "Resposta Mistral com telemetria de uso incompleta."
+            )
+        if input_tokens + output_tokens <= 0:
+            raise RuntimeError(
+                "Resposta Mistral sem telemetria de uso contabilizável."
+            )
+        return input_tokens, output_tokens
 
-    if total_tokens is not None and total_tokens > component_total:
-        # Preserve the provider-reported total even when it exposes only
-        # partial components. Budget accounting consumes the sum.
-        missing = total_tokens - component_total
-        input_tokens = (input_tokens or 0) + missing
-        component_total = total_tokens
-
-    if component_total <= 0:
+    if total_tokens <= 0:
         raise RuntimeError(
             "Resposta Mistral sem telemetria de uso contabilizável."
         )
 
-    return input_tokens or 0, output_tokens or 0
+    known_input = input_tokens or 0
+    known_output = output_tokens or 0
+    known_total = known_input + known_output
+
+    if input_tokens is None and output_tokens is None:
+        return total_tokens, 0
+
+    if input_tokens is None:
+        known_input = max(0, total_tokens - known_output)
+    elif output_tokens is None:
+        known_output = max(0, total_tokens - known_input)
+    elif known_total < total_tokens:
+        known_input += total_tokens - known_total
+
+    # If components exceed total_tokens, keep the larger component sum:
+    # it is the conservative value for local budget accounting.
+    return known_input, known_output
 
 
 def _parse_json_object(text: str) -> dict[str, Any]:
