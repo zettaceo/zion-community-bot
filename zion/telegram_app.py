@@ -7,6 +7,7 @@ import unicodedata
 from collections import defaultdict, deque
 from datetime import datetime, timedelta, timezone
 from typing import Any
+from urllib.parse import unquote
 
 from telegram import ChatPermissions, Update
 from telegram.constants import ChatMemberStatus
@@ -241,6 +242,19 @@ def telegram_entity_domains(message: Any) -> list[str]:
             domains.append(domain)
 
     return domains
+
+
+def telegram_sensitive_surface(message: Any, visible_text: str) -> str:
+    values = [visible_text or ""]
+    for url in telegram_external_urls(message):
+        values.append(url)
+        try:
+            decoded = unquote(url)
+        except Exception:
+            decoded = url
+        if decoded != url:
+            values.append(decoded)
+    return "\n".join(values)
 
 def parse_duration(value: str) -> int | None:
     raw = (value or "").strip().lower()
@@ -2967,7 +2981,7 @@ async def command_guard_handler(
 
     text = message.text or message.caption or ""
     external_urls = telegram_external_urls(message)
-    sensitive_surface = "\n".join((text, *external_urls))
+    sensitive_surface = telegram_sensitive_surface(message, text)
     if await protect_credential_exposure(
         update,
         context,
@@ -3101,7 +3115,7 @@ async def moderation_handler(
     # Admin não deve perder esta camada por causa da isenção de moderação.
     text = message.text or message.caption or ""
     external_urls = telegram_external_urls(message)
-    sensitive_surface = "\n".join((text, *external_urls))
+    sensitive_surface = telegram_sensitive_surface(message, text)
     if await protect_credential_exposure(
         update,
         context,

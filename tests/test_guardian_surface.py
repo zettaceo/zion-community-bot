@@ -28,6 +28,7 @@ from zion.telegram_app import (
     unban_command,
     telegram_entity_domains,
     telegram_external_urls,
+    telegram_sensitive_surface,
 )
 
 
@@ -118,6 +119,24 @@ class TelegramLinkSurfaceTests(unittest.TestCase):
         self.assertNotIn("\t", rendered)
         self.assertNotIn("\u202e", rendered)
         self.assertEqual(rendered, "Alice ADMIN Support")
+
+
+    def test_percent_encoded_url_credential_is_decoded_for_detection(self) -> None:
+        hidden = SimpleNamespace(
+            type="text_link",
+            url=(
+                "https://z-swap.example/support?"
+                "api%5Fkey%3Dexample-secret-value-123456"
+            ),
+        )
+        message = SimpleNamespace(
+            entities=[hidden],
+            caption_entities=[],
+            reply_markup=None,
+        )
+
+        surface = telegram_sensitive_surface(message, "safe visible text")
+        self.assertTrue(contains_high_confidence_credential(surface))
 
     def test_hidden_url_credentials_are_visible_to_secret_detector(self) -> None:
         hidden = SimpleNamespace(
@@ -313,6 +332,39 @@ class AuthorizationAndPrivateBoundaryTests(unittest.TestCase):
         self.assertEqual(bot.deleted, [])
         self.assertEqual(bot.member_calls, 0)
 
+
+
+    def test_encoded_hidden_url_credential_is_blocked_by_handler(self) -> None:
+        bot = FakeBot()
+        context = FakeContext(self.runtime, bot)
+        update = make_update(
+            user_id=1,
+            chat_type="supergroup",
+            text="safe visible label",
+            message_id=8,
+        )
+        update.effective_message.entities = [
+            SimpleNamespace(
+                type="text_link",
+                url=(
+                    "https://z-swap.example/support?"
+                    "api%5Fkey%3Dexample-secret-value-123456"
+                ),
+            )
+        ]
+
+        asyncio.run(moderation_handler(update, context))
+
+        self.assertEqual(
+            bot.deleted,
+            [(update.effective_chat.id, update.effective_message.message_id)],
+        )
+        self.assertEqual(bot.member_calls, 0)
+        incidents = self.runtime.db.list_incidents()
+        self.assertEqual(
+            incidents[0]["category"],
+            "possible_credential_exposure",
+        )
 
     def test_hidden_url_credential_is_blocked_before_admin_exemption(self) -> None:
         bot = FakeBot()
