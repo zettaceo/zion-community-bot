@@ -762,7 +762,8 @@ class Block4OperationsTests(unittest.TestCase):
             )
 
             source = inspect.getsource(scheduler_loop)
-            self.assertIn("last_health_check", source)
+            self.assertIn("last_health_check_monotonic", source)
+            self.assertIn("monotonic_now", source)
             self.assertIn("health_check_interval_seconds", source)
 
     def test_missing_sqlite_file_fails_runtime_health(self) -> None:
