@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT="${ZION_PROD_ROOT:-/home/zetta/zion-community-bot}"
+ROOT="/home/zetta/zion-community-bot"
 EXPECTED="${ZION_DEPLOY_COMMIT:-}"
 REMOTE_BRANCH="zion-v1"
 APPROVED_REF="origin/zion-v1"
 EXPECTED_REPO="zettaceo/zion-community-bot"
 PYTHON="${ZION_RUNTIME_PYTHON:-$ROOT/.venv/bin/python}"
-EXPECTED_USER="${ZION_REMOTE_USER:-zetta}"
+EXPECTED_USER="zetta"
 
 if [[ ! "$EXPECTED" =~ ^[0-9a-fA-F]{40}$ ]]; then
   echo "ERRO: ZION_DEPLOY_COMMIT deve ser um SHA completo de 40 caracteres." >&2
