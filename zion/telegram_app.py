@@ -3796,12 +3796,14 @@ async def operational_alert_cycle(
             issues.append("ai_provider_not_ready")
         elif rt.ai.circuit_open():
             issues.append("ai_circuit_open")
-        if (
-            rt.settings.ai_daily_token_budget > 0
-            and rt.ai.accounting_healthy
-            and rt.ai.budget_remaining() == 0
-        ):
-            issues.append("ai_budget_exhausted")
+
+        if rt.settings.ai_daily_token_budget > 0:
+            remaining = rt.ai.budget_remaining()
+            if not rt.ai.accounting_healthy:
+                if "ai_accounting_fail_closed" not in issues:
+                    issues.append("ai_accounting_fail_closed")
+            elif remaining == 0:
+                issues.append("ai_budget_exhausted")
 
     if not rt.knowledge.chunks:
         issues.append("knowledge_empty")
