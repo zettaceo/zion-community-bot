@@ -191,7 +191,7 @@ ZION_TAILSCALE_CLIENT_IP=<android-tailscale-ip> \
 The installer:
 
 - validates the current authorized-key boundary;
-- backs up an existing ZION sshd drop-in;
+- backs up an existing ZION sshd drop-in into a root-owned store outside the bot-writable state tree;
 - installs the reviewed drop-in;
 - runs `sshd -t`;
 - reloads, never restarts, the SSH daemon;
@@ -259,11 +259,13 @@ Router/NAT and Tailnet control-plane policy remain explicit manual checks.
 
 ## Rollback of SSH hardening
 
-The installer stores previous ZION drop-ins under:
+The installer stores previous ZION drop-ins in a root-owned, private directory that is outside the ZION bot's writable state boundary:
 
 ```text
-/home/zetta/.local/state/zion-community-bot/ssh-hardening-backups/
+/var/lib/zion-community-bot/ssh-hardening-backups/
 ```
+
+The directory is required to be `root:root 0700`; backup files are `root:root 0600`. The bot runtime must not be able to alter rollback evidence. Inspect or restore these files only through explicit `sudo`.
 
 If hardening must be reverted, do it from a still-open SSH session or physical console:
 
