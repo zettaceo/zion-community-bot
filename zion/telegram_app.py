@@ -3908,6 +3908,8 @@ async def operational_alert_cycle(
 
     if not snapshot.db_ok:
         issues.append("database_or_integrity")
+    if not diagnostics.get("db_file_present", False):
+        issues.append("sqlite_database_file_missing")
     if not diagnostics.get("sqlite_foreign_keys_ok", False):
         issues.append("sqlite_foreign_key_violation")
 
@@ -4260,12 +4262,10 @@ async def scheduler_loop(application: Application) -> None:
                 continue
 
             now = time.time()
-            previous_delivery_guard_error = rt.delivery_guard_last_error
             delivery_guard_ok = scheduler_safety_preflight(rt, now)
-            delivery_guard_changed = (
-                not delivery_guard_ok
-                and rt.delivery_guard_last_error
-                != previous_delivery_guard_error
+            preflight_has_error = bool(
+                rt.delivery_guard_last_error
+                or rt.state_maintenance_last_error
             )
 
             ran_hourly_operations = False
@@ -4278,12 +4278,12 @@ async def scheduler_loop(application: Application) -> None:
                 last_housekeeping = now
                 ran_hourly_operations = True
 
-            if delivery_guard_changed and not ran_hourly_operations:
+            if preflight_has_error and not ran_hourly_operations:
                 try:
                     await operational_alert_cycle(application, rt)
                 except Exception:
                     logger.exception(
-                        "Falha no alerta imediato do delivery safety preflight."
+                        "Falha no alerta imediato do scheduler safety preflight."
                     )
 
             if not delivery_guard_ok:
