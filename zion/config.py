@@ -161,6 +161,11 @@ class Settings:
             issues.append("ai_observe_without_ai")
         if not self.wifi_interface:
             issues.append("wifi_interface_empty")
+        if (
+            self.health_check_interval_seconds
+            > self.health_alert_repeat_seconds
+        ):
+            issues.append("health_check_slower_than_alert_repeat")
 
         try:
             lock_path = self.runtime_lock_path.resolve(strict=False)
