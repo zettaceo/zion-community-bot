@@ -2,6 +2,7 @@
 set -euo pipefail
 
 ROOT="/home/zetta/zion-community-bot"
+SYSTEM_PYTHON="/usr/bin/python3"
 PYTHON="$ROOT/.venv/bin/python"
 SERVICE_SRC="$ROOT/systemd/zion.service"
 SERVICE_DST="/etc/systemd/system/zion.service"
@@ -18,6 +19,12 @@ if [[ "$(id -un)" != "$EXPECTED_USER" ]]; then
   echo "ERRO: execute o deploy como $EXPECTED_USER." >&2
   exit 1
 fi
+if [[ ! -x "$SYSTEM_PYTHON" ]]; then
+  echo "ERRO: $SYSTEM_PYTHON ausente." >&2
+  exit 1
+fi
+"$SYSTEM_PYTHON" -I "$ROOT/scripts/check-git-release-boundary.py" \
+  --root "$ROOT"
 
 cd "$ROOT"
 
