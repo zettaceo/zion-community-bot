@@ -1056,6 +1056,8 @@ async def diagnostics_command(
         f"WAL checkpoint: {checkpoint_state}\n"
         f"Temporary-state maintenance: {state_maintenance}\n"
         f"Delivery safety preflight: {delivery_guard}\n"
+        f"Alert dedup persistence: "
+        f"{'DIRTY' if rt.health_alert_persistence_dirty else 'OK'}\n"
         f"SQLite schema: v{diag['schema_version']} "
         f"[{'OK' if diag['schema_version_read_ok'] else 'UNAVAILABLE'}]\n"
         f"SQLite PRAGMAs: {pragma_state} ({pragma_issues})\n"
