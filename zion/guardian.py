@@ -66,8 +66,19 @@ INVISIBLE_SECURITY_CODEPOINTS = {
 ALLOWED_LINK_SCHEMES = frozenset({"http", "https"})
 
 
+def _nfkc_text(value: str) -> str:
+    return unicodedata.normalize("NFKC", value or "")
+
+
+def _contains_invisible_security_char(value: str) -> bool:
+    return any(
+        ord(char) in INVISIBLE_SECURITY_CODEPOINTS
+        for char in value
+    )
+
+
 def _normalize_security_text(value: str) -> str:
-    normalized = unicodedata.normalize("NFKC", value or "")
+    normalized = _nfkc_text(value)
     return "".join(
         char
         for char in normalized
@@ -76,7 +87,9 @@ def _normalize_security_text(value: str) -> str:
 
 
 def normalize_link_target(value: str) -> tuple[str | None, str | None]:
-    raw = _normalize_security_text(value).strip()
+    raw = _nfkc_text(value).strip()
+    if _contains_invisible_security_char(raw):
+        return None, "invisible-link-character"
     if not raw:
         return None, None
 
@@ -104,7 +117,9 @@ def normalize_link_target(value: str) -> tuple[str | None, str | None]:
 
 
 def _normalize_domain(raw_url: str) -> str | None:
-    candidate = _normalize_security_text(raw_url).strip().rstrip(".,);]}>")
+    candidate = _nfkc_text(raw_url).strip().rstrip(".,);]}>")
+    if _contains_invisible_security_char(candidate):
+        return None
     candidate = candidate.translate({
         0x3002: ".",
         0xFF0E: ".",
@@ -133,7 +148,7 @@ def _normalize_domain(raw_url: str) -> str | None:
 
 
 def normalize_policy_domain(value: str) -> str | None:
-    raw = _normalize_security_text(value).strip()
+    raw = _nfkc_text(value).strip()
     if not raw:
         return None
 
@@ -147,7 +162,7 @@ def normalize_policy_domain(value: str) -> str | None:
 
 def extract_domains(text: str) -> list[str]:
     domains: list[str] = []
-    normalized_text = _normalize_security_text(text)
+    normalized_text = _nfkc_text(text)
     for raw in URL_REGEX.findall(normalized_text):
         domain = _normalize_domain(raw)
         if domain and domain not in domains:
@@ -156,8 +171,16 @@ def extract_domains(text: str) -> list[str]:
 
 
 def extract_unsupported_schemes(text: str) -> list[str]:
-    normalized_text = _normalize_security_text(text)
+    normalized_text = _nfkc_text(text)
     schemes: list[str] = []
+
+    for raw in URL_REGEX.findall(normalized_text):
+        if (
+            _contains_invisible_security_char(raw)
+            and "invisible-link-character" not in schemes
+        ):
+            schemes.append("invisible-link-character")
+
     for match in UNSUPPORTED_VISIBLE_SCHEME_REGEX.finditer(
         normalized_text
     ):
