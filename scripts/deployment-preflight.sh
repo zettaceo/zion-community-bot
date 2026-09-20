@@ -11,7 +11,9 @@ fi
 
 ROOT="${ZION_PROD_ROOT:-/home/zetta/zion-community-bot}"
 EXPECTED="${ZION_DEPLOY_COMMIT:-}"
-APPROVED_REF="${ZION_APPROVED_REF:-origin/zion-v1}"
+REMOTE_BRANCH="${ZION_PRODUCTION_REMOTE_BRANCH:-zion-v1}"
+APPROVED_REF="${ZION_APPROVED_REF:-origin/$REMOTE_BRANCH}"
+EXPECTED_REPO="${ZION_EXPECTED_GITHUB_REPO:-zettaceo/zion-community-bot}"
 LOCAL_PROD_BRANCH="${ZION_LOCAL_PROD_BRANCH:-zion-v1-prod}"
 EXPECTED_USER="${ZION_REMOTE_USER:-zetta}"
 ENV_FILE="$ROOT/.env"
@@ -38,6 +40,28 @@ else
   current_head="$(git -C "$ROOT" rev-parse HEAD 2>/dev/null || true)"
   current_branch="$(git -C "$ROOT" symbolic-ref --quiet --short HEAD 2>/dev/null || true)"
   approved_sha="$(git -C "$ROOT" rev-parse "$APPROVED_REF^{commit}" 2>/dev/null || true)"
+  origin_url="$(git -C "$ROOT" remote get-url origin 2>/dev/null || true)"
+
+  case "$origin_url" in
+    "https://github.com/$EXPECTED_REPO"|"https://github.com/$EXPECTED_REPO.git"|"git@github.com:$EXPECTED_REPO.git"|"ssh://git@github.com/$EXPECTED_REPO.git")
+      pass "origin points to expected GitHub repository"
+      ;;
+    *)
+      fail "origin does not point to the expected GitHub repository"
+      ;;
+  esac
+
+  if command -v timeout >/dev/null 2>&1; then
+    remote_line="$(timeout 20 env GIT_TERMINAL_PROMPT=0 git -C "$ROOT" ls-remote --exit-code origin "refs/heads/$REMOTE_BRANCH" 2>/dev/null | head -n1 || true)"
+  else
+    remote_line="$(env GIT_TERMINAL_PROMPT=0 git -C "$ROOT" ls-remote --exit-code origin "refs/heads/$REMOTE_BRANCH" 2>/dev/null | head -n1 || true)"
+  fi
+  remote_sha="${remote_line%%[[:space:]]*}"
+  if [[ -n "$EXPECTED" && "$remote_sha" == "$EXPECTED" ]]; then
+    pass "live origin/$REMOTE_BRANCH exactly matches approved commit"
+  else
+    fail "live origin/$REMOTE_BRANCH could not be proven equal to ZION_DEPLOY_COMMIT"
+  fi
 
   if [[ -n "$EXPECTED" && "$approved_sha" == "$EXPECTED" ]]; then
     pass "$APPROVED_REF exactly matches approved commit"
