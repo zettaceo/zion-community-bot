@@ -65,12 +65,17 @@ class V11ReleaseGateTests(unittest.TestCase):
         )
         self.assertIn('elif [[ "$REPORT_ONLY" == true ]]', text)
 
-    def test_deployment_preflight_rejects_hardlinked_env(self) -> None:
+    def test_deployment_preflight_uses_strict_env_boundary(self) -> None:
         text = self.read("scripts/deployment-preflight.sh")
 
-        self.assertIn("env_links=", text)
-        self.assertIn('[[ "$env_links" == "1" ]]', text)
-        self.assertIn(".env hard-link count=", text)
+        self.assertIn("scripts/check-env-boundary.py", text)
+        self.assertIn('--env "$ENV_FILE"', text)
+        self.assertIn('--allowlist "$SCRIPT_ROOT/.env.example"', text)
+        self.assertIn('--owner "$EXPECTED_USER"', text)
+        self.assertIn(
+            "production .env boundary validation failed",
+            text,
+        )
 
     def test_predeploy_models_production_defaults_from_production_root(
         self,
