@@ -23,7 +23,11 @@ from telegram.ext import (
 from .ai_service import AIService
 from .config import Settings
 from .db import ZION_APPLICATION_ID, ZionDB
-from .guardian import Guardian, normalize_policy_domain
+from .guardian import (
+    Guardian,
+    normalize_link_target,
+    normalize_policy_domain,
+)
 from .health import HealthService
 from .knowledge import KnowledgeBase
 from .logging_safe import (
@@ -200,15 +204,24 @@ def format_duration(seconds: int) -> str:
     return f"{seconds} segundos"
 
 
-def telegram_external_urls(message: Any) -> list[str]:
-    urls: list[str] = []
+def _telegram_link_candidates(
+    message: Any,
+) -> tuple[list[str], bool, bool]:
+    targets: list[str] = []
+    parse_failed = False
+    too_many = False
 
     def add(candidate: object | None) -> None:
+        nonlocal too_many
         if candidate is None:
             return
-        value = str(candidate).strip()
-        if value and value not in urls:
-            urls.append(value)
+        value = str(candidate).strip()[:2048]
+        if not value or value in targets:
+            return
+        if len(targets) >= 20:
+            too_many = True
+            return
+        targets.append(value)
 
     entity_sets = (
         (
@@ -225,14 +238,23 @@ def telegram_external_urls(message: Any) -> list[str]:
         for entity in entities:
             entity_type = getattr(entity, "type", "")
             entity_type = getattr(entity_type, "value", entity_type)
-
             if entity_type == "text_link":
-                add(getattr(entity, "url", None))
-            elif entity_type == "url" and callable(parser):
-                try:
-                    add(parser(entity))
-                except Exception:
+                candidate = getattr(entity, "url", None)
+                if not candidate:
+                    parse_failed = True
+                add(candidate)
+            elif entity_type == "url":
+                if not callable(parser):
+                    parse_failed = True
                     continue
+                try:
+                    candidate = parser(entity)
+                except Exception:
+                    parse_failed = True
+                    continue
+                if not candidate:
+                    parse_failed = True
+                add(candidate)
 
     markup = getattr(message, "reply_markup", None)
     for row in getattr(markup, "inline_keyboard", None) or ():
@@ -243,17 +265,41 @@ def telegram_external_urls(message: Any) -> list[str]:
             web_app = getattr(button, "web_app", None)
             add(getattr(web_app, "url", None))
 
-    return urls
+    return targets, parse_failed, too_many
+
+
+def telegram_external_urls(message: Any) -> list[str]:
+    targets, _, _ = _telegram_link_candidates(message)
+    return targets
+
+
+def telegram_entity_link_evidence(
+    message: Any,
+) -> tuple[list[str], list[str]]:
+    domains: list[str] = []
+    targets, parse_failed, too_many = _telegram_link_candidates(message)
+    unsupported_schemes: list[str] = []
+
+    if parse_failed:
+        unsupported_schemes.append("unparseable-url-entity")
+    if too_many:
+        unsupported_schemes.append("too-many-link-entities")
+
+    for candidate in targets:
+        domain, unsupported_scheme = normalize_link_target(candidate)
+        if domain and domain not in domains:
+            domains.append(domain)
+        if (
+            unsupported_scheme
+            and unsupported_scheme not in unsupported_schemes
+        ):
+            unsupported_schemes.append(unsupported_scheme)
+
+    return domains, unsupported_schemes
 
 
 def telegram_entity_domains(message: Any) -> list[str]:
-    domains: list[str] = []
-
-    for candidate in telegram_external_urls(message):
-        domain = normalize_policy_domain(candidate)
-        if domain and domain not in domains:
-            domains.append(domain)
-
+    domains, _ = telegram_entity_link_evidence(message)
     return domains
 
 
@@ -268,6 +314,22 @@ def telegram_sensitive_surface(message: Any, visible_text: str) -> str:
         if decoded != url:
             values.append(decoded)
     return "\n".join(values)
+
+
+def link_incident_severity(
+    unauthorized_domains: list[str],
+    unsupported_schemes: list[str],
+) -> Severity:
+    if unsupported_schemes:
+        return Severity.MEDIUM
+    if any(
+        label.startswith("xn--")
+        for domain in unauthorized_domains
+        for label in domain.split(".")
+    ):
+        return Severity.MEDIUM
+    return Severity.LOW
+
 
 def parse_duration(value: str) -> int | None:
     raw = (value or "").strip().lower()
