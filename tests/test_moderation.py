@@ -172,8 +172,11 @@ class ModerationPipelineTests(unittest.TestCase):
             update_id=9003,
         )
         original = self.runtime.db.claim_idempotency_key
+        claim_attempted = False
 
         def fail(*args, **kwargs):
+            nonlocal claim_attempted
+            claim_attempted = True
             raise RuntimeError("forced idempotency failure")
 
         self.runtime.db.claim_idempotency_key = fail
@@ -188,6 +191,7 @@ class ModerationPipelineTests(unittest.TestCase):
         finally:
             self.runtime.db.claim_idempotency_key = original
 
+        self.assertFalse(claim_attempted)
         self.assertIn(
             (update.effective_chat.id, update.effective_message.message_id),
             self.context.bot.deleted,
