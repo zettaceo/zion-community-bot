@@ -3,13 +3,20 @@ set -euo pipefail
 
 ROOT="/home/zetta/zion-community-bot"
 SYSTEM_PYTHON="/usr/bin/python3"
-PYTHON="$ROOT/.venv/bin/python"
 SERVICE_SRC="$ROOT/systemd/zion.service"
 SERVICE_DST="/etc/systemd/system/zion.service"
 BACKUP_DIR="/home/zetta/.local/share/zion-community-bot/deploy-backups"
 STATE_DIR="/home/zetta/.local/state/zion-community-bot"
+RUNTIME_BASE="/home/zetta/.local/share/zion-community-bot/runtimes"
+CURRENT_RUNTIME="$RUNTIME_BASE/current"
 EXPECTED_USER="zetta"
 EXPECTED_COMMIT="${ZION_EXPECTED_COMMIT:-}"
+RUNTIME_DIR="$RUNTIME_BASE/$EXPECTED_COMMIT"
+PYTHON="$RUNTIME_DIR/bin/python"
+TARGET_DB="$STATE_DIR/zion.db"
+TARGET_LEGACY="$STATE_DIR/zion_state.json"
+TARGET_LOG="$STATE_DIR/zion.log"
+TARGET_LOCK="$STATE_DIR/runtime.lock"
 APPROVED_REF="origin/zion-v1"
 EXPECTED_REPO="zettaceo/zion-community-bot"
 PREVIOUS_COMMIT="${ZION_PREVIOUS_COMMIT:-}"
@@ -28,13 +35,29 @@ fi
 
 cd "$ROOT"
 
-echo "[1/13] Conferindo ambiente virtual..."
-if [[ ! -x "$PYTHON" ]]; then
-  echo "ERRO: $PYTHON não existe." >&2
+echo "[1/15] Conferindo runtime candidato por SHA..."
+if [[ ! -d "$RUNTIME_DIR" || -L "$RUNTIME_DIR" || ! -x "$PYTHON" ]]; then
+  echo "ERRO: runtime candidato inválido: $RUNTIME_DIR" >&2
   exit 1
 fi
+if [[ ! -f "$RUNTIME_DIR/release-sha.txt" ]] \
+  || [[ "$(cat "$RUNTIME_DIR/release-sha.txt" 2>/dev/null || true)" != "$EXPECTED_COMMIT" ]]; then
+  echo "ERRO: identidade do runtime candidato não corresponde ao release." >&2
+  exit 1
+fi
+if [[ ! -L "$CURRENT_RUNTIME" ]]; then
+  echo "ERRO: runtime/current não existe como symlink." >&2
+  exit 1
+fi
+PREVIOUS_RUNTIME_TARGET="$(readlink -f -- "$CURRENT_RUNTIME" 2>/dev/null || true)"
+if [[ ! -x "$PREVIOUS_RUNTIME_TARGET/bin/python" ]]; then
+  echo "ERRO: runtime/current anterior é inválido." >&2
+  exit 1
+fi
+"$PYTHON" "$ROOT/scripts/check-runtime.py"
+"$PYTHON" -m pip check
 
-echo "[2/13] Conferindo worktree e commit..."
+echo "[2/15] Conferindo worktree e commit..."
 CURRENT_BRANCH="$(git symbolic-ref --quiet --short HEAD 2>/dev/null || true)"
 if [[ "$CURRENT_BRANCH" != "$LOCAL_PROD_BRANCH" ]]; then
   echo "ERRO: branch local=$CURRENT_BRANCH; esperado=$LOCAL_PROD_BRANCH." >&2
@@ -96,21 +119,21 @@ if ! git merge-base --is-ancestor "$PREVIOUS_COMMIT" "$CURRENT_HEAD"; then
   exit 1
 fi
 
-echo "[3/13] Conferindo compatibilidade do runtime..."
+echo "[3/15] Reconfirmando runtime auditado..."
 "$PYTHON" "$ROOT/scripts/check-runtime.py"
 "$PYTHON" -m pip check
 
-echo "[4/13] Validando código, testes, shell e segredos..."
-bash "$ROOT/scripts/validate.sh"
+echo "[4/15] Validando código, testes, shell e segredos..."
+ZION_VALIDATION_PYTHON="$PYTHON" bash "$ROOT/scripts/validate.sh"
 
-echo "[5/13] Conferindo arquivo systemd autoritativo..."
+echo "[5/15] Conferindo arquivo systemd autoritativo..."
 if [[ ! -f "$SERVICE_SRC" ]]; then
   echo "ERRO: $SERVICE_SRC não existe." >&2
   exit 1
 fi
 /usr/bin/systemd-analyze verify "$SERVICE_SRC"
 
-echo "[6/13] Validando configuração e conhecimento ANTES do stop..."
+echo "[6/15] Validando configuração e conhecimento ANTES do stop..."
 "$PYTHON" "$ROOT/scripts/check-env-boundary.py" \
   --env "$ROOT/.env" \
   --allowlist "$ROOT/.env.example" \
@@ -211,7 +234,7 @@ print(
 )
 PY
 
-echo "[7/13] Preparando diretório privado de estado compartilhado..."
+echo "[7/15] Preparando diretório privado de estado compartilhado..."
 sudo /usr/bin/install \
   -d \
   -o zetta \
@@ -219,7 +242,7 @@ sudo /usr/bin/install \
   -m 0700 \
   "$STATE_DIR"
 
-echo "[8/13] Criando e verificando backup antes de parar ZION..."
+echo "[8/15] Criando e verificando backup antes de parar ZION..."
 if [[ -L "$BACKUP_DIR" ]]; then
   echo "ERRO: diretório de backup não pode ser symlink." >&2
   exit 1
@@ -244,9 +267,9 @@ chmod 700 "$DEST"
 printf '%s\n' "$CURRENT_HEAD" > "$DEST/git-head.txt"
 printf '%s\n' "$APPROVED_REF" > "$DEST/approved-ref.txt"
 printf '%s\n' "$APPROVED_SHA" > "$DEST/approved-sha.txt"
-if [[ -n "$PREVIOUS_COMMIT" ]]; then
-  printf '%s\n' "$PREVIOUS_COMMIT" > "$DEST/rollback-head.txt"
-fi
+printf '%s\n' "$PREVIOUS_COMMIT" > "$DEST/rollback-head.txt"
+printf '%s\n' "$PREVIOUS_RUNTIME_TARGET" > "$DEST/runtime-before.txt"
+printf '%s\n' "$RUNTIME_DIR" > "$DEST/runtime-candidate.txt"
 git status --short --branch > "$DEST/git-status.txt"
 stat -c 'mode=%a owner=%U group=%G' "$ROOT/.env" > "$DEST/env-metadata.txt"
 sha256sum "$ROOT/.env" > "$DEST/env.sha256"
@@ -254,12 +277,12 @@ chmod 600 \
   "$DEST/git-head.txt" \
   "$DEST/approved-ref.txt" \
   "$DEST/approved-sha.txt" \
+  "$DEST/rollback-head.txt" \
+  "$DEST/runtime-before.txt" \
+  "$DEST/runtime-candidate.txt" \
   "$DEST/git-status.txt" \
   "$DEST/env-metadata.txt" \
   "$DEST/env.sha256"
-if [[ -f "$DEST/rollback-head.txt" ]]; then
-  chmod 600 "$DEST/rollback-head.txt"
-fi
 
 if [[ -f "$SERVICE_DST" ]]; then
   cp -a "$SERVICE_DST" "$DEST/zion.service.installed"
@@ -308,7 +331,7 @@ else:
     print("sqlite backup: source database not present yet")
 PY
 
-echo "[9/13] Parando ZION somente após todos os gates e backup..."
+echo "[9/15] Parando ZION somente após todos os gates e backup..."
 sudo /usr/bin/systemctl stop zion.service
 
 if /usr/bin/systemctl is-active --quiet zion.service; then
@@ -316,19 +339,74 @@ if /usr/bin/systemctl is-active --quiet zion.service; then
   exit 1
 fi
 
-echo "[10/13] Inicializando/migrando banco local..."
+echo "[10/15] Trocando runtime/current atomicamente..."
+TMP_CURRENT="$RUNTIME_BASE/.current-$BASHPID"
+rm -f "$TMP_CURRENT"
+ln -s "$RUNTIME_DIR" "$TMP_CURRENT"
+mv -Tf "$TMP_CURRENT" "$CURRENT_RUNTIME"
+if [[ "$(readlink -f -- "$CURRENT_RUNTIME" 2>/dev/null || true)" != "$RUNTIME_DIR" ]]; then
+  echo "ERRO: runtime/current não aponta para o release candidato." >&2
+  exit 1
+fi
+
+echo "[11/15] Relocando estado mutável e migrando SQLite..."
+ZION_TARGET_DB="$TARGET_DB" \
+ZION_TARGET_LEGACY="$TARGET_LEGACY" \
+ZION_TARGET_LOG="$TARGET_LOG" \
+ZION_TARGET_LOCK="$TARGET_LOCK" \
 "$PYTHON" - <<'PY'
+import os
+import shutil
+from pathlib import Path
+
 from zion.config import Settings
-from zion.db import ZionDB
+from zion.db import ZION_APPLICATION_ID, ZionDB
 from zion.migrate import migrate_legacy_guardian_state
 
 settings = Settings.from_env()
-db = ZionDB(settings.db_path)
+source_db = settings.db_path.expanduser().resolve(strict=False)
+source_legacy = settings.legacy_state_path.expanduser().resolve(strict=False)
+
+target_db = Path(os.environ["ZION_TARGET_DB"]).resolve(strict=False)
+target_legacy = Path(os.environ["ZION_TARGET_LEGACY"]).resolve(strict=False)
+
+target_db.parent.mkdir(parents=True, exist_ok=True)
+os.chmod(target_db.parent, 0o700)
+
+if source_db != target_db:
+    if target_db.exists():
+        raise RuntimeError(
+            f"target database already exists during relocation: {target_db}"
+        )
+    if not source_db.is_file():
+        raise RuntimeError(
+            f"source production database missing: {source_db}"
+        )
+    source = ZionDB(source_db, readonly=True)
+    try:
+        verification = source.verify_integrity(full=True)
+        if not verification["ok"]:
+            raise RuntimeError(
+                f"source database integrity failed: {verification}"
+            )
+        source.backup_to(target_db)
+    finally:
+        source.close()
+
+if source_legacy != target_legacy and source_legacy.is_file():
+    if target_legacy.exists():
+        raise RuntimeError(
+            f"target legacy state already exists: {target_legacy}"
+        )
+    shutil.copy2(source_legacy, target_legacy)
+    os.chmod(target_legacy, 0o600)
+
+db = ZionDB(target_db)
 try:
     db.initialize()
     migrate_legacy_guardian_state(
         db,
-        settings.legacy_state_path,
+        target_legacy,
     )
 
     if not db.ping():
@@ -361,7 +439,7 @@ try:
         )
 
     print(
-        f"database: OK ({settings.db_path}) | "
+        f"database: OK ({target_db}) | "
         f"schema=v{db.schema_version()} | "
         "integrity=OK | foreign_keys=OK | synchronous=FULL"
     )
@@ -369,7 +447,7 @@ finally:
     db.close()
 PY
 
-echo "[11/13] Instalando unit autoritativa..."
+echo "[12/15] Instalando unit autoritativa..."
 sudo /usr/bin/install \
   -o root \
   -g root \
@@ -380,7 +458,7 @@ sudo /usr/bin/install \
 sudo /usr/bin/systemctl daemon-reload
 sudo /usr/bin/systemctl enable zion.service >/dev/null
 
-echo "[12/13] Iniciando ZION..."
+echo "[13/15] Iniciando ZION..."
 sudo /usr/bin/systemctl start zion.service
 
 for _ in $(seq 1 20); do
@@ -390,7 +468,7 @@ for _ in $(seq 1 20); do
   sleep 1
 done
 
-echo "[13/13] Estado final..."
+echo "[14/15] Estado final..."
 sudo /usr/bin/systemctl status zion.service --no-pager --full
 echo
 /usr/bin/systemctl show zion.service \
@@ -402,6 +480,16 @@ echo
 if ! /usr/bin/systemctl is-active --quiet zion.service; then
   echo "ERRO: zion.service não ficou ativo." >&2
   echo "Backup pré-deploy: $DEST" >&2
+  exit 1
+fi
+
+echo "[15/15] Confirmando runtime e state efetivos..."
+if [[ "$(readlink -f -- "$CURRENT_RUNTIME")" != "$RUNTIME_DIR" ]]; then
+  echo "ERRO: runtime/current divergiu após start." >&2
+  exit 1
+fi
+if [[ ! -f "$TARGET_DB" ]]; then
+  echo "ERRO: banco efetivo não existe no state dir." >&2
   exit 1
 fi
 
