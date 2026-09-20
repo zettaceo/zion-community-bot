@@ -3,6 +3,14 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PYTHON="${ZION_VALIDATION_PYTHON:-$ROOT/.venv/bin/python}"
+PYCACHE_ROOT="$(mktemp -d /tmp/zion-validation-pycache.XXXXXX)"
+chmod 700 "$PYCACHE_ROOT"
+trap 'rm -rf -- "$PYCACHE_ROOT"' EXIT
+
+# Never read/write repository-local __pycache__ during validation.
+# All bytecode produced by compileall/imports/tests is isolated in /tmp and
+# destroyed on exit, so ignored .pyc files cannot become release evidence.
+export PYTHONPYCACHEPREFIX="$PYCACHE_ROOT"
 
 if [[ -n "${ZION_VALIDATION_PYTHON:-}" && ! -x "$PYTHON" ]]; then
   echo "ZION_VALIDATION_PYTHON não é executável: $PYTHON" >&2
@@ -20,7 +28,7 @@ fi
 
 cd "$ROOT"
 
-echo "[1/7] Compilando Python..."
+echo "[1/7] Compilando Python em cache temporário isolado..."
 "$PYTHON" -m compileall -q bot.py zion tests scripts
 
 echo "[2/7] Conferindo compatibilidade do runtime..."
