@@ -114,6 +114,7 @@ class HealthService:
         foreign_key_violations = list(
             integrity.get("foreign_key_violations", [])
         )
+        db_file_present = self.settings.db_path.exists()
         db_sizes = self.db.file_sizes_bytes()
         db_size_mb = int(db_sizes["total"] / 1024 / 1024)
         db_file_mb = int(db_sizes["database"] / 1024 / 1024)
@@ -122,7 +123,12 @@ class HealthService:
 
         return HealthSnapshot(
             state=state,
-            db_ok=state_read_ok and self.db.ping() and integrity_ok,
+            db_ok=(
+                state_read_ok
+                and db_file_present
+                and self.db.ping()
+                and integrity_ok
+            ),
             telegram_configured=bool(self.settings.telegram_token),
             ai_enabled=self.settings.ai_enabled,
             ai_configured=bool(self.settings.mistral_api_key),
@@ -142,6 +148,7 @@ class HealthService:
                 "sqlite_foreign_key_violations": (
                     foreign_key_violations[:20]
                 ),
+                "db_file_present": db_file_present,
                 "db_size_mb": db_size_mb,
                 "db_file_mb": db_file_mb,
                 "wal_size_mb": wal_size_mb,
@@ -238,6 +245,9 @@ class HealthService:
                     "sqlite_foreign_key_violations",
                     [],
                 )
+            ),
+            "db_file_present": bool(
+                snapshot.details.get("db_file_present")
             ),
             "db_size_mb": int(snapshot.details.get("db_size_mb", 0)),
             "db_file_mb": int(snapshot.details.get("db_file_mb", 0)),
