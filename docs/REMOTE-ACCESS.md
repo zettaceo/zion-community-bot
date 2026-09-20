@@ -162,7 +162,7 @@ Do **not** disable password authentication merely because the key exists on disk
 
 Authoritative template:
 
-`ops/sshd/99-zion-remote.conf`
+`ops/sshd/00-zion-remote.conf`
 
 The guarded installer refuses to run unless the operator explicitly attests that **both** public-key login and the out-of-band ED25519 host fingerprint were proven.
 
