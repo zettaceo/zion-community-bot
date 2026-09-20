@@ -146,6 +146,8 @@ class Runtime:
             self.update_lags: deque[float] = deque(maxlen=100)
             self.health_alert_signature: str | None = None
             self.health_alert_last_sent_at = 0.0
+            self.housekeeping_last_error: str | None = None
+            self.wal_checkpoint_last_error: str | None = None
         except Exception:
             db = getattr(self, "db", None)
             if isinstance(db, ZionDB):
@@ -945,6 +947,29 @@ async def diagnostics_command(
         if p95_lag > rt.settings.update_lag_warn_seconds
         else "OK"
     )
+    pragma_state = "OK" if diag["sqlite_pragmas_ok"] else "WARNING"
+    pragma_issues = (
+        ",".join(diag["sqlite_pragma_issues"])
+        if diag["sqlite_pragma_issues"]
+        else "NONE"
+    )
+
+    ai_used = rt.ai.tokens_used_today()
+    ai_accounting_ok = rt.ai.accounting_healthy
+    ai_budget = rt.settings.ai_daily_token_budget
+    ai_budget_text = "unlimited" if ai_budget <= 0 else str(ai_budget)
+    if ai_budget <= 0:
+        ai_remaining_text = "unlimited"
+    elif ai_accounting_ok:
+        ai_remaining_text = str(max(0, ai_budget - ai_used))
+    else:
+        ai_remaining_text = "unavailable"
+    circuit_remaining = rt.ai.circuit_remaining_seconds()
+    circuit_text = (
+        f"OPEN ({circuit_remaining}s)"
+        if circuit_remaining > 0
+        else "CLOSED"
+    )
 
     await update.effective_message.reply_text(
         "ZION DIAGNOSTICS\n"
@@ -954,6 +979,7 @@ async def diagnostics_command(
         f"Runtime lock: "
         f"{'HELD' if rt.process_lock.acquired else 'MISSING'}\n"
         f"SQLite schema: v{diag['schema_version']}\n"
+        f"SQLite PRAGMAs: {pragma_state} ({pragma_issues})\n"
         f"SQLite application_id: "
         f"{pragmas['application_id']} "
         f"(ZION={ZION_APPLICATION_ID})\n"
@@ -968,9 +994,9 @@ async def diagnostics_command(
         f"SQLite journal size limit: "
         f"{pragmas['journal_size_limit']} bytes\n"
         f"SQLite busy timeout: {pragmas['busy_timeout_ms']} ms\n"
-        f"SQLite total/db/WAL: "
+        f"SQLite total/db/WAL/SHM: "
         f"{diag['db_size_mb']}/{diag['db_file_mb']}/"
-        f"{diag['wal_size_mb']} MB\n"
+        f"{diag['wal_size_mb']}/{diag['shm_size_mb']} MB\n"
         f"SQLite DB threshold: {diag['db_warn_mb']} MB "
         f"[{'WARNING' if diag['db_large'] else 'OK'}]\n"
         f"SQLite WAL threshold: {diag['wal_warn_mb']} MB "
@@ -985,6 +1011,15 @@ async def diagnostics_command(
         f"AI latency 24h avg/p95: "
         f"{latency['avg_ms']}ms/{latency['p95_ms']}ms "
         f"(n={latency['count']})\n"
+        f"AI enabled/provider ready: "
+        f"{rt.settings.ai_enabled}/{rt.ai.enabled}\n"
+        f"AI accounting: "
+        f"{'OK' if ai_accounting_ok else 'FAIL-CLOSED'}\n"
+        f"AI tokens UTC used/budget/remaining: "
+        f"{ai_used}/{ai_budget_text}/{ai_remaining_text}\n"
+        f"AI circuit: {circuit_text}\n"
+        f"AI provider failures: {rt.ai.circuit_failures}/"
+        f"{rt.settings.ai_circuit_failures}\n"
         f"Operators: {diag['operator_count']}\n"
         f"Knowledge: {len(rt.knowledge.chunks)} chunks / "
         f"{len(rt.knowledge.load_errors)} errors\n"
@@ -3643,13 +3678,69 @@ def expire_temporary_state(rt: Runtime) -> None:
         rt.db.set_setting("operating_state_expires_at", "0")
 
 
+def housekeeping_cycle(rt: Runtime, now: float) -> dict[str, int]:
+    gaps_removed = rt.db.prune_knowledge_gaps(
+        now - (rt.settings.knowledge_gap_retention_days * 86400)
+    )
+    reports_redacted = rt.db.redact_resolved_user_reports(
+        now - (rt.settings.report_retention_days * 86400)
+    )
+    user_events_deleted = rt.db.prune_user_events(
+        now - (rt.settings.user_event_retention_days * 86400)
+    )
+    idempotency_deleted = rt.db.prune_idempotency_keys(now)
+    ama_cutoff = now - (rt.settings.ama_retention_days * 86400)
+    ama_questions_deleted = rt.db.prune_ama_questions(ama_cutoff)
+    ama_sessions_deleted = rt.db.prune_closed_ama_sessions(ama_cutoff)
+    ai_events_deleted = rt.db.prune_ai_events(
+        now - (rt.settings.ai_event_retention_days * 86400)
+    )
+    scheduled_deleted = rt.db.prune_completed_scheduled_messages(
+        now - (rt.settings.completed_job_retention_days * 86400)
+    )
+    containments_deleted = rt.db.prune_expired_containments(now)
+
+    results = {
+        "knowledge_gaps_deleted": gaps_removed,
+        "resolved_reports_redacted": reports_redacted,
+        "user_events_deleted": user_events_deleted,
+        "idempotency_deleted": idempotency_deleted,
+        "ama_questions_deleted": ama_questions_deleted,
+        "ama_sessions_deleted": ama_sessions_deleted,
+        "ai_events_deleted": ai_events_deleted,
+        "scheduled_deleted": scheduled_deleted,
+        "containments_deleted": containments_deleted,
+    }
+    if any(results.values()):
+        logger.info(
+            "Housekeeping | knowledge_gaps_deleted=%s | "
+            "resolved_reports_redacted=%s | "
+            "user_events_deleted=%s | "
+            "idempotency_deleted=%s | "
+            "ama_questions_deleted=%s | "
+            "ama_sessions_deleted=%s | "
+            "ai_events_deleted=%s | "
+            "scheduled_deleted=%s | "
+            "containments_deleted=%s",
+            gaps_removed,
+            reports_redacted,
+            user_events_deleted,
+            idempotency_deleted,
+            ama_questions_deleted,
+            ama_sessions_deleted,
+            ai_events_deleted,
+            scheduled_deleted,
+            containments_deleted,
+        )
+    return results
+
+
 async def operational_alert_cycle(
     application: Application,
     rt: Runtime,
 ) -> None:
     snapshot = rt.health.snapshot()
     diagnostics = rt.health.diagnostics()
-    pragmas = diagnostics["sqlite_pragmas"]
     _, p95_lag = update_lag_stats(rt)
 
     try:
@@ -3671,30 +3762,54 @@ async def operational_alert_cycle(
         issues.append("database_or_integrity")
     if not diagnostics.get("sqlite_foreign_keys_ok", False):
         issues.append("sqlite_foreign_key_violation")
+
+    if not diagnostics.get("sqlite_pragma_read_ok", False):
+        issues.append("sqlite_pragmas_unavailable")
+    else:
+        pragma_issue_names = {
+            "journal_mode": "sqlite_not_wal",
+            "foreign_keys": "sqlite_foreign_keys_off",
+            "synchronous": "sqlite_synchronous_not_full",
+            "trusted_schema": "sqlite_trusted_schema_on",
+            "application_id": "sqlite_application_id_mismatch",
+            "busy_timeout": "sqlite_busy_timeout_too_low",
+            "wal_autocheckpoint": "sqlite_wal_autocheckpoint_drift",
+            "journal_size_limit": "sqlite_journal_size_limit_drift",
+        }
+        for pragma_issue in diagnostics.get("sqlite_pragma_issues", []):
+            issues.append(
+                pragma_issue_names.get(
+                    str(pragma_issue),
+                    f"sqlite_pragma:{pragma_issue}",
+                )
+            )
+
+    if rt.housekeeping_last_error:
+        issues.append("housekeeping_failed")
+    if rt.wal_checkpoint_last_error:
+        issues.append("wal_checkpoint_failed")
+
     if not rt.ai.accounting_healthy:
         issues.append("ai_accounting_fail_closed")
+    if rt.settings.ai_enabled:
+        if not rt.ai.enabled:
+            issues.append("ai_provider_not_ready")
+        elif rt.ai.circuit_open():
+            issues.append("ai_circuit_open")
+        if (
+            rt.settings.ai_daily_token_budget > 0
+            and rt.ai.accounting_healthy
+            and rt.ai.budget_remaining() == 0
+        ):
+            issues.append("ai_budget_exhausted")
+
     if not rt.knowledge.chunks:
         issues.append("knowledge_empty")
     if rt.knowledge.load_errors:
         issues.append("knowledge_load_error")
     for config_issue in diagnostics.get("configuration_issues", []):
         issues.append(f"config:{config_issue}")
-    if pragmas["journal_mode"] not in {"wal", "unknown"}:
-        issues.append("sqlite_not_wal")
-    if (
-        pragmas["journal_mode"] != "unknown"
-        and int(pragmas["foreign_keys"]) != 1
-    ):
-        issues.append("sqlite_foreign_keys_off")
-    if int(pragmas.get("synchronous", -1)) not in {2, -1}:
-        issues.append("sqlite_synchronous_not_full")
-    if int(pragmas.get("trusted_schema", -1)) not in {0, -1}:
-        issues.append("sqlite_trusted_schema_on")
-    if int(pragmas.get("application_id", 0)) not in {
-        ZION_APPLICATION_ID,
-        0,
-    }:
-        issues.append("sqlite_application_id_mismatch")
+
     if community.get("failed_scheduled", 0) > 0:
         issues.append("scheduled_delivery_failed")
     if community.get("uncertain_scheduled", 0) > 0:
@@ -3717,7 +3832,8 @@ async def operational_alert_cycle(
     ):
         issues.append("telegram_update_lag")
 
-    signature = "|".join(sorted(issues)) if issues else "OK"
+    issues = sorted(set(issues))
+    signature = "|".join(issues) if issues else "OK"
     now = time.time()
 
     previous = rt.health_alert_signature
@@ -3751,57 +3867,64 @@ async def operational_alert_cycle(
         ):
             return
 
-    try:
-        rt.db.set_setting("health_alert_signature", signature)
-    except Exception as exc:
-        logger.warning(
-            "Falha ao persistir assinatura de health alert: %s",
-            type(exc).__name__,
-        )
-    rt.health_alert_signature = signature
-
     if not issues:
+        if not previous or previous == "OK":
+            return
+
+        delivered = False
+        for operator_id in sorted(rt.settings.admin_user_ids):
+            success = False
+            try:
+                await application.bot.send_message(
+                    chat_id=operator_id,
+                    text=(
+                        "✅ ZION OPERATIONAL RECOVERY\n"
+                        "Os alertas operacionais anteriormente ativos "
+                        "não estão mais presentes. "
+                        "Use /diagnostics para confirmar."
+                    ),
+                )
+                success = True
+                delivered = True
+            except Exception as exc:
+                logger.warning(
+                    "Falha ao enviar recuperação para operator=%s: %s",
+                    operator_id,
+                    type(exc).__name__,
+                )
+
+            try:
+                rt.db.record_action(
+                    incident_id=None,
+                    chat_id=operator_id,
+                    user_id=None,
+                    action_type="operator_recovery",
+                    actor_type="health",
+                    actor_id=None,
+                    reason="operational_health_recovered",
+                    success=success,
+                    metadata={"previous_signature": previous},
+                )
+            except Exception:
+                pass
+
+        if not delivered:
+            logger.warning(
+                "Operational recovery sem entrega confirmada; "
+                "estado permanecerá elegível para retry."
+            )
+            return
+
         try:
+            rt.db.set_setting("health_alert_signature", "OK")
             rt.db.set_setting("health_alert_last_sent_at", "0")
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning(
+                "Recuperação entregue, mas persistência do dedup falhou: %s",
+                type(exc).__name__,
+            )
+        rt.health_alert_signature = "OK"
         rt.health_alert_last_sent_at = 0.0
-
-        if previous and previous != "OK":
-            for operator_id in sorted(rt.settings.admin_user_ids):
-                success = False
-                try:
-                    await application.bot.send_message(
-                        chat_id=operator_id,
-                        text=(
-                            "✅ ZION OPERATIONAL RECOVERY\n"
-                            "Os alertas operacionais anteriormente ativos "
-                            "não estão mais presentes. "
-                            "Use /diagnostics para confirmar."
-                        ),
-                    )
-                    success = True
-                except Exception as exc:
-                    logger.warning(
-                        "Falha ao enviar recuperação para operator=%s: %s",
-                        operator_id,
-                        type(exc).__name__,
-                    )
-
-                try:
-                    rt.db.record_action(
-                        incident_id=None,
-                        chat_id=operator_id,
-                        user_id=None,
-                        action_type="operator_recovery",
-                        actor_type="health",
-                        actor_id=None,
-                        reason="operational_health_recovered",
-                        success=success,
-                        metadata={"previous_signature": previous},
-                    )
-                except Exception:
-                    pass
         return
 
     incident_id: str | None = None
@@ -3813,6 +3936,8 @@ async def operational_alert_cycle(
             severity=(
                 Severity.HIGH
                 if not snapshot.db_ok
+                or "sqlite_pragmas_unavailable" in issues
+                or "housekeeping_failed" in issues
                 else Severity.MEDIUM
             ),
             source="health",
@@ -3823,6 +3948,8 @@ async def operational_alert_cycle(
                 "repeat_interval_seconds": (
                     rt.settings.health_alert_repeat_seconds
                 ),
+                "housekeeping_error_type": rt.housekeeping_last_error,
+                "wal_checkpoint_error_type": rt.wal_checkpoint_last_error,
             },
             note=(
                 "Operational alert; no automated destructive action executed."
@@ -3840,6 +3967,7 @@ async def operational_alert_cycle(
         + "\nUse /diagnostics para detalhes."
     )
 
+    delivered = False
     for operator_id in sorted(rt.settings.admin_user_ids):
         success = False
         try:
@@ -3848,6 +3976,7 @@ async def operational_alert_cycle(
                 text=alert_text,
             )
             success = True
+            delivered = True
         except Exception as exc:
             logger.warning(
                 "Falha ao enviar alerta operacional para operator=%s: %s",
@@ -3870,11 +3999,64 @@ async def operational_alert_cycle(
         except Exception:
             pass
 
+    if not delivered:
+        logger.warning(
+            "Operational alert sem entrega confirmada; "
+            "não avançando estado de deduplicação."
+        )
+        return
+
     try:
+        rt.db.set_setting("health_alert_signature", signature)
         rt.db.set_setting("health_alert_last_sent_at", str(now))
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning(
+            "Alerta entregue, mas persistência do dedup falhou: %s",
+            type(exc).__name__,
+        )
+    rt.health_alert_signature = signature
     rt.health_alert_last_sent_at = now
+
+
+async def hourly_operations_cycle(
+    application: Application,
+    rt: Runtime,
+    *,
+    now: float | None = None,
+) -> None:
+    cycle_now = time.time() if now is None else now
+
+    try:
+        housekeeping_cycle(rt, cycle_now)
+        rt.housekeeping_last_error = None
+    except Exception as exc:
+        rt.housekeeping_last_error = type(exc).__name__
+        logger.exception(
+            "Falha no housekeeping do ZION; health alert seguirá ativo."
+        )
+
+    try:
+        checkpoint = rt.db.checkpoint_wal()
+        rt.wal_checkpoint_last_error = None
+        if checkpoint["busy"] not in {0, -1}:
+            logger.warning(
+                "SQLite WAL checkpoint busy | frames=%s | checkpointed=%s",
+                checkpoint["log_frames"],
+                checkpoint["checkpointed_frames"],
+            )
+    except Exception as exc:
+        rt.wal_checkpoint_last_error = type(exc).__name__
+        logger.warning(
+            "Falha no checkpoint passivo SQLite: %s",
+            type(exc).__name__,
+        )
+
+    try:
+        await operational_alert_cycle(application, rt)
+    except Exception:
+        logger.exception(
+            "Falha no ciclo de alerta operacional do ZION."
+        )
 
 
 async def scheduler_loop(application: Application) -> None:
@@ -3919,103 +4101,11 @@ async def scheduler_loop(application: Application) -> None:
                 )
 
             if now - last_housekeeping >= 3600:
-                gaps_removed = rt.db.prune_knowledge_gaps(
-                    now
-                    - (
-                        rt.settings.knowledge_gap_retention_days
-                        * 86400
-                    )
+                await hourly_operations_cycle(
+                    application,
+                    rt,
+                    now=now,
                 )
-                reports_redacted = rt.db.redact_resolved_user_reports(
-                    now
-                    - (
-                        rt.settings.report_retention_days
-                        * 86400
-                    )
-                )
-                user_events_deleted = rt.db.prune_user_events(
-                    now
-                    - (
-                        rt.settings.user_event_retention_days
-                        * 86400
-                    )
-                )
-                idempotency_deleted = rt.db.prune_idempotency_keys(now)
-                ama_cutoff = (
-                    now - (rt.settings.ama_retention_days * 86400)
-                )
-                ama_questions_deleted = rt.db.prune_ama_questions(
-                    ama_cutoff
-                )
-                ama_sessions_deleted = rt.db.prune_closed_ama_sessions(
-                    ama_cutoff
-                )
-                ai_events_deleted = rt.db.prune_ai_events(
-                    now
-                    - (
-                        rt.settings.ai_event_retention_days
-                        * 86400
-                    )
-                )
-                scheduled_deleted = (
-                    rt.db.prune_completed_scheduled_messages(
-                        now
-                        - (
-                            rt.settings.completed_job_retention_days
-                            * 86400
-                        )
-                    )
-                )
-                containments_deleted = (
-                    rt.db.prune_expired_containments(now)
-                )
-                if (
-                    gaps_removed
-                    or reports_redacted
-                    or user_events_deleted
-                    or idempotency_deleted
-                    or ama_questions_deleted
-                    or ama_sessions_deleted
-                    or ai_events_deleted
-                    or scheduled_deleted
-                    or containments_deleted
-                ):
-                    logger.info(
-                        "Housekeeping | knowledge_gaps_deleted=%s | "
-                        "resolved_reports_redacted=%s | "
-                        "user_events_deleted=%s | "
-                        "idempotency_deleted=%s | "
-                        "ama_questions_deleted=%s | "
-                        "ama_sessions_deleted=%s | "
-                        "ai_events_deleted=%s | "
-                        "scheduled_deleted=%s | "
-                        "containments_deleted=%s",
-                        gaps_removed,
-                        reports_redacted,
-                        user_events_deleted,
-                        idempotency_deleted,
-                        ama_questions_deleted,
-                        ama_sessions_deleted,
-                        ai_events_deleted,
-                        scheduled_deleted,
-                        containments_deleted,
-                    )
-                try:
-                    checkpoint = rt.db.checkpoint_wal()
-                    if checkpoint["busy"] not in {0, -1}:
-                        logger.warning(
-                            "SQLite WAL checkpoint busy | frames=%s | "
-                            "checkpointed=%s",
-                            checkpoint["log_frames"],
-                            checkpoint["checkpointed_frames"],
-                        )
-                except Exception as exc:
-                    logger.warning(
-                        "Falha no checkpoint passivo SQLite: %s",
-                        type(exc).__name__,
-                    )
-
-                await operational_alert_cycle(application, rt)
                 last_housekeeping = now
 
             state = rt.db.get_operating_state()
