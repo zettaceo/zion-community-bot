@@ -323,6 +323,72 @@ class Block4OperationsTests(unittest.TestCase):
             finally:
                 rt.close()
 
+    def test_integrity_probe_exception_still_reaches_alert_path(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            rt = Runtime(self._settings(root))
+            app = FakeApplication(rt)
+
+            def fail(*args, **kwargs):
+                raise RuntimeError("synthetic integrity probe failure")
+
+            rt.db.verify_integrity = fail
+            rt.health._integrity_checked_at = float("-inf")
+            try:
+                asyncio.run(operational_alert_cycle(app, rt))
+                self.assertEqual(app.bot.attempts, 1)
+                self.assertIn(
+                    "database_or_integrity",
+                    app.bot.sent[0][1],
+                )
+            finally:
+                rt.close()
+
+    def test_community_stats_failure_becomes_operational_issue(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            rt = Runtime(self._settings(root))
+            app = FakeApplication(rt)
+
+            def fail():
+                raise RuntimeError("synthetic community stats failure")
+
+            rt.db.community_stats = fail
+            try:
+                asyncio.run(operational_alert_cycle(app, rt))
+                self.assertEqual(app.bot.attempts, 1)
+                self.assertIn(
+                    "community_stats_unavailable",
+                    app.bot.sent[0][1],
+                )
+            finally:
+                rt.close()
+
+    def test_alert_persistence_read_failure_is_visible(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            rt = Runtime(self._settings(root))
+            app = FakeApplication(rt)
+            original = rt.db.get_setting
+
+            def selective_failure(key: str):
+                if key.startswith("health_alert_"):
+                    raise RuntimeError(
+                        "synthetic health alert persistence failure"
+                    )
+                return original(key)
+
+            rt.db.get_setting = selective_failure
+            try:
+                asyncio.run(operational_alert_cycle(app, rt))
+                self.assertEqual(app.bot.attempts, 1)
+                self.assertIn(
+                    "health_alert_persistence_unavailable",
+                    app.bot.sent[0][1],
+                )
+            finally:
+                rt.close()
+
     def test_dashboard_fails_health_on_foreign_key_corruption(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
