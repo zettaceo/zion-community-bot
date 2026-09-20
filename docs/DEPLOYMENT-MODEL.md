@@ -70,9 +70,25 @@ CI remains GitHub-hosted and unprivileged relative to the Acer.
 
 `requirements.txt` documents the supported dependency ranges for development, while `requirements.lock` is the exact audited v1.1 release environment.
 
-GitHub CI installs `requirements.lock`. Host predeploy/apply run `scripts/check-runtime.py`, which requires every locked Python package to match exactly, followed by `python -m pip check`.
+GitHub CI installs `requirements.lock`. Production releases do **not** mutate the venv used by the currently running bot.
 
-If the Acer runtime does not match the lock, the release stops **before** production is stopped. Do not upgrade packages ad hoc during the cutover window.
+Before cutover, `scripts/prepare-release-runtime.sh` creates/verifies a runtime keyed by the approved release SHA under:
+
+```text
+/home/zetta/.local/share/zion-community-bot/runtimes/<sha>/
+```
+
+`scripts/check-runtime.py` requires Python 3.12.x, every locked distribution at the exact version, no unexpected distributions other than venv bootstrap tooling, and `pip check` consistency.
+
+The active service uses only:
+
+```text
+/home/zetta/.local/share/zion-community-bot/runtimes/current/bin/python
+```
+
+The `current` pointer is switched to the candidate only after the old service has stopped. Rollback records and restores the previous runtime target.
+
+Do not install/upgrade packages ad hoc during the cutover window.
 
 ## Release selection
 
@@ -261,6 +277,20 @@ If post-deploy acceptance fails:
 10. open a forward-fix PR. Do not force-push the remote production branch backward.
 
 A host rollback can temporarily leave local `zion-v1-prod` behind `origin/zion-v1`. That is an emergency state, not a branch rewrite.
+
+## Immutable code / mutable state boundary
+
+The production service must not have write access to its code, `.env` or Python runtime.
+
+The reviewed v1.1 systemd contract forces mutable state to:
+
+```text
+/home/zetta/.local/state/zion-community-bot/
+```
+
+and marks the repository/runtime tree read-only.
+
+The main mutable artifacts are SQLite (including WAL/SHM), logs, legacy migration state when retained and the shared runtime lock. This prevents a compromised bot process from persisting by modifying repository code, release scripts, `.env` or its own Python environment.
 
 ## Separation of duties
 
