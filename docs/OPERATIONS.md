@@ -19,6 +19,8 @@ Remote production updates are commit-pinned and follow `docs/DEPLOYMENT-MODEL.md
 
 `scripts/apply-zion-v1.sh` refuses an unpinned or non-production-ref commit.
 
+For the first production transition from the current v1 commit to v1.1, the strict gate scripts are not yet present in the old production checkout. Use the detached-candidate bootstrap in `docs/V1.1-FIRST-UPGRADE.md`; do not skip the gates or fast-forward production merely to obtain the scripts.
+
 ## Health checks
 
 Telegram:
@@ -85,6 +87,8 @@ The old `zion_state.json` is imported once into SQLite when modular v1 first sta
 ## Backup
 
 A future remote backup target can be added after deciding retention/privacy policy. Until then, do not upload the SQLite file to public storage.
+
+Verified deployment rollback backups are written to `/home/zetta/.local/share/zion-community-bot/deploy-backups/`, outside the bot service's writable repository/state paths.
 
 ## AI budget
 
