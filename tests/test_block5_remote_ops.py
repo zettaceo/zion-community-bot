@@ -115,6 +115,9 @@ class Block5RemoteOperationsTests(unittest.TestCase):
         self.assertIn("100.64.0.0/10", text)
         self.assertIn("fd7a:115c:a1e0::/48", text)
         self.assertIn("/usr/sbin/sshd -t", text)
+        self.assertIn('sshd -T -C "$context"', text)
+        self.assertIn("ZION_TAILSCALE_CLIENT_IP", text)
+        self.assertIn("$BASHPID", text)
         self.assertIn("systemctl reload", text)
         self.assertIn("trap rollback ERR", text)
         self.assertIn("MANTENHA ESTA SESSÃO ABERTA", text)
@@ -125,6 +128,27 @@ class Block5RemoteOperationsTests(unittest.TestCase):
         self.assertNotIn("ufw ", text)
         self.assertNotIn("iptables ", text)
         self.assertNotIn("tailscale up", text)
+        self.assertNotIn("ZION_ROOT:-", text)
+        self.assertNotIn("ZION_SSH_DIR:-", text)
+        self.assertNotIn("ZION_AUTHORIZED_KEYS:-", text)
+
+    def test_strict_remote_preflight_fixes_sensitive_paths_and_match_context(
+        self,
+    ) -> None:
+        text = self.read("scripts/remote-access-preflight.sh")
+
+        self.assertIn('EXPECTED_USER="zetta"', text)
+        self.assertIn('SSH_DIR="/home/zetta/.ssh"', text)
+        self.assertIn(
+            'AUTHORIZED_KEYS="/home/zetta/.ssh/authorized_keys"',
+            text,
+        )
+        self.assertIn(
+            'SSHD_DROPIN="/etc/ssh/sshd_config.d/00-zion-remote.conf"',
+            text,
+        )
+        self.assertIn('sshd -T -C "$context"', text)
+        self.assertIn("strict mode requires SSH_CONNECTION", text)
 
     def test_deployment_preflight_is_commit_pinned_and_read_only(self) -> None:
         text = self.read("scripts/deployment-preflight.sh")
@@ -226,6 +250,7 @@ class Block5RemoteOperationsTests(unittest.TestCase):
         self.assertIn('HEAD_SHA" != "$EXPECTED_COMMIT', text)
         self.assertIn('APPROVED_SHA" != "$EXPECTED_COMMIT', text)
         self.assertIn("ZION_VALIDATION_PYTHON", text)
+        self.assertIn('"$PYTHON" -m pip check', text)
         self.assertIn("Nenhum serviço foi parado/reiniciado.", text)
 
         self.assertNotIn("systemctl stop", text)
@@ -257,11 +282,29 @@ class Block5RemoteOperationsTests(unittest.TestCase):
         self.assertIn("ZION_PREVIOUS_COMMIT", text)
         self.assertIn("ZION_GITHUB_GATES_PROVEN", text)
         self.assertIn("zettaceo/zion-community-bot", text)
-        self.assertIn("ls-remote --exit-code origin", text)
+        self.assertNotIn("ls-remote --exit-code origin", text)
+        self.assertIn(
+            'merge-base --is-ancestor "$EXPECTED_COMMIT" "$APPROVED_REF"',
+            text,
+        )
         self.assertIn("rollback-head.txt", text)
         self.assertIn("approved-sha.txt", text)
         self.assertIn('CURRENT_HEAD" != "$EXPECTED_COMMIT', text)
-        self.assertIn('APPROVED_SHA" != "$EXPECTED_COMMIT', text)
+        self.assertIn(
+            "ZION_PREVIOUS_COMMIT é obrigatório e deve ser SHA completo",
+            text,
+        )
+        self.assertIn('"$PREVIOUS_COMMIT" == "$CURRENT_HEAD"', text)
+        self.assertIn('"$PYTHON" -m pip check', text)
+
+    def test_runtime_compatibility_covers_all_direct_requirements(self) -> None:
+        text = self.read("scripts/check-runtime.py")
+
+        self.assertIn('package_version("python-telegram-bot")', text)
+        self.assertIn('package_version("python-dotenv")', text)
+        self.assertIn('package_version("httpx")', text)
+        self.assertIn('package_version("idna")', text)
+        self.assertIn("idna must be >=3,<4", text)
 
     def test_remote_runbook_requires_out_of_band_host_key_pinning(self) -> None:
         text = self.read("docs/REMOTE-ACCESS.md")
