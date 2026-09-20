@@ -7,7 +7,11 @@ import unittest
 from pathlib import Path
 
 from tests.helpers import make_settings
-from zion.mistral import MistralClient, MistralRawResponse
+from zion.mistral import (
+    MistralClient,
+    MistralRawResponse,
+    _validated_usage_tokens,
+)
 
 
 class CapturingMistralClient(MistralClient):
@@ -33,6 +37,47 @@ class CapturingMistralClient(MistralClient):
 
 
 class MistralBoundaryTests(unittest.TestCase):
+    def test_missing_usage_is_rejected(self) -> None:
+        with self.assertRaises(RuntimeError):
+            _validated_usage_tokens(None)
+        with self.assertRaises(RuntimeError):
+            _validated_usage_tokens({})
+        with self.assertRaises(RuntimeError):
+            _validated_usage_tokens(
+                {
+                    "prompt_tokens": 0,
+                    "completion_tokens": 0,
+                }
+            )
+
+    def test_total_usage_keeps_budget_accountable(self) -> None:
+        input_tokens, output_tokens = _validated_usage_tokens(
+            {"total_tokens": 17}
+        )
+        self.assertEqual(input_tokens + output_tokens, 17)
+
+        input_tokens, output_tokens = _validated_usage_tokens(
+            {
+                "prompt_tokens": 7,
+                "completion_tokens": 3,
+                "total_tokens": 12,
+            }
+        )
+        self.assertEqual(input_tokens + output_tokens, 12)
+
+    def test_invalid_usage_is_rejected(self) -> None:
+        with self.assertRaises(RuntimeError):
+            _validated_usage_tokens(
+                {"prompt_tokens": "not-a-number"}
+            )
+        with self.assertRaises(RuntimeError):
+            _validated_usage_tokens(
+                {
+                    "prompt_tokens": -1,
+                    "completion_tokens": 2,
+                }
+            )
+
     def test_grounded_answer_separates_context_from_untrusted_question(self):
         with tempfile.TemporaryDirectory() as tmp:
             client = CapturingMistralClient(
