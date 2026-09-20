@@ -47,9 +47,21 @@ class AskRateLimiter:
     def __init__(self, requests_per_minute: int):
         self.limit = max(1, requests_per_minute)
         self._events: dict[int, deque[float]] = defaultdict(deque)
+        self._next_prune_at = 0.0
+
+    def _prune(self, now: float) -> None:
+        if now < self._next_prune_at:
+            return
+        for user_id, queue in list(self._events.items()):
+            while queue and now - queue[0] > 60:
+                queue.popleft()
+            if not queue:
+                self._events.pop(user_id, None)
+        self._next_prune_at = now + 60
 
     def allow(self, user_id: int) -> bool:
         now = time.monotonic()
+        self._prune(now)
         queue = self._events[user_id]
         while queue and now - queue[0] > 60:
             queue.popleft()
@@ -126,6 +138,7 @@ class Runtime:
                 tuple[int, int],
                 tuple[bool, float],
             ] = {}
+            self.admin_cache_next_prune_at = 0.0
             self.update_lags: deque[float] = deque(maxlen=100)
             self.health_alert_signature: str | None = None
             self.health_alert_last_sent_at = 0.0
@@ -307,6 +320,14 @@ async def is_admin(
 
     key = (chat_id, user_id)
     now = time.monotonic()
+    if now >= rt.admin_cache_next_prune_at:
+        for cache_key, (_, expires_at) in list(rt.admin_cache.items()):
+            if expires_at <= now:
+                rt.admin_cache.pop(cache_key, None)
+        rt.admin_cache_next_prune_at = (
+            now + max(5, rt.settings.admin_cache_seconds)
+        )
+
     cached = rt.admin_cache.get(key)
     if use_cache and cached and now < cached[1]:
         return cached[0]

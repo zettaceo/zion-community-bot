@@ -17,6 +17,7 @@ from telegram.constants import ChatMemberStatus
 from telegram.ext import ApplicationHandlerStop
 
 from zion.telegram_app import (
+    AskRateLimiter,
     Runtime,
     ban_command,
     command_guard_handler,
@@ -595,6 +596,67 @@ class ModerationDurabilityTests(unittest.TestCase):
                         2,
                     ),
                     0,
+                )
+            finally:
+                runtime.close()
+
+
+class BoundedRuntimeCacheTests(unittest.TestCase):
+    def test_rate_limiter_prunes_inactive_user_keys(self) -> None:
+        limiter = AskRateLimiter(2)
+        with patch("zion.telegram_app.time.monotonic", return_value=100.0):
+            self.assertTrue(limiter.allow(10))
+            self.assertTrue(limiter.allow(20))
+        self.assertEqual(set(limiter._events), {10, 20})
+
+        with patch("zion.telegram_app.time.monotonic", return_value=161.0):
+            self.assertTrue(limiter.allow(30))
+
+        self.assertEqual(set(limiter._events), {30})
+
+    def test_admin_cache_prunes_expired_member_entries(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "knowledge").mkdir()
+            runtime = Runtime(make_settings(root))
+            try:
+                bot = FakeBot(ChatMemberStatus.MEMBER)
+                context = FakeContext(runtime, bot)
+                first = make_update(
+                    user_id=20,
+                    chat_type="supergroup",
+                    text="hello",
+                )
+                second = make_update(
+                    user_id=30,
+                    chat_type="supergroup",
+                    text="hello",
+                    message_id=2,
+                )
+
+                with patch(
+                    "zion.telegram_app.time.monotonic",
+                    return_value=100.0,
+                ):
+                    self.assertFalse(asyncio.run(is_admin(first, context)))
+                self.assertIn(
+                    (first.effective_chat.id, 20),
+                    runtime.admin_cache,
+                )
+
+                with patch(
+                    "zion.telegram_app.time.monotonic",
+                    return_value=161.0,
+                ):
+                    self.assertFalse(asyncio.run(is_admin(second, context)))
+
+                self.assertNotIn(
+                    (first.effective_chat.id, 20),
+                    runtime.admin_cache,
+                )
+                self.assertIn(
+                    (second.effective_chat.id, 30),
+                    runtime.admin_cache,
                 )
             finally:
                 runtime.close()
