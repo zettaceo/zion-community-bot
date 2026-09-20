@@ -257,6 +257,38 @@ class GuardianTests(unittest.TestCase):
         self.assertTrue(result.triggered)
         self.assertEqual(result.strike_count, 1)
 
+    def test_flood_deletion_scope_excludes_old_legitimate_messages(self) -> None:
+        now = 12000.0
+        self.db.record_recent_message(
+            chat_id=10,
+            user_id=50,
+            message_id=1,
+            created_at=now - 60,
+        )
+
+        self.guardian.record_message(
+            chat_id=10,
+            user_id=50,
+            message_id=2,
+            now=now,
+        )
+        self.guardian.record_message(
+            chat_id=10,
+            user_id=50,
+            message_id=3,
+            now=now + 1,
+        )
+        result = self.guardian.record_message(
+            chat_id=10,
+            user_id=50,
+            message_id=4,
+            now=now + 2,
+        )
+
+        self.assertTrue(result.triggered)
+        self.assertEqual(result.message_ids, [2, 3, 4])
+        self.assertNotIn(1, result.message_ids)
+
     def test_flood_triggers_at_threshold(self) -> None:
         now = 1000.0
 
