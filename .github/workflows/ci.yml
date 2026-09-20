@@ -45,4 +45,4 @@ jobs:
           -r requirements.lock
 
       - name: Validate
-        run: bash scripts/validate.sh
+        run: ZION_VALIDATION_PYTHON="$(command -v python)" bash scripts/validate.sh
