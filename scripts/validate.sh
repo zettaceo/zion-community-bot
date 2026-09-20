@@ -2,7 +2,12 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-PYTHON="$ROOT/.venv/bin/python"
+PYTHON="${ZION_VALIDATION_PYTHON:-$ROOT/.venv/bin/python}"
+
+if [[ -n "${ZION_VALIDATION_PYTHON:-}" && ! -x "$PYTHON" ]]; then
+  echo "ZION_VALIDATION_PYTHON não é executável: $PYTHON" >&2
+  exit 1
+fi
 
 if [[ ! -x "$PYTHON" ]]; then
   if command -v python3 >/dev/null 2>&1; then
