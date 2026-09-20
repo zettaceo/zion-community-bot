@@ -7,6 +7,7 @@ on:
       - dev
       - zion-v1
       - zion-v1.1-dev
+      - "audit/**"
   pull_request:
 
 permissions:
@@ -40,6 +41,7 @@ jobs:
           --disable-pip-version-check
           --no-input
           --no-deps
+          --require-hashes
           --only-binary=:all:
           --index-url https://pypi.org/simple
           -r requirements.lock
