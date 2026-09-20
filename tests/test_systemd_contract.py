@@ -94,9 +94,27 @@ class SystemdContractTests(unittest.TestCase):
         )
         self.assertIn(
             (
-                "ReadWritePaths=/home/zetta/.local/state/"
+                "ReadOnlyPaths=/home/zetta/.local/state/"
                 "zion-community-bot"
             ),
+            text,
+        )
+        self.assertIn(
+            (
+                "ReadWritePaths=/home/zetta/.local/state/"
+                "zion-community-bot/dashboard"
+            ),
+            text,
+        )
+        self.assertIn(
+            (
+                "ZION_DASHBOARD_LOG_PATH=/home/zetta/.local/state/"
+                "zion-community-bot/dashboard/zion-dashboard.log"
+            ),
+            text,
+        )
+        self.assertNotIn(
+            "ReadWritePaths=/home/zetta/.local/state/zion-community-bot\n",
             text,
         )
         self.assertNotIn(
