@@ -553,6 +553,32 @@ class Block4OperationsTests(unittest.TestCase):
             finally:
                 rt.close()
 
+    def test_edited_message_uses_edit_timestamp_for_lag(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            rt = Runtime(self._settings(root))
+            context = SimpleNamespace(
+                application=SimpleNamespace(
+                    bot_data={"zion_runtime": rt}
+                )
+            )
+            now = datetime.now(timezone.utc)
+
+            try:
+                record_update_lag(
+                    SimpleNamespace(
+                        effective_message=SimpleNamespace(
+                            date=now - timedelta(days=1),
+                            edit_date=now,
+                        )
+                    ),
+                    context,
+                )
+                latest, _ = update_lag_stats(rt)
+                self.assertLess(latest, 5)
+            finally:
+                rt.close()
+
     def test_stale_high_update_lag_does_not_raise_current_alert(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
