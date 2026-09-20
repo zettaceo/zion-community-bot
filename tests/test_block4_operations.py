@@ -500,7 +500,7 @@ class Block4OperationsTests(unittest.TestCase):
                     for item in rt.db.list_incidents(limit=20)
                     if item["category"] == "operational_health_warning"
                 ]
-                self.assertEqual(incidents[0]["severity"], "HIGH")
+                self.assertEqual(incidents[0]["severity"], "high")
 
                 rt.db.runtime_pragmas = original
                 asyncio.run(operational_alert_cycle(app, rt))
