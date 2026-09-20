@@ -56,10 +56,12 @@ class HealthService:
         return self._integrity_cache
 
     def snapshot(self) -> HealthSnapshot:
+        disk_usage_ok = True
         try:
             disk = shutil.disk_usage(self.settings.root_dir)
             disk_free_mb = int(disk.free / 1024 / 1024)
         except OSError:
+            disk_usage_ok = False
             disk_free_mb = -1
 
         wifi_path = Path("/sys/class/net") / self.settings.wifi_interface
@@ -152,8 +154,9 @@ class HealthService:
                 ),
                 "db_warn_mb": self.settings.db_warn_mb,
                 "wal_warn_mb": self.settings.wal_warn_mb,
+                "disk_usage_ok": disk_usage_ok,
                 "disk_low": (
-                    disk_free_mb >= 0
+                    disk_usage_ok
                     and disk_free_mb < self.settings.disk_warn_mb
                 ),
                 "disk_warn_mb": self.settings.disk_warn_mb,
@@ -169,9 +172,11 @@ class HealthService:
     def diagnostics(self) -> dict[str, object]:
         snapshot = self.snapshot()
 
+        ai_latency_read_ok = True
         try:
             latency = self.db.ai_latency_stats(time.time() - 86400)
         except Exception:
+            ai_latency_read_ok = False
             latency = {"count": 0, "avg_ms": 0, "p95_ms": 0}
 
         pragma_read_ok = True
@@ -209,9 +214,11 @@ class HealthService:
             if int(pragmas["journal_size_limit"]) != 16777216:
                 pragma_issues.append("journal_size_limit")
 
+        schema_version_read_ok = True
         try:
             schema_version = self.db.schema_version()
         except Exception:
+            schema_version_read_ok = False
             schema_version = -1
 
         return {
@@ -241,13 +248,18 @@ class HealthService:
             "db_warn_mb": int(snapshot.details.get("db_warn_mb", 0)),
             "wal_warn_mb": int(snapshot.details.get("wal_warn_mb", 0)),
             "disk_free_mb": snapshot.disk_free_mb,
+            "disk_usage_ok": bool(
+                snapshot.details.get("disk_usage_ok")
+            ),
             "disk_low": bool(snapshot.details.get("disk_low")),
             "sensitive_files_private": bool(
                 snapshot.details.get("sensitive_files_private")
             ),
             "wifi_interface_present": snapshot.wifi_interface_present,
             "ai_latency_24h": latency,
+            "ai_latency_read_ok": ai_latency_read_ok,
             "schema_version": schema_version,
+            "schema_version_read_ok": schema_version_read_ok,
             "sqlite_pragmas": pragmas,
             "sqlite_pragmas_ok": (
                 pragma_read_ok and not pragma_issues
