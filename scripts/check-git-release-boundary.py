@@ -156,6 +156,98 @@ def reject_local_ignore_and_attribute_overrides(root: Path) -> None:
                 f"{label} is configured; release requires a neutral Git boundary"
             )
 
+    unsafe_boolean_config = (
+        ("core.fileMode", "false"),
+        ("core.symlinks", "false"),
+    )
+    for key, unsafe_value in unsafe_boolean_config:
+        configured = git(
+            root,
+            "config",
+            "--type=bool",
+            "--get-all",
+            key,
+            allow_no_match=True,
+        )
+        values = {
+            value.strip().lower()
+            for value in configured.splitlines()
+            if value.strip()
+        }
+        if unsafe_value in values:
+            raise RuntimeError(
+                f"{key}={unsafe_value} is not allowed for release"
+            )
+
+
+def reject_insecure_https_transport_config(root: Path) -> None:
+    ssl_verify = git(
+        root,
+        "config",
+        "--show-origin",
+        "--type=bool",
+        "--get-regexp",
+        r"^http(\..*)?\.sslverify$",
+        allow_no_match=True,
+    )
+    disabled_verify = [
+        line
+        for line in ssl_verify.splitlines()
+        if line.strip() and line.rsplit(None, 1)[-1].lower() == "false"
+    ]
+    if disabled_verify:
+        raise RuntimeError(
+            "Git HTTPS TLS verification must not be disabled for release"
+        )
+
+    for pattern, label in (
+        (r"^http(\..*)?\.sslcainfo$", "http.*.sslCAInfo"),
+        (r"^http(\..*)?\.sslcapath$", "http.*.sslCAPath"),
+    ):
+        configured = git(
+            root,
+            "config",
+            "--show-origin",
+            "--get-regexp",
+            pattern,
+            allow_no_match=True,
+        )
+        if configured:
+            raise RuntimeError(
+                f"{label} override is not allowed for release"
+            )
+
+
+def reject_index_visibility_overrides(root: Path) -> None:
+    entries = git(
+        root,
+        "ls-files",
+        "-v",
+        "-z",
+        allow_no_match=True,
+    )
+    hidden: list[str] = []
+    for raw in entries.split("\0"):
+        if not raw:
+            continue
+        if len(raw) < 3 or raw[1] != " ":
+            raise RuntimeError(
+                "unexpected git ls-files -v output while validating index"
+            )
+        tag = raw[0]
+        path = raw[2:]
+        if tag == "S" or tag.islower():
+            hidden.append(path)
+
+    if hidden:
+        preview = ",".join(sorted(hidden)[:12])
+        if len(hidden) > 12:
+            preview += f",...(+{len(hidden) - 12})"
+        raise RuntimeError(
+            "Git index visibility overrides are not allowed for release: "
+            + preview
+        )
+
 
 def reject_ignored_importable_code(root: Path) -> None:
     ignored = git(
@@ -214,6 +306,8 @@ def validate(root: Path) -> None:
         )
 
     reject_local_ignore_and_attribute_overrides(root)
+    reject_insecure_https_transport_config(root)
+    reject_index_visibility_overrides(root)
 
     url_rewrites = git(
         root,
@@ -281,7 +375,8 @@ def validate(root: Path) -> None:
     print(
         "git release boundary: OK | "
         "hooks=none replace_refs=none grafts=none shallow=false "
-        "local_ignores=none ignored_importable_code=none"
+        "local_ignores=none https_tls=system-trust "
+        "index_visibility=normal ignored_importable_code=none"
     )
 
 

@@ -22,6 +22,7 @@ TARGET_DB="$STATE_DIR/zion.db"
 TARGET_LEGACY="$STATE_DIR/zion_state.json"
 TARGET_LOG="$STATE_DIR/zion.log"
 TARGET_LOCK="$STATE_DIR/runtime.lock"
+DASHBOARD_STATE_DIR="$STATE_DIR/dashboard"
 APPROVED_REF="origin/zion-v1"
 EXPECTED_REPO="zettaceo/zion-community-bot"
 PREVIOUS_COMMIT="${ZION_PREVIOUS_COMMIT:-}"
@@ -314,6 +315,30 @@ if [[ "$(stat -c '%U' "$STATE_DIR")" != "$EXPECTED_USER" ]] \
   || [[ "$(stat -c '%a' "$STATE_DIR")" != "700" ]]; then
   echo "ERRO: state dir deve ser 0700 e pertencer a $EXPECTED_USER." >&2
   exit 1
+fi
+
+if [[ "$DASHBOARD_INSTALLED" == true ]]; then
+  if [[ -L "$DASHBOARD_STATE_DIR" ]] \
+    || { [[ -e "$DASHBOARD_STATE_DIR" ]] && [[ ! -d "$DASHBOARD_STATE_DIR" ]]; }; then
+    echo "ERRO: dashboard state dir deve ser diretório regular não-symlink." >&2
+    exit 1
+  fi
+  sudo /usr/bin/install \
+    -d \
+    -o zetta \
+    -g zetta \
+    -m 0700 \
+    "$DASHBOARD_STATE_DIR"
+  DASHBOARD_STATE_REAL="$(readlink -f -- "$DASHBOARD_STATE_DIR" 2>/dev/null || true)"
+  if [[ "$DASHBOARD_STATE_REAL" != "$DASHBOARD_STATE_DIR" ]]; then
+    echo "ERRO: dashboard state dir resolve por symlink/alias." >&2
+    exit 1
+  fi
+  if [[ "$(stat -c '%U' "$DASHBOARD_STATE_DIR")" != "$EXPECTED_USER" ]] \
+    || [[ "$(stat -c '%a' "$DASHBOARD_STATE_DIR")" != "700" ]]; then
+    echo "ERRO: dashboard state dir deve ser 0700 e pertencer a $EXPECTED_USER." >&2
+    exit 1
+  fi
 fi
 
 echo "[8/15] Criando e verificando backup antes do cutover..."

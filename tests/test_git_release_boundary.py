@@ -212,6 +212,204 @@ class GitReleaseBoundaryTests(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("core.sshCommand is configured", result.stderr)
 
+    def test_http_ssl_verify_false_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.make_repo(root)
+            self.git(root, "config", "http.sslVerify", "false")
+
+            result = self.run_check(root)
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn(
+                "Git HTTPS TLS verification must not be disabled",
+                result.stderr,
+            )
+
+    def test_url_scoped_http_ssl_verify_false_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.make_repo(root)
+            self.git(
+                root,
+                "config",
+                "http.https://github.com/.sslVerify",
+                "false",
+            )
+
+            result = self.run_check(root)
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn(
+                "Git HTTPS TLS verification must not be disabled",
+                result.stderr,
+            )
+
+    def test_http_ssl_ca_info_override_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.make_repo(root)
+            self.git(
+                root,
+                "config",
+                "http.sslCAInfo",
+                "/tmp/zion-custom-ca.pem",
+            )
+
+            result = self.run_check(root)
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("http.*.sslCAInfo override", result.stderr)
+
+    def test_http_ssl_ca_path_override_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.make_repo(root)
+            self.git(
+                root,
+                "config",
+                "http.sslCAPath",
+                "/tmp/zion-custom-ca",
+            )
+
+            result = self.run_check(root)
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("http.*.sslCAPath override", result.stderr)
+
+    def test_assume_unchanged_index_bit_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.make_repo(root)
+            self.git(
+                root,
+                "update-index",
+                "--assume-unchanged",
+                "tracked.txt",
+            )
+            (root / "tracked.txt").write_text(
+                "tampered\n",
+                encoding="utf-8",
+            )
+
+            status = subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    str(root),
+                    "status",
+                    "--porcelain",
+                    "--untracked-files=all",
+                ],
+                text=True,
+                capture_output=True,
+                check=True,
+            ).stdout
+            self.assertEqual(status, "")
+
+            result = self.run_check(root)
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("Git index visibility overrides", result.stderr)
+            self.assertIn("tracked.txt", result.stderr)
+
+    def test_skip_worktree_index_bit_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.make_repo(root)
+            self.git(
+                root,
+                "update-index",
+                "--skip-worktree",
+                "tracked.txt",
+            )
+            (root / "tracked.txt").write_text(
+                "tampered\n",
+                encoding="utf-8",
+            )
+
+            status = subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    str(root),
+                    "status",
+                    "--porcelain",
+                    "--untracked-files=all",
+                ],
+                text=True,
+                capture_output=True,
+                check=True,
+            ).stdout
+            self.assertEqual(status, "")
+
+            result = self.run_check(root)
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("Git index visibility overrides", result.stderr)
+            self.assertIn("tracked.txt", result.stderr)
+
+    def test_core_file_mode_false_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.make_repo(root)
+            self.git(root, "config", "core.fileMode", "false")
+            (root / "tracked.txt").chmod(0o755)
+
+            status = subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    str(root),
+                    "status",
+                    "--porcelain",
+                    "--untracked-files=all",
+                ],
+                text=True,
+                capture_output=True,
+                check=True,
+            ).stdout
+            self.assertEqual(status, "")
+
+            result = self.run_check(root)
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("core.fileMode=false", result.stderr)
+
+    def test_core_symlinks_false_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.make_repo(root)
+            target = root / "target.txt"
+            target.write_text("target\n", encoding="utf-8")
+            link = root / "tracked-link"
+            link.symlink_to("target.txt")
+            self.git(root, "add", "target.txt", "tracked-link")
+            self.git(root, "commit", "-m", "add tracked symlink")
+            self.git(root, "config", "core.symlinks", "false")
+            link.unlink()
+            link.write_text("target.txt", encoding="utf-8")
+
+            status = subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    str(root),
+                    "status",
+                    "--porcelain",
+                    "--untracked-files=all",
+                ],
+                text=True,
+                capture_output=True,
+                check=True,
+            ).stdout
+            self.assertEqual(status, "")
+
+            result = self.run_check(root)
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("core.symlinks=false", result.stderr)
+
     def test_ignored_importable_bytecode_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

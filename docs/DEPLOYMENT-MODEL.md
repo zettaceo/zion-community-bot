@@ -80,6 +80,8 @@ Before cutover, `scripts/prepare-release-runtime.sh` creates/verifies a runtime 
 
 `scripts/check-runtime.py` requires Python 3.12.x, every locked distribution at the exact version, no unexpected distributions other than venv bootstrap tooling, and `pip check` consistency.
 
+For the first v1 → v1.1 cutover, neither an online staged runtime nor an online temporary worktree is the final trust boundary because the legacy service runs as the same Unix user without the v1.1 read-only code/runtime sandbox. Online builds and checks are readiness evidence only. After the legacy service is stopped, the procedure authenticates the release-boundary checker by Git blob identity, rechecks the production Git boundary, discards and recreates the detached candidate from the exact approved SHA, forces the runtime to be rebuilt from the hash-pinned lock with `ZION_REBUILD_RUNTIME_AFTER_STOP=YES`, and repeats candidate/config/disposable-DB verification with the narrowly scoped `ZION_FIRST_CUTOVER_POST_STOP=YES` mode before the production worktree is fast-forwarded. Later v1.1 services cannot write the repository/runtime trees through their systemd sandbox.
+
 The active service uses only:
 
 ```text
@@ -119,7 +121,7 @@ Use the exact candidate SHA in a detached temporary worktree and follow:
 
 `docs/V1.1-FIRST-UPGRADE.md`
 
-The candidate preflight binds its own worktree HEAD to the approved SHA while inspecting the unchanged production root.
+The candidate preflight binds its own worktree HEAD to the approved SHA while inspecting the unchanged production root. Once the legacy service stops, the online candidate is treated as untrusted staging evidence: the checker is authenticated against the approved Git blob, the production Git boundary is revalidated, the candidate worktree is recreated from the exact SHA, the runtime is rebuilt, and the disposable migration rehearsal is repeated before fast-forward.
 
 ## Remote/network gate
 

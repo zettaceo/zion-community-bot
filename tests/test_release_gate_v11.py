@@ -22,7 +22,7 @@ class V11ReleaseGateTests(unittest.TestCase):
         self.assertIn("SCRIPT_ROOT=", text)
         self.assertIn("BASH_SOURCE[0]", text)
         self.assertIn(
-            'candidate_head="$(git -C "$SCRIPT_ROOT" rev-parse HEAD',
+            'candidate_head="$(/usr/bin/git -C "$SCRIPT_ROOT" rev-parse HEAD',
             text,
         )
         self.assertIn('candidate_head" == "$EXPECTED"', text)
@@ -116,6 +116,30 @@ class V11ReleaseGateTests(unittest.TestCase):
         )
         self.assertIn("trate como incidente antes do release", text)
 
+    def test_predeploy_post_stop_mode_is_first_cutover_only(self) -> None:
+        text = self.read("scripts/predeploy-v11.sh")
+
+        self.assertIn(
+            'FIRST_CUTOVER_POST_STOP="${ZION_FIRST_CUTOVER_POST_STOP:-NO}"',
+            text,
+        )
+        self.assertIn(
+            "gate pós-stop exige zion.service realmente parado",
+            text,
+        )
+        self.assertIn(
+            "gate pós-stop especial só é permitido no primeiro cutover legado",
+            text,
+        )
+        self.assertIn(
+            "production_service=STOPPED_FOR_FIRST_CUTOVER_VERIFICATION",
+            text,
+        )
+        self.assertIn(
+            "dashboard deve estar parado durante o gate pós-stop",
+            text,
+        )
+
     def test_predeploy_rejects_dashboard_db_divergence(self) -> None:
         text = self.read("scripts/predeploy-v11.sh")
 
@@ -189,12 +213,26 @@ class V11ReleaseGateTests(unittest.TestCase):
         text = self.read("scripts/apply-dashboard.sh")
 
         self.assertIn(
-            "/home/zetta/.local/share/zion-community-bot/"
-            "runtimes/current/bin/python",
+            'RUNTIME_BASE="/home/zetta/.local/share/zion-community-bot/runtimes"',
+            text,
+        )
+        self.assertIn('CURRENT_RUNTIME="$RUNTIME_BASE/current"', text)
+        self.assertIn('PYTHON="$CURRENT_RUNTIME/bin/python"', text)
+        self.assertIn(
+            'DB="$STATE_DIR/zion.db"',
             text,
         )
         self.assertIn(
-            'DB="$STATE_DIR/zion.db"',
+            'DASHBOARD_STATE_DIR="$STATE_DIR/dashboard"',
+            text,
+        )
+        self.assertIn(
+            '/usr/bin/install -d -m 0700 "$DASHBOARD_STATE_DIR"',
+            text,
+        )
+        self.assertIn("DASHBOARD_STATE_REAL=", text)
+        self.assertIn(
+            "dashboard state dir deve ser 0700 e pertencer a $EXPECTED_USER",
             text,
         )
         self.assertIn(
@@ -223,6 +261,27 @@ class V11ReleaseGateTests(unittest.TestCase):
         )
         self.assertIn("fast-forward", text)
         self.assertIn("zion-v1-prod", text)
+        self.assertIn("ZION_REBUILD_RUNTIME_AFTER_STOP=YES", text)
+        self.assertIn("ZION_FIRST_CUTOVER_POST_STOP=YES", text)
+        self.assertIn("EXPECTED_CHECKER_BLOB=", text)
+        self.assertIn("ACTUAL_CHECKER_BLOB=", text)
+        self.assertIn('rev-parse "$ZION_DEPLOY_COMMIT:scripts/check-git-release-boundary.py"', text)
+        self.assertGreaterEqual(
+            text.count(
+                'worktree add --detach "$CANDIDATE_ROOT" "$ZION_DEPLOY_COMMIT"'
+            ),
+            2,
+        )
+
+        stop_pos = text.index("sudo systemctl stop zion.service")
+        checker_pos = text.index("EXPECTED_CHECKER_BLOB=")
+        rebuild_pos = text.index("ZION_REBUILD_RUNTIME_AFTER_STOP=YES")
+        post_stop_verify_pos = text.index("ZION_FIRST_CUTOVER_POST_STOP=YES")
+        merge_pos = text.index('merge --ff-only "$ZION_DEPLOY_COMMIT"')
+        self.assertLess(stop_pos, checker_pos)
+        self.assertLess(checker_pos, rebuild_pos)
+        self.assertLess(rebuild_pos, post_stop_verify_pos)
+        self.assertLess(post_stop_verify_pos, merge_pos)
 
     def test_bootstrap_and_cutover_neutralize_git_hooks(self) -> None:
         first_upgrade = self.read("docs/V1.1-FIRST-UPGRADE.md")
@@ -317,9 +376,26 @@ class V11ReleaseGateTests(unittest.TestCase):
         self.assertIn("-r \"$ROOT/requirements.lock\"", prepare)
         self.assertIn("pip --isolated install", prepare)
         self.assertIn("--no-deps", prepare)
+        self.assertIn("--require-hashes", prepare)
         self.assertIn("--only-binary=:all:", prepare)
         self.assertIn("--index-url https://pypi.org/simple", prepare)
         self.assertIn('chmod -R a-w "$TMP_RUNTIME"', prepare)
+        self.assertIn(
+            'REBUILD_AFTER_STOP="${ZION_REBUILD_RUNTIME_AFTER_STOP:-NO}"',
+            prepare,
+        )
+        self.assertIn(
+            "rebuild final do runtime exige zion.service parado",
+            prepare,
+        )
+        self.assertIn(
+            "rebuild pós-stop é exclusivo do primeiro cutover legado",
+            prepare,
+        )
+        self.assertIn(
+            'rm -rf --one-file-system -- "$RUNTIME_DIR"',
+            prepare,
+        )
 
         self.assertIn(
             'RUNTIME_DIR="$RUNTIME_BASE/$EXPECTED"',
@@ -370,6 +446,7 @@ class V11ReleaseGateTests(unittest.TestCase):
 
         self.assertIn("pip --isolated install", ci)
         self.assertIn("--no-deps", ci)
+        self.assertIn("--require-hashes", ci)
         self.assertIn("--only-binary=:all:", ci)
         self.assertIn("--index-url https://pypi.org/simple", ci)
         self.assertIn("-r requirements.lock", ci)
@@ -394,6 +471,18 @@ class V11ReleaseGateTests(unittest.TestCase):
         )
         for item in expected:
             self.assertIn(item, lock)
+
+        locked_lines = [
+            line.strip()
+            for line in lock.splitlines()
+            if line.strip() and not line.lstrip().startswith("#")
+        ]
+        self.assertEqual(len(locked_lines), len(expected))
+        for line in locked_lines:
+            self.assertRegex(
+                line,
+                r"^[A-Za-z0-9_.-]+==[^ ]+ --hash=sha256:[0-9a-f]{64}$",
+            )
 
     def test_apply_uses_installed_service_layout_as_db_authority(self) -> None:
         apply = self.read("scripts/apply-zion-v1.sh")
@@ -455,6 +544,15 @@ class V11ReleaseGateTests(unittest.TestCase):
             "zion-dashboard.service não ficou ativo",
             text,
         )
+        self.assertIn(
+            'DASHBOARD_STATE_DIR="$STATE_DIR/dashboard"',
+            text,
+        )
+        self.assertIn(
+            'sudo /usr/bin/install \\\n    -d \\\n    -o zetta \\\n    -g zetta \\\n    -m 0700 \\\n    "$DASHBOARD_STATE_DIR"',
+            text,
+        )
+        self.assertIn("DASHBOARD_STATE_REAL=", text)
 
     def test_deployment_preflight_report_only_remains_read_only(self) -> None:
         script = ROOT / "scripts" / "deployment-preflight.sh"
