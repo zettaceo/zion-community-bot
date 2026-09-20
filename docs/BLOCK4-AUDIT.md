@@ -9,39 +9,73 @@ Working branch: `audit/block4-operations`
 
 Block 4 is limited to operations and auditability:
 
-- SQLite integrity and runtime invariants;
+- SQLite integrity, identity, schema and runtime invariants;
 - DB/WAL/SHM sizing and disk thresholds;
 - Telegram update lag;
-- Mistral latency;
-- AI accounting, daily budget and circuit breaker visibility;
-- operational alerts;
+- Mistral latency and conservative budget accounting;
+- AI accounting and circuit-breaker visibility;
+- operational alerts and recovery notifications;
+- scheduler safety and scheduled-delivery health gates;
 - operator-only `/diagnostics`;
 - read-only localhost dashboard;
 - hourly housekeeping observability.
 
 No production deployment, runtime secret change, real Mistral call or production SQLite mutation belongs to this block.
 
-## Findings
+## Findings and hardening
 
 ### HIGH — maintenance failure could suppress health alerts
 
-The hourly scheduler ran housekeeping and WAL maintenance before the operational alert cycle inside the same outer exception boundary. A persistence or housekeeping exception could therefore skip the health alert that should report the degraded state.
+The hourly scheduler previously ran housekeeping and WAL maintenance before the operational alert cycle inside the same outer exception boundary. A maintenance or persistence exception could therefore skip the health check that should report degradation.
 
-**Hardening:** hourly maintenance is isolated from operational alert evaluation. Housekeeping and passive WAL checkpoint failures are captured as runtime health state and the alert cycle still runs.
+**Hardening:** housekeeping, passive WAL checkpoint and operational monitoring are isolated. Independent housekeeping steps are also isolated from one another.
 
-### HIGH — failed Telegram alert could be marked as delivered
+### HIGH — failed Telegram alert could be marked delivered
 
-The previous deduplication state advanced even when every operator delivery failed. A transient Telegram outage could therefore suppress retries for the configured repeat interval.
+The previous alert deduplication state could advance even when every operator delivery failed. A transient Telegram outage could therefore suppress retries for the configured repeat interval.
 
-**Hardening:** an alert/recovery advances the deduplication state only after at least one external Telegram delivery is confirmed successful. If no operator receives it, the state remains eligible for retry.
+**Hardening:** alert/recovery dedup advances only after at least one confirmed Telegram delivery.
 
-This is not an exactly-once guarantee. If Telegram accepts a notification and the process crashes before local persistence, a later duplicate notification is acceptable. Operational monitoring prefers a possible duplicate over silent loss.
+This deliberately does **not** claim exactly-once. If Telegram accepts a notification and the process crashes before local persistence, a later duplicate remains possible. Monitoring prefers a possible duplicate over silent loss.
+
+### HIGH — stale-delivery safety failure could leave scheduled delivery fail-open
+
+Stale or unknown Telegram delivery claims are a safety boundary. If the quarantine check itself fails, the runtime cannot prove that replay is safe.
+
+**Hardening:** a deterministic scheduler safety preflight now:
+
+1. attempts temporary operating-state expiry;
+2. quarantines stale/unknown delivery claims;
+3. blocks scheduled/recurring external sends when the delivery-safety check fails;
+4. exposes the failure in diagnostics and operational alerts;
+5. attempts an immediate alert for a newly observed preflight failure.
+
+A successful quarantine remains authoritative even if writing its audit incident later fails.
+
+### HIGH — critical SQLite health did not gate scheduled external effects
+
+Operational monitoring could detect database identity/integrity failures while the scheduler continued sending due messages.
+
+**Hardening:** scheduled/recurring external delivery now has a fail-closed health gate. Delivery is blocked when ZION cannot prove critical SQLite invariants, including:
+
+- database/integrity health;
+- database file presence;
+- foreign-key integrity;
+- readable and supported schema version;
+- readable critical PRAGMAs;
+- WAL mode;
+- foreign-key enforcement;
+- FULL synchronous mode;
+- trusted schema disabled;
+- correct ZION application ID.
+
+If the operational health cycle itself raises unexpectedly, scheduled delivery is blocked until a later healthy check clears the gate.
 
 ### MEDIUM — SQLite PRAGMA observation failed open
 
-A failed runtime-PRAGMA read produced sentinel values such as `unknown`, `-1` and `0`, while the alert path tolerated several of those sentinels.
+A failed runtime-PRAGMA read produced sentinels such as `unknown`, `-1` and `0`, while parts of the alert path tolerated those values.
 
-**Hardening:** diagnostics now distinguishes PRAGMA read failure from valid values and verifies the documented runtime invariants:
+**Hardening:** diagnostics distinguishes unavailable telemetry from valid values and verifies:
 
 - `journal_mode=WAL`
 - `foreign_keys=ON`
@@ -52,114 +86,199 @@ A failed runtime-PRAGMA read produced sentinel values such as `unknown`, `-1` an
 - `wal_autocheckpoint=1000`
 - `journal_size_limit=16777216`
 
-An unavailable PRAGMA read is an operational issue rather than a healthy unknown state.
+An unavailable PRAGMA read is an operational issue, not a healthy unknown state.
 
-### MEDIUM — dashboard integrity semantics were weaker than runtime health
+### MEDIUM — runtime schema drift was readable but not monitored as incompatible
 
-The localhost dashboard used `PRAGMA quick_check` without the foreign-key integrity check used by the runtime HealthService.
+Startup already rejects future schema versions, but runtime diagnostics previously distinguished only read success/failure.
 
-**Hardening:** the dashboard uses `verify_integrity(full=False)`, including foreign-key integrity, and reports DB/WAL/SHM sizing separately while preserving the existing aggregate size field.
+**Hardening:** runtime and dashboard health require `schema_version == SUPPORTED_SCHEMA_VERSION`. Drift blocks scheduled delivery and is surfaced as an operational issue.
 
-### Additional fail-closed observability
+### MEDIUM — dashboard health was weaker than runtime health
 
-A second audit pass closed additional cases where telemetry failure could look healthy:
+The localhost dashboard previously used structural SQLite integrity without the full runtime identity/relationship checks.
 
-- an unexpected integrity-probe exception becomes failed database health instead of escaping the health path;
-- `community_stats` read failure becomes an explicit operational issue;
-- inability to read persisted health-alert deduplication state becomes an explicit issue;
-- disk-usage probe failure is reported as unavailable, never as `OK`;
-- AI latency telemetry read failure is visible;
-- schema-version telemetry read failure is visible;
-- a deliberately disabled AI layer remains quiet even if stale circuit/accounting state exists.
+**Hardening:** dashboard health requires:
 
-### Scheduler delivery safety boundary
+- database file present;
+- quick integrity check;
+- foreign-key integrity;
+- ZION application ID;
+- supported schema version.
 
-Stale delivery-claim quarantine is a safety gate, not optional telemetry.
+DB/WAL/SHM sizing is exposed separately while preserving the aggregate size field.
 
-The scheduler now runs a deterministic safety preflight:
+### MEDIUM — unavailable telemetry could look healthy
 
-1. temporary operating-state expiry is attempted and failures are surfaced;
-2. stale/unknown delivery claims are quarantined;
-3. if the delivery-safety quarantine step itself fails, scheduled/recurring delivery is blocked for that scheduler iteration;
-4. a newly observed delivery-safety failure triggers an immediate operational alert attempt instead of waiting for the next hourly cycle;
-5. hourly monitoring remains the bounded retry path.
+Additional cases were converted from silent fallback to explicit degraded/unavailable state:
 
-A successful quarantine is not rolled back merely because writing its audit incident fails. The external-delivery safety state is already persisted; incident-write failure is logged separately.
+- unexpected integrity-probe exception;
+- `community_stats` read failure;
+- health-alert dedup persistence read failure;
+- disk-usage probe failure;
+- AI-latency telemetry read failure;
+- schema-version read failure.
 
-Housekeeping steps are isolated from one another. Failure of one retention step no longer prevents later independent retention steps from running in the same hourly cycle.
+A deliberately disabled AI layer stays quiet even if stale provider/accounting state exists.
 
-### Dashboard database identity
+### MEDIUM — health detection inherited hourly housekeeping cadence
 
-The read-only localhost dashboard now verifies the persistent SQLite `application_id`. A database that is structurally readable but is not identified as ZION is unhealthy and `/healthz` must not report it as healthy.
+Health checks were effectively tied to hourly housekeeping, making detection of disk/SQLite failures slower than intended.
+
+**Hardening:** operational health is checked independently, default every **60 seconds**, while housekeeping remains hourly. Repetition of an unchanged successfully delivered alert remains separately bounded at **21600 seconds / 6 hours**.
+
+Scheduler cadence uses `time.monotonic()`; retention timestamps and persisted audit timestamps continue to use wall-clock time.
+
+The first health check and first housekeeping cycle still run immediately after scheduler startup.
+
+### MEDIUM — health-alert dedup pair could partially persist
+
+Alert signature and last-send timestamp form one logical state but were persisted separately.
+
+**Hardening:** after Telegram delivery is confirmed, the pair is committed in one SQLite transaction. No Telegram I/O occurs inside that transaction.
+
+If the local write fails after a confirmed Telegram delivery:
+
+- in-memory state remains authoritative for the live single locked runtime;
+- persistence is marked dirty;
+- the runtime attempts to repair persisted dedup state;
+- diagnostics shows `Alert dedup persistence: DIRTY`;
+- stale persisted state is not trusted over newer live state.
+
+### MEDIUM — incident persistence and notification dedup were coupled
+
+A failed incident write followed by a successful Telegram alert could cause later deduplication to suppress another attempt to write the incident.
+
+**Hardening:** incident-ledger persistence is retried independently of Telegram-notification dedup. Repeated notification attempts do not create duplicate incidents for the same active issue signature.
+
+### MEDIUM — Telegram update lag could create stale or edited-message false positives
+
+A bounded deque of the last 100 values already existed, but samples had no age and edited messages used the original message timestamp.
+
+**Hardening:**
+
+- edited messages use `edit_date` when available;
+- future timestamps clamp to zero lag;
+- samples remain bounded to 100;
+- last sample monotonic time is recorded;
+- old samples are shown as `STALE`;
+- stale samples remain visible diagnostically but do not trigger a current-lag alert.
+
+### MEDIUM — uncertain provider failures could undercount AI budget
+
+A Mistral timeout/failure released the in-flight budget reservation and recorded zero provider tokens. A timeout does not prove zero external cost: the provider may have processed the request before the client lost confirmation.
+
+**Hardening:** uncertain provider outcomes conservatively charge the reserved token estimate against the current UTC-day software budget.
+
+The estimate is persisted without a schema migration using an internal settings key. It:
+
+- survives runtime restart;
+- rolls over by UTC day;
+- is included in `tokens_used_today()`;
+- never pretends to be exact provider billing;
+- forces AI accounting to fail closed if the conservative charge cannot be persisted.
+
+The deterministic Guardian is unaffected.
 
 ## Diagnostics
 
 Operator-only `/diagnostics` now exposes, without secrets:
 
 - SQLite quick check and FK integrity;
-- runtime PRAGMA verification state and drift list;
-- application ID, WAL, synchronous mode, trusted schema and timeout settings;
+- runtime PRAGMA availability and drift;
+- ZION application ID;
+- current and supported schema version;
 - total/DB/WAL/SHM sizes;
-- disk and sensitive-file state;
-- Telegram update lag latest/p95 over the bounded in-memory sample;
+- disk state;
+- Telegram update lag latest/p95/sample count and sample age state;
 - successful Mistral latency avg/p95 over 24h;
 - AI enabled/provider-ready state;
 - AI accounting state;
 - UTC token usage, configured budget and remaining budget;
-- circuit breaker state and remaining open time;
+- circuit-breaker state and remaining open time;
 - consecutive provider failure count;
-- scheduler task RUNNING/STOPPED state;
-- hourly housekeeping failures by safe step/error type;
+- scheduler task RUNNING/STOPPED;
+- hourly housekeeping state;
 - passive WAL checkpoint state;
 - temporary-state maintenance state;
 - delivery-safety preflight state;
-- explicit UNAVAILABLE state for failed disk/schema/latency telemetry.
+- scheduled-delivery health gate state and blocking reasons;
+- alert-dedup persistence state;
+- health-check and alert-repeat cadence;
+- explicit UNAVAILABLE/WARNING state for failed telemetry.
 
-It does not expose API keys, Telegram tokens, headers, prompts or message bodies.
+It does not expose API keys, Telegram tokens, provider headers, prompts or user message bodies.
 
 ## Operational alert semantics
 
-Operational notifications are at-least-retryable, not exactly-once.
+Operational notifications are retryable, not exactly-once.
 
 - A changed issue set is eligible immediately.
 - An unchanged successfully delivered issue set is bounded by the configured repeat interval.
-- A notification for which every Telegram send fails is **not** marked delivered.
+- A notification for which every Telegram send fails is not marked delivered.
 - A recovery notification follows the same rule.
-- Local persistence failure after a successful Telegram send may cause a later duplicate.
+- A confirmed Telegram delivery followed by local persistence failure may later duplicate after a restart.
+- Local dedup state is persisted atomically after external delivery.
+- Incident-ledger persistence is independent from notification dedup.
 - No Telegram I/O occurs inside SQLite transactions.
 
-## Hourly maintenance boundary
+## Maintenance boundary
 
 Housekeeping and WAL checkpoint are maintenance operations. Their failure must not disable monitoring.
 
-The runtime records the most recent maintenance error type in memory and surfaces a generic operational issue. Raw exception text is not included in the Telegram alert.
+A failed independent housekeeping step does not skip later housekeeping steps in the same hourly cycle.
 
-A successful later maintenance cycle clears the corresponding runtime error state.
+The runtime records only safe step/error-type information for operational exposure; raw exception payloads are not inserted into Telegram alert text.
 
-## Tests added
+## Tests
+
+The full validation suite at implementation-validation SHA
+`cc8e579526c83426a787093e13202130e87290c3`
+ran **319 tests** successfully in GitHub Actions ZION CI run **#888**.
 
 Block 4 regression coverage includes:
 
 - PRAGMA read failure fails closed;
-- application ID zero is not healthy after runtime initialization;
-- PRAGMA failure reaches operational alerts;
+- application ID mismatch;
+- schema-version mismatch and unreadable schema;
+- missing SQLite file;
+- dashboard FK corruption, wrong application ID and unsupported schema;
 - failed alert delivery remains retryable;
 - successful alert delivery remains deduplicated;
-- failed recovery delivery remains retryable;
-- housekeeping failure does not block health alerts;
-- deliberately disabled AI does not create provider/circuit false alerts;
-- `/diagnostics` reports AI budget/circuit/accounting state without exposing the configured key;
-- Telegram update-lag sampling remains bounded and non-negative;
-- dashboard database health fails on foreign-key corruption;
-- dashboard rejects a non-ZION SQLite application ID;
-- unexpected integrity-probe exceptions still reach the alert path;
-- community-stat telemetry failure becomes visible;
-- health-alert persistence read failure becomes visible;
-- disk-usage probe failure is never reported as healthy;
-- AI-latency and schema-version telemetry failures become visible;
-- delivery-safety preflight fails closed before scheduled sends;
-- temporary-state maintenance failure remains visible without disabling the delivery guard;
-- housekeeping steps continue after an independent cleanup failure.
+- failed recovery remains retryable;
+- atomic rollback of the alert dedup pair;
+- dirty dedup persistence repair;
+- incident persistence retry independent of notification dedup;
+- no duplicate health incidents during failed notification retries;
+- housekeeping failure does not block monitoring;
+- later housekeeping steps continue after an independent failure;
+- delivery safety preflight blocks scheduled effects;
+- critical SQLite health blocks scheduled effects;
+- health-cycle exception blocks scheduled effects;
+- disabled AI does not create provider/circuit/accounting false alerts;
+- diagnostics exposes operational/AI state without configured secrets;
+- Telegram update lag remains bounded and non-negative;
+- edited Telegram messages use edit timestamp;
+- stale high lag does not generate a current alert;
+- fresh high lag does generate an alert;
+- 60-second health cadence is independent from hourly housekeeping;
+- scheduler cadence is monotonic and immediate after startup;
+- unavailable disk/schema/latency/community telemetry is explicit;
+- provider-failure uncertain token usage is conservatively charged;
+- uncertain AI budget survives restart and rolls over by UTC day;
+- failure to persist uncertain AI usage makes accounting fail closed;
+- existing transaction tests continue to prove no network `await` spans a DB transaction.
+
+Validation evidence for that SHA:
+
+- Python compile: PASS
+- runtime compatibility: PASS
+- imports: OK
+- unit tests: **319/319**
+- shell syntax: PASS
+- tracked sensitive-file check: PASS
+- SECRET SCAN: OK
+- ZION VALIDATION: OK
 
 ## Residual host/live validation
 
@@ -171,10 +290,11 @@ These checks still require the controlled Acer/Telegram gate before production:
 - operator DM delivery during a real Telegram network interruption;
 - dashboard localhost binding on the host;
 - passive WAL checkpoint behavior with real concurrent readers;
+- scheduled-delivery health-gate behavior against a disposable/local test database only;
 - Mistral latency/budget telemetry only after a future explicitly approved AI activation.
 
 ## Production boundary
 
-This branch must not be merged to `zion-v1` as part of Block 4 work.
+This branch must not be merged directly to `zion-v1`.
 
 Production remains a separate deployment decision with backup, host validation, Telegram live gates and rollback preparation.
