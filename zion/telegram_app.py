@@ -3804,9 +3804,9 @@ async def operational_alert_cycle(
     if rt.wal_checkpoint_last_error:
         issues.append("wal_checkpoint_failed")
 
-    if not rt.ai.accounting_healthy:
-        issues.append("ai_accounting_fail_closed")
     if rt.settings.ai_enabled:
+        if not rt.ai.accounting_healthy:
+            issues.append("ai_accounting_fail_closed")
         if not rt.ai.enabled:
             issues.append("ai_provider_not_ready")
         elif rt.ai.circuit_open():
