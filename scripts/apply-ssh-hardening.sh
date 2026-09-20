@@ -3,13 +3,12 @@ set -euo pipefail
 
 SCRIPT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 EXPECTED_USER="zetta"
-EXPECTED_GROUP="$(id -gn "$EXPECTED_USER" 2>/dev/null || printf '%s' "$EXPECTED_USER")"
 SRC="$SCRIPT_ROOT/ops/sshd/00-zion-remote.conf"
 DST="/etc/ssh/sshd_config.d/00-zion-remote.conf"
 SSH_DIR="/home/zetta/.ssh"
 AUTHORIZED_KEYS="/home/zetta/.ssh/authorized_keys"
-STATE_DIR="/home/zetta/.local/state/zion-community-bot"
-BACKUP_DIR="$STATE_DIR/ssh-hardening-backups"
+BACKUP_PARENT="/var/lib/zion-community-bot"
+BACKUP_DIR="$BACKUP_PARENT/ssh-hardening-backups"
 
 if [[ "${ZION_REMOTE_ACCESS_PROVEN:-}" != "YES" ]]; then
   echo "ERRO: defina ZION_REMOTE_ACCESS_PROVEN=YES somente após login por chave validado." >&2
@@ -104,11 +103,41 @@ if ! grep -Eq '^[[:space:]]*(ssh-ed25519|sk-ssh-ed25519@openssh.com|ecdsa-sha2-n
   exit 2
 fi
 
-sudo /usr/bin/install -d -o "$EXPECTED_USER" -g "$EXPECTED_GROUP" -m 0700 "$STATE_DIR"
-sudo /usr/bin/install -d -o "$EXPECTED_USER" -g "$EXPECTED_GROUP" -m 0700 "$BACKUP_DIR"
+if [[ -e "$DST" || -L "$DST" ]]; then
+  if [[ ! -f "$DST" || -L "$DST" ]]; then
+    echo "ERRO: drop-in SSH existente não é arquivo regular: $DST" >&2
+    exit 2
+  fi
+  if [[ "$(stat -c '%h' "$DST")" != "1" ]]; then
+    echo "ERRO: drop-in SSH existente possui hard links." >&2
+    exit 2
+  fi
+  if [[ "$(stat -c '%U:%G' "$DST")" != "root:root" ]]; then
+    echo "ERRO: drop-in SSH existente deve pertencer a root:root." >&2
+    exit 2
+  fi
+fi
+
+if [[ -L "$BACKUP_PARENT" || -L "$BACKUP_DIR" ]]; then
+  echo "ERRO: diretório de backup SSH não pode ser symlink." >&2
+  exit 2
+fi
+
+sudo /usr/bin/install -d -o root -g root -m 0755 "$BACKUP_PARENT"
+sudo /usr/bin/install -d -o root -g root -m 0700 "$BACKUP_DIR"
+
+if [[ "$(sudo /usr/bin/stat -c '%U:%G:%a' "$BACKUP_PARENT")" != "root:root:755" ]]; then
+  echo "ERRO: diretório pai de backup SSH possui ownership/mode inesperado." >&2
+  exit 2
+fi
+if [[ "$(sudo /usr/bin/stat -c '%U:%G:%a' "$BACKUP_DIR")" != "root:root:700" ]]; then
+  echo "ERRO: diretório de backup SSH deve ser root:root 0700." >&2
+  exit 2
+fi
 
 stamp="$(date -u +%Y%m%dT%H%M%SZ)"
 backup=""
+had_previous=false
 mutated=false
 
 rollback() {
@@ -116,19 +145,31 @@ rollback() {
     return
   fi
   echo "Falha após mutação; restaurando configuração SSH anterior..." >&2
-  if [[ -n "$backup" && -f "$backup" ]]; then
+  if [[ "$had_previous" == true && -n "$backup" ]]; then
     sudo /usr/bin/install -o root -g root -m 0644 "$backup" "$DST"
   else
     sudo /usr/bin/rm -f "$DST"
   fi
   sudo /usr/sbin/sshd -t
-  sudo /usr/bin/systemctl reload ssh.service 2>/dev/null     || sudo /usr/bin/systemctl reload sshd.service 2>/dev/null     || true
+  sudo /usr/bin/systemctl reload ssh.service 2>/dev/null \
+    || sudo /usr/bin/systemctl reload sshd.service 2>/dev/null \
+    || true
 }
 trap rollback ERR
 
 if [[ -f "$DST" ]]; then
   backup="$BACKUP_DIR/00-zion-remote.$stamp.$BASHPID.conf"
-  sudo /usr/bin/install     -o "$EXPECTED_USER"     -g "$EXPECTED_GROUP"     -m 0600     "$DST"     "$backup"
+  sudo /usr/bin/install \
+    -o root \
+    -g root \
+    -m 0600 \
+    "$DST" \
+    "$backup"
+  had_previous=true
+  if [[ "$(sudo /usr/bin/stat -c '%U:%G:%a' "$backup")" != "root:root:600" ]]; then
+    echo "ERRO: backup SSH não ficou root:root 0600." >&2
+    exit 2
+  fi
 fi
 
 sudo /usr/bin/install -o root -g root -m 0644 "$SRC" "$DST"
@@ -136,9 +177,11 @@ mutated=true
 
 sudo /usr/sbin/sshd -t
 
-sudo /usr/bin/systemctl reload ssh.service 2>/dev/null   || sudo /usr/bin/systemctl reload sshd.service
+sudo /usr/bin/systemctl reload ssh.service 2>/dev/null \
+  || sudo /usr/bin/systemctl reload sshd.service
 
-if ! /usr/bin/systemctl is-active --quiet ssh.service 2>/dev/null   && ! /usr/bin/systemctl is-active --quiet sshd.service 2>/dev/null; then
+if ! /usr/bin/systemctl is-active --quiet ssh.service 2>/dev/null \
+  && ! /usr/bin/systemctl is-active --quiet sshd.service 2>/dev/null; then
   echo "ERRO: serviço SSH não está ativo após reload." >&2
   exit 1
 fi
