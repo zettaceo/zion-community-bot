@@ -89,7 +89,9 @@ A future remote backup target can be added after deciding retention/privacy poli
 
 Default: `50000`.
 
-Successful calls use recorded provider input+output token counts. For a timeout or other uncertain provider outcome, ZION cannot prove that the provider consumed zero resources, so it conservatively charges the request's reserved token estimate against the same UTC-day software budget. This conservative amount is persisted as internal accounting state, survives restart and rolls over at the UTC-day boundary.
+Successful calls use recorded provider input+output token counts. If the exact success event cannot be written, the returned provider usage is persisted through the conservative accounting channel so restart cannot erase it. Responses without accountable usage telemetry are rejected instead of being treated as zero-cost success.
+
+For a timeout or other uncertain provider outcome, ZION cannot prove that the provider consumed zero resources, so it conservatively charges the request's reserved token estimate against the same UTC-day software budget. This conservative amount is persisted as internal accounting state, survives restart and rolls over at the UTC-day boundary. Admission reservation uses a conservative UTF-8 byte-based reserve plus fixed wrapper overhead and the output ceiling rather than an average characters-per-token assumption.
 
 If that accounting cannot be read or persisted, AI accounting fails closed and new provider calls are blocked. The deterministic Guardian is unaffected.
 
@@ -106,7 +108,7 @@ ZION_AI_CIRCUIT_FAILURES=3
 ZION_AI_CIRCUIT_SECONDS=120
 ```
 
-After three consecutive provider failures, ZION pauses Mistral calls for two minutes by default. State is persisted in SQLite. The deterministic Guardian is unaffected.
+After three consecutive provider failures, ZION pauses Mistral calls for two minutes by default. Failure count and open-until are persisted together in one SQLite transaction so a partial write cannot leave contradictory circuit state across restart. The deterministic Guardian is unaffected.
 
 Admin `/aistatus` shows:
 - breaker open/closed;
@@ -171,7 +173,7 @@ This intentionally does not provide exactly-once semantics between Telegram and 
 
 The alert signature and last-send timestamp are persisted as one SQLite transaction after a confirmed Telegram delivery. No Telegram I/O occurs inside that transaction. If the write fails, the live runtime preserves the newer in-memory state, marks persistence DIRTY and attempts repair without trusting a stale persisted value.
 
-Incident-ledger persistence is retried independently from notification deduplication, so a successfully delivered alert does not permanently suppress a failed incident write.
+Incident-ledger persistence is retried independently from notification deduplication, so a successfully delivered alert does not permanently suppress a failed incident write. The active operational incident signature/id are persisted across restart. Recovery resolves the active incident; when the issue signature changes, the prior incident is resolved before the replacement incident becomes active.
 
 Housekeeping and passive WAL checkpoint failures are isolated from the health-alert path. Independent housekeeping steps are isolated from each other, so one failed retention operation does not skip all later cleanup steps.
 
@@ -286,7 +288,7 @@ application_id=0x5A494F4E ("ZION")
 
 A new database receives the ZION application ID before schema creation. A recognizable legacy ZION database with application ID zero can be adopted during migration. A non-empty SQLite database that does not match a known ZION schema is rejected before ZION creates any tables in it.
 
-The runtime performs `quick_check + foreign_key_check` during startup and refuses to operate when either fails. Operator diagnostics repeat lightweight integrity checks on a cache interval. Deployment and backup gates use the full `integrity_check`.
+The runtime performs `quick_check + foreign_key_check` during startup and refuses to operate when either fails. Runtime health repeats the lightweight integrity check on the configured health cadence, capped at five minutes; with the default 60-second health interval, integrity/FK state is refreshed every 60 seconds. Deployment and backup gates use the full `integrity_check`.
 
 Schema migrations are versioned and a database with a schema newer than the running ZION build is rejected before mutation. Each migration version is committed atomically.
 
