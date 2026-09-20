@@ -166,6 +166,11 @@ class V11ReleaseGateTests(unittest.TestCase):
         self.assertIn('chmod 700 "$BACKUP_DIR"', text)
         self.assertIn("stat -c '%U' \"$BACKUP_DIR\"", text)
         self.assertIn("$BASHPID", text)
+        self.assertIn('BACKUP_REAL="$(readlink -f -- "$BACKUP_DIR"', text)
+        self.assertIn(
+            'if [[ "$BACKUP_REAL" != "$BACKUP_DIR" ]]',
+            text,
+        )
 
     def test_dashboard_installer_refuses_config_divergence(self) -> None:
         text = self.read("scripts/apply-dashboard.sh")
@@ -219,6 +224,52 @@ class V11ReleaseGateTests(unittest.TestCase):
             "No repository CI result is allowed to claim those gates have passed.",
             text,
         )
+
+    def test_candidate_worktrees_reject_ignored_env_files(self) -> None:
+        deployment = self.read("scripts/deployment-preflight.sh")
+        predeploy = self.read("scripts/predeploy-v11.sh")
+
+        self.assertIn('$SCRIPT_ROOT/.env', deployment)
+        self.assertIn("candidate worktree must not contain an ignored .env", deployment)
+        self.assertIn('$ROOT/.env', predeploy)
+        self.assertIn(
+            "candidate worktree não pode conter .env local ignorado",
+            predeploy,
+        )
+
+    def test_python_release_runtime_is_pinned_to_312(self) -> None:
+        runtime = self.read("scripts/check-runtime.py")
+
+        self.assertIn('python_version[:2] == (3, 12)', runtime)
+        self.assertIn(
+            "audited ZION v1.1 runtime requires Python 3.12.x",
+            runtime,
+        )
+
+    def test_env_example_covers_every_bot_config_key(self) -> None:
+        import re
+
+        config = self.read("zion/config.py")
+        example = self.read(".env.example")
+
+        configured = set(
+            re.findall(
+                r'(?:os\.getenv|_bool|_int|_float|_csv|_int_set|_domain_set)'
+                r'\(\s*"([A-Z0-9_]+)"',
+                config,
+            )
+        )
+        allowlisted = {
+            match.group(1)
+            for line in example.splitlines()
+            if (
+                match := re.match(
+                    r"^([A-Z][A-Z0-9_]*)=",
+                    line,
+                )
+            )
+        }
+        self.assertFalse(configured - allowlisted)
 
     def test_ci_and_runtime_use_audited_dependency_lock(self) -> None:
         ci = self.read(".github/workflows/ci.yml")
