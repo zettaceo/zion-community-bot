@@ -13,6 +13,7 @@ INSTALLED_SERVICE="/etc/systemd/system/zion.service"
 STATE_DIR="/home/zetta/.local/state/zion-community-bot"
 STATE_DB="$STATE_DIR/zion.db"
 EXPECTED_COMMIT="${ZION_EXPECTED_COMMIT:-}"
+FIRST_CUTOVER_POST_STOP="${ZION_FIRST_CUTOVER_POST_STOP:-NO}"
 APPROVED_REF="origin/zion-v1"
 RUNTIME_BASE="/home/zetta/.local/share/zion-community-bot/runtimes"
 PYTHON="${ZION_RUNTIME_PYTHON:-$RUNTIME_BASE/$EXPECTED_COMMIT/bin/python}"
@@ -41,6 +42,10 @@ HEAD_SHA="$(/usr/bin/git rev-parse HEAD)"
 
 if [[ ! "$EXPECTED_COMMIT" =~ ^[0-9a-fA-F]{40}$ ]]; then
   echo "ERRO: ZION_EXPECTED_COMMIT deve ser um SHA completo de 40 caracteres." >&2
+  exit 1
+fi
+if [[ "$FIRST_CUTOVER_POST_STOP" != "NO" && "$FIRST_CUTOVER_POST_STOP" != "YES" ]]; then
+  echo "ERRO: ZION_FIRST_CUTOVER_POST_STOP deve ser YES ou NO." >&2
   exit 1
 fi
 
@@ -212,16 +217,28 @@ PY
 
 echo
 echo "[6/8] Current production service + dashboard alignment (no change)..."
-if ! /usr/bin/systemctl is-active --quiet "$SERVICE"; then
-  echo "ERRO: produção atual não está ativa; trate como incidente antes do release." >&2
-  exit 1
+if /usr/bin/systemctl is-active --quiet "$SERVICE"; then
+  if [[ "$FIRST_CUTOVER_POST_STOP" == "YES" ]]; then
+    echo "ERRO: gate pós-stop exige zion.service realmente parado." >&2
+    exit 1
+  fi
+  /usr/bin/systemctl show "$SERVICE" \
+    -p ActiveState \
+    -p SubState \
+    -p MainPID \
+    -p NRestarts \
+    -p ExecMainStartTimestamp
+else
+  if [[ "$FIRST_CUTOVER_POST_STOP" != "YES" ]]; then
+    echo "ERRO: produção atual não está ativa; trate como incidente antes do release." >&2
+    exit 1
+  fi
+  if [[ "$PROD_SERVICE_STATE_LAYOUT" == true ]]; then
+    echo "ERRO: gate pós-stop especial só é permitido no primeiro cutover legado." >&2
+    exit 1
+  fi
+  echo "production_service=STOPPED_FOR_FIRST_CUTOVER_VERIFICATION"
 fi
-/usr/bin/systemctl show "$SERVICE" \
-  -p ActiveState \
-  -p SubState \
-  -p MainPID \
-  -p NRestarts \
-  -p ExecMainStartTimestamp
 
 PROD_DB_PATH="$(
   PROD_ENV="$PROD_ENV" \
@@ -252,6 +269,11 @@ DASHBOARD_LOAD_STATE="$(
     -p LoadState --value 2>/dev/null || true
 )"
 if [[ -n "$DASHBOARD_LOAD_STATE" && "$DASHBOARD_LOAD_STATE" != "not-found" ]]; then
+  if [[ "$FIRST_CUTOVER_POST_STOP" == "YES" ]] \
+    && /usr/bin/systemctl is-active --quiet zion-dashboard.service; then
+    echo "ERRO: dashboard deve estar parado durante o gate pós-stop." >&2
+    exit 1
+  fi
   DASHBOARD_ENV="$(
     /usr/bin/systemctl show zion-dashboard.service \
       -p Environment --value 2>/dev/null || true
