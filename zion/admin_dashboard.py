@@ -10,7 +10,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
-from .db import ZionDB
+from .db import ZION_APPLICATION_ID, ZionDB
 from .logging_safe import configure_logging
 
 
@@ -68,6 +68,16 @@ def _status_payload(
     db_file_mb = int(db_sizes["database"] / 1024 / 1024)
     wal_size_mb = int(db_sizes["wal"] / 1024 / 1024)
     shm_size_mb = int(db_sizes["shm"] / 1024 / 1024)
+    application_id = 0
+    application_id_ok = False
+    try:
+        application_id = int(
+            db.runtime_pragmas()["application_id"]
+        )
+        application_id_ok = application_id == ZION_APPLICATION_ID
+    except Exception:
+        application_id_ok = False
+
     db_read_ok = True
 
     try:
@@ -82,7 +92,12 @@ def _status_payload(
         stats = {}
         db_read_ok = False
 
-    database_ok = db.ping() and integrity_ok and db_read_ok
+    database_ok = (
+        db.ping()
+        and integrity_ok
+        and db_read_ok
+        and application_id_ok
+    )
 
     return {
         "zion_dashboard": "online",
@@ -91,6 +106,8 @@ def _status_payload(
         "sqlite_integrity": integrity_result,
         "sqlite_foreign_keys_ok": foreign_keys_ok,
         "sqlite_foreign_key_violations": foreign_key_violations[:20],
+        "sqlite_application_id": application_id,
+        "sqlite_application_id_ok": application_id_ok,
         "database_size_mb": db_size_mb,
         "database_file_mb": db_file_mb,
         "wal_size_mb": wal_size_mb,
@@ -142,6 +159,7 @@ th, td {{ text-align: left; padding: .55rem; border-bottom: 1px solid #252b36; }
 <p>Database: {html.escape(str(payload["database"]))}</p>
 <p>SQLite integrity: {html.escape(str(payload["sqlite_integrity"]))}</p>
 <p>SQLite FK integrity: {html.escape(str(payload["sqlite_foreign_keys_ok"]))}</p>
+<p>SQLite application_id: {html.escape(str(payload["sqlite_application_id"]))} (valid={html.escape(str(payload["sqlite_application_id_ok"]))})</p>
 <p>SQLite total/db/WAL/SHM: {html.escape(str(payload["database_size_mb"]))}/{html.escape(str(payload["database_file_mb"]))}/{html.escape(str(payload["wal_size_mb"]))}/{html.escape(str(payload["shm_size_mb"]))} MB</p>
 <p>Wi-Fi interface: {html.escape(str(payload["wifi_interface_present"]))}</p>
 <p>Free disk: {html.escape(str(payload["disk_free_mb"]))} MB</p>
