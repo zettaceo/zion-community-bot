@@ -194,8 +194,10 @@ class V11ReleaseGateTests(unittest.TestCase):
     ) -> None:
         text = self.read("docs/V1.1-FIRST-UPGRADE.md")
 
+        self.assertIn("GIT_NO_REPLACE_OBJECTS=1", text)
+        self.assertIn("core.hooksPath=/dev/null", text)
         self.assertIn(
-            'git worktree add --detach "$CANDIDATE_ROOT" "$ZION_DEPLOY_COMMIT"',
+            'worktree add --detach "$CANDIDATE_ROOT" "$ZION_DEPLOY_COMMIT"',
             text,
         )
         self.assertIn(
@@ -208,6 +210,19 @@ class V11ReleaseGateTests(unittest.TestCase):
         )
         self.assertIn("fast-forward", text)
         self.assertIn("zion-v1-prod", text)
+
+    def test_bootstrap_and_cutover_neutralize_git_hooks(self) -> None:
+        first_upgrade = self.read("docs/V1.1-FIRST-UPGRADE.md")
+        deploy_model = self.read("docs/DEPLOYMENT-MODEL.md")
+        verifier = self.read("scripts/verify-approved-release.sh")
+
+        for text in (first_upgrade, deploy_model):
+            self.assertIn("GIT_NO_REPLACE_OBJECTS=1", text)
+            self.assertIn("core.hooksPath=/dev/null", text)
+
+        self.assertIn("GIT_NO_REPLACE_OBJECTS=1", verifier)
+        self.assertIn("core.hooksPath=/dev/null", verifier)
+        self.assertIn("worktree add --detach", verifier)
 
     def test_first_upgrade_never_authorizes_production_merge(self) -> None:
         text = self.read("docs/V1.1-FIRST-UPGRADE.md")
