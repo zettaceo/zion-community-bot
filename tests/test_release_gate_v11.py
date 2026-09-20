@@ -220,6 +220,34 @@ class V11ReleaseGateTests(unittest.TestCase):
             text,
         )
 
+    def test_ci_and_runtime_use_audited_dependency_lock(self) -> None:
+        ci = self.read(".github/workflows/ci.yml")
+        runtime = self.read("scripts/check-runtime.py")
+        lock = self.read("requirements.lock")
+
+        self.assertIn("pip install -r requirements.lock", ci)
+        self.assertIn("cache-dependency-path: requirements.lock", ci)
+        self.assertNotIn("pip install -r requirements.txt", ci)
+        self.assertIn("verify_runtime_lock()", runtime)
+        self.assertIn(
+            "runtime package differs from audited lock",
+            runtime,
+        )
+
+        expected = (
+            "python-telegram-bot==22.8",
+            "python-dotenv==1.2.3",
+            "httpx==0.28.1",
+            "idna==3.20",
+            "httpcore==1.0.9",
+            "anyio==4.15.1",
+            "certifi==2026.7.22",
+            "h11==0.16.0",
+            "typing_extensions==4.16.0",
+        )
+        for item in expected:
+            self.assertIn(item, lock)
+
     def test_deployment_preflight_report_only_remains_read_only(self) -> None:
         script = ROOT / "scripts" / "deployment-preflight.sh"
         with tempfile.TemporaryDirectory() as tmp:
