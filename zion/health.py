@@ -102,6 +102,7 @@ class HealthService:
         db_size_mb = int(db_sizes["total"] / 1024 / 1024)
         db_file_mb = int(db_sizes["database"] / 1024 / 1024)
         wal_size_mb = int(db_sizes["wal"] / 1024 / 1024)
+        shm_size_mb = int(db_sizes["shm"] / 1024 / 1024)
 
         return HealthSnapshot(
             state=state,
@@ -128,6 +129,7 @@ class HealthService:
                 "db_size_mb": db_size_mb,
                 "db_file_mb": db_file_mb,
                 "wal_size_mb": wal_size_mb,
+                "shm_size_mb": shm_size_mb,
                 "db_large": (
                     db_file_mb >= self.settings.db_warn_mb
                 ),
@@ -219,6 +221,7 @@ class HealthService:
             "db_size_mb": int(snapshot.details.get("db_size_mb", 0)),
             "db_file_mb": int(snapshot.details.get("db_file_mb", 0)),
             "wal_size_mb": int(snapshot.details.get("wal_size_mb", 0)),
+            "shm_size_mb": int(snapshot.details.get("shm_size_mb", 0)),
             "db_large": bool(snapshot.details.get("db_large")),
             "wal_large": bool(snapshot.details.get("wal_large")),
             "db_warn_mb": int(snapshot.details.get("db_warn_mb", 0)),
