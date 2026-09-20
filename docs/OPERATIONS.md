@@ -213,7 +213,9 @@ bash scripts/remote-access-preflight.sh
 SSH hardening is applied only after a real public-key login is proven:
 
 ```bash
-ZION_REMOTE_ACCESS_PROVEN=YES bash scripts/apply-ssh-hardening.sh
+ZION_REMOTE_ACCESS_PROVEN=YES \
+ZION_HOSTKEY_PROVEN=YES \
+  bash scripts/apply-ssh-hardening.sh
 ```
 
 The installer reloads sshd after `sshd -t`; it does not restart the bot, change Tailscale or change firewall/router policy.
