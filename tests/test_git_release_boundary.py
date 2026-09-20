@@ -26,7 +26,12 @@ FORBIDDEN_GIT_ENV = (
     "GIT_NAMESPACE",
     "GIT_SSH",
     "GIT_SSH_COMMAND",
+    "GIT_ASKPASS",
+    "GIT_PROXY_COMMAND",
+    "GIT_EXEC_PATH",
     "GIT_SSL_NO_VERIFY",
+    "GIT_SSL_CAINFO",
+    "GIT_SSL_CAPATH",
 )
 
 
@@ -38,6 +43,26 @@ class GitReleaseBoundaryTests(unittest.TestCase):
             capture_output=True,
             check=True,
         )
+
+    def git_path(self, root: Path, relative: str) -> Path:
+        path = Path(
+            subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    str(root),
+                    "rev-parse",
+                    "--git-path",
+                    relative,
+                ],
+                text=True,
+                capture_output=True,
+                check=True,
+            ).stdout.strip()
+        )
+        if not path.is_absolute():
+            path = root / path
+        return path
 
     def make_repo(self, root: Path) -> None:
         self.git(root, "init")
@@ -87,23 +112,7 @@ class GitReleaseBoundaryTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             self.make_repo(root)
-            hooks = Path(
-                subprocess.run(
-                    [
-                        "git",
-                        "-C",
-                        str(root),
-                        "rev-parse",
-                        "--git-path",
-                        "hooks",
-                    ],
-                    text=True,
-                    capture_output=True,
-                    check=True,
-                ).stdout.strip()
-            )
-            if not hooks.is_absolute():
-                hooks = root / hooks
+            hooks = self.git_path(root, "hooks")
             hooks.mkdir(parents=True, exist_ok=True)
             hook = hooks / "post-checkout"
             hook.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
@@ -124,6 +133,140 @@ class GitReleaseBoundaryTests(unittest.TestCase):
 
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("core.hooksPath is configured", result.stderr)
+
+    def test_local_info_exclude_rule_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.make_repo(root)
+            exclude = self.git_path(root, "info/exclude")
+            exclude.parent.mkdir(parents=True, exist_ok=True)
+            with exclude.open("a", encoding="utf-8") as handle:
+                handle.write("shadow.py\n")
+
+            result = self.run_check(root)
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("local Git exclude rules", result.stderr)
+
+    def test_local_info_attribute_rule_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.make_repo(root)
+            attributes = self.git_path(root, "info/attributes")
+            attributes.parent.mkdir(parents=True, exist_ok=True)
+            attributes.write_text(
+                "tracked.txt filter=attacker\n",
+                encoding="utf-8",
+            )
+
+            result = self.run_check(root)
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("local Git attribute rules", result.stderr)
+
+    def test_core_excludes_file_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.make_repo(root)
+            self.git(
+                root,
+                "config",
+                "core.excludesFile",
+                "/tmp/zion-global-ignore",
+            )
+
+            result = self.run_check(root)
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("core.excludesFile is configured", result.stderr)
+
+    def test_core_fsmonitor_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.make_repo(root)
+            self.git(
+                root,
+                "config",
+                "core.fsmonitor",
+                "/tmp/zion-fsmonitor",
+            )
+
+            result = self.run_check(root)
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("core.fsmonitor is configured", result.stderr)
+
+    def test_core_ssh_command_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.make_repo(root)
+            self.git(
+                root,
+                "config",
+                "core.sshCommand",
+                "/tmp/zion-fake-ssh",
+            )
+
+            result = self.run_check(root)
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("core.sshCommand is configured", result.stderr)
+
+    def test_ignored_importable_bytecode_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.make_repo(root)
+            (root / ".gitignore").write_text(
+                "*.pyc\n",
+                encoding="utf-8",
+            )
+            self.git(root, "add", ".gitignore")
+            self.git(root, "commit", "-m", "ignore bytecode")
+            (root / "telegram.pyc").write_bytes(b"shadow")
+
+            status = subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    str(root),
+                    "status",
+                    "--porcelain",
+                    "--untracked-files=all",
+                ],
+                text=True,
+                capture_output=True,
+                check=True,
+            ).stdout
+            self.assertEqual(status, "")
+
+            result = self.run_check(root)
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn(
+                "ignored untracked importable code",
+                result.stderr,
+            )
+            self.assertIn("telegram.pyc", result.stderr)
+
+    def test_ignored_legacy_venv_code_is_not_treated_as_repo_shadowing(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.make_repo(root)
+            (root / ".gitignore").write_text(
+                ".venv/\n",
+                encoding="utf-8",
+            )
+            self.git(root, "add", ".gitignore")
+            self.git(root, "commit", "-m", "ignore legacy venv")
+            package = root / ".venv" / "lib"
+            package.mkdir(parents=True)
+            (package / "telegram.pyc").write_bytes(b"venv-bytecode")
+
+            result = self.run_check(root)
+
+            self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_replace_ref_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -214,6 +357,19 @@ class GitReleaseBoundaryTests(unittest.TestCase):
 
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("GIT_SSH_COMMAND", result.stderr)
+
+    def test_askpass_environment_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.make_repo(root)
+
+            result = self.run_check(
+                root,
+                extra_env={"GIT_ASKPASS": "/tmp/zion-askpass"},
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("GIT_ASKPASS", result.stderr)
 
 
 if __name__ == "__main__":
