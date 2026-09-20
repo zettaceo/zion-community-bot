@@ -389,7 +389,7 @@ class Block4OperationsTests(unittest.TestCase):
                     source.index("if not delivery_guard_ok:"),
                 )
                 self.assertLess(
-                    source.index("if not delivery_guard_ok:"),
+                    source.index("rt.delivery_health_blocked"),
                     source.index("due_scheduled_messages"),
                 )
             finally:
@@ -471,6 +471,66 @@ class Block4OperationsTests(unittest.TestCase):
             finally:
                 rt.close()
 
+    def test_critical_sqlite_health_blocks_scheduled_delivery_gate(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            rt = Runtime(self._settings(root))
+            app = FakeApplication(rt)
+            original = rt.db.runtime_pragmas
+
+            def wrong_application_id():
+                values = dict(original())
+                values["application_id"] = 0
+                return values
+
+            rt.db.runtime_pragmas = wrong_application_id
+            try:
+                asyncio.run(operational_alert_cycle(app, rt))
+                self.assertTrue(rt.delivery_health_blocked)
+                self.assertIn(
+                    "sqlite_application_id_mismatch",
+                    rt.delivery_health_block_reasons,
+                )
+
+                rt.db.runtime_pragmas = original
+                asyncio.run(operational_alert_cycle(app, rt))
+                self.assertFalse(rt.delivery_health_blocked)
+                self.assertEqual(rt.delivery_health_block_reasons, ())
+            finally:
+                rt.close()
+
+    def test_health_cycle_exception_blocks_scheduled_delivery(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            rt = Runtime(self._settings(root))
+            app = FakeApplication(rt)
+
+            def fail():
+                raise RuntimeError("synthetic health cycle failure")
+
+            rt.health.snapshot = fail
+            try:
+                asyncio.run(
+                    hourly_operations_cycle(
+                        app,
+                        rt,
+                        now=time.time(),
+                    )
+                )
+                self.assertTrue(rt.delivery_health_blocked)
+                self.assertTrue(
+                    any(
+                        reason.startswith(
+                            "operational_health_check_failed:"
+                        )
+                        for reason in rt.delivery_health_block_reasons
+                    )
+                )
+            finally:
+                rt.close()
+
     def test_disabled_ai_does_not_raise_provider_alert(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -534,6 +594,10 @@ class Block4OperationsTests(unittest.TestCase):
                     output,
                 )
                 self.assertIn("Alert dedup persistence: OK", output)
+                self.assertIn(
+                    "Scheduled delivery health gate: OPEN",
+                    output,
+                )
                 self.assertNotIn("synthetic-key-material", output)
             finally:
                 rt.close()
