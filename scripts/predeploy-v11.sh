@@ -2,10 +2,12 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-PYTHON="$ROOT/.venv/bin/python"
-PROD_ROOT="/home/zetta/zion-community-bot"
+PYTHON="${ZION_RUNTIME_PYTHON:-$ROOT/.venv/bin/python}"
+PROD_ROOT="${ZION_PROD_ROOT:-/home/zetta/zion-community-bot}"
 PROD_ENV="$PROD_ROOT/.env"
-SERVICE="zion.service"
+SERVICE="${ZION_SERVICE:-zion.service}"
+EXPECTED_COMMIT="${ZION_EXPECTED_COMMIT:-}"
+APPROVED_REF="${ZION_APPROVED_REF:-origin/zion-v1}"
 
 TMP_ROOT="$(mktemp -d /tmp/zion-v11-predeploy.XXXXXX)"
 chmod 700 "$TMP_ROOT"
@@ -15,11 +17,33 @@ echo "ZION v1.1 PRE-DEPLOY — READ-ONLY PRODUCTION CHECK"
 echo "================================================="
 
 echo
-echo "[1/8] Branch/commit..."
+echo "[1/8] Approved branch/commit..."
 cd "$ROOT"
 git status --short --branch
 HEAD_SHA="$(git rev-parse HEAD)"
+
+if [[ ! "$EXPECTED_COMMIT" =~ ^[0-9a-fA-F]{40}$ ]]; then
+  echo "ERRO: ZION_EXPECTED_COMMIT deve ser um SHA completo de 40 caracteres." >&2
+  exit 1
+fi
+
+APPROVED_SHA="$(git rev-parse "$APPROVED_REF^{commit}" 2>/dev/null || true)"
+if [[ "$HEAD_SHA" != "$EXPECTED_COMMIT" ]]; then
+  echo "ERRO: candidate HEAD diferente de ZION_EXPECTED_COMMIT." >&2
+  exit 1
+fi
+if [[ "$APPROVED_SHA" != "$EXPECTED_COMMIT" ]]; then
+  echo "ERRO: $APPROVED_REF não aponta exatamente para o commit aprovado." >&2
+  exit 1
+fi
+if ! git diff --quiet || ! git diff --cached --quiet; then
+  echo "ERRO: candidate worktree possui alterações rastreadas." >&2
+  exit 1
+fi
+
 echo "candidate_head=$HEAD_SHA"
+echo "approved_ref=$APPROVED_REF"
+echo "approved_sha=$APPROVED_SHA"
 
 echo
 echo "[2/8] Virtualenv..."
@@ -31,7 +55,7 @@ fi
 
 echo
 echo "[3/8] Full repository validation..."
-bash "$ROOT/scripts/validate.sh"
+ZION_VALIDATION_PYTHON="$PYTHON" bash "$ROOT/scripts/validate.sh"
 
 echo
 echo "[4/8] Candidate systemd unit..."
