@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import sqlite3
 import tempfile
 import time
@@ -21,6 +22,8 @@ from zion.telegram_app import (
     hourly_operations_cycle,
     operational_alert_cycle,
     record_update_lag,
+    scheduler_loop,
+    scheduler_safety_preflight,
     update_lag_stats,
 )
 
@@ -202,6 +205,70 @@ class Block4OperationsTests(unittest.TestCase):
             finally:
                 rt.close()
 
+    def test_delivery_safety_preflight_failure_blocks_delivery_path(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            rt = Runtime(self._settings(root))
+
+            def fail(*args, **kwargs):
+                raise RuntimeError("synthetic delivery guard failure")
+
+            rt.db.quarantine_stale_delivery_claims = fail
+            try:
+                allowed = scheduler_safety_preflight(
+                    rt,
+                    time.time(),
+                )
+                self.assertFalse(allowed)
+                self.assertEqual(
+                    rt.delivery_guard_last_error,
+                    "RuntimeError",
+                )
+
+                source = inspect.getsource(scheduler_loop)
+                self.assertLess(
+                    source.index("if not delivery_guard_ok:"),
+                    source.index("due_scheduled_messages"),
+                )
+            finally:
+                rt.close()
+
+    def test_temporary_state_failure_is_visible_but_does_not_disable_guard(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            rt = Runtime(self._settings(root))
+            app = FakeApplication(rt)
+            original_get_setting = rt.db.get_setting
+
+            def selective_failure(key: str):
+                if key == "operating_state_expires_at":
+                    raise RuntimeError("synthetic state maintenance failure")
+                return original_get_setting(key)
+
+            rt.db.get_setting = selective_failure
+            try:
+                allowed = scheduler_safety_preflight(
+                    rt,
+                    time.time(),
+                )
+                self.assertTrue(allowed)
+                self.assertEqual(
+                    rt.state_maintenance_last_error,
+                    "RuntimeError",
+                )
+                self.assertIsNone(rt.delivery_guard_last_error)
+
+                asyncio.run(operational_alert_cycle(app, rt))
+                self.assertEqual(app.bot.attempts, 1)
+                self.assertIn(
+                    "temporary_state_maintenance_failed",
+                    app.bot.sent[0][1],
+                )
+            finally:
+                rt.close()
+
     def test_housekeeping_failure_does_not_block_health_alert(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -296,6 +363,14 @@ class Block4OperationsTests(unittest.TestCase):
                 self.assertIn("Scheduler: STOPPED", output)
                 self.assertIn("Hourly housekeeping: OK", output)
                 self.assertIn("WAL checkpoint: OK", output)
+                self.assertIn(
+                    "Temporary-state maintenance: OK",
+                    output,
+                )
+                self.assertIn(
+                    "Delivery safety preflight: OK",
+                    output,
+                )
                 self.assertNotIn("synthetic-key-material", output)
             finally:
                 rt.close()
