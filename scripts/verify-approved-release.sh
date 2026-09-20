@@ -74,7 +74,9 @@ cleanup() {
 }
 trap cleanup EXIT
 
-git -C "$ROOT" worktree add --detach "$candidate" "$EXPECTED" >/dev/null
+GIT_NO_REPLACE_OBJECTS=1 \
+git -c core.hooksPath=/dev/null -C "$ROOT" \
+  worktree add --detach "$candidate" "$EXPECTED" >/dev/null
 worktree_added=true
 
 echo "Approved release candidate: $EXPECTED"
