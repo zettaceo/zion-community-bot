@@ -31,6 +31,7 @@ ENV_FILE="$ROOT/.env"
 RUNTIME_BASE="/home/zetta/.local/share/zion-community-bot/runtimes"
 RUNTIME_DIR="$RUNTIME_BASE/$EXPECTED"
 CURRENT_RUNTIME="$RUNTIME_BASE/current"
+SAFE_GIT_SSH_COMMAND="/usr/bin/ssh -F /dev/null -o BatchMode=yes -o StrictHostKeyChecking=yes -o ProxyCommand=none -o ProxyJump=none -o PermitLocalCommand=no"
 
 failures=0
 warnings=0
@@ -111,9 +112,9 @@ else
   esac
 
   if command -v timeout >/dev/null 2>&1; then
-    remote_line="$(timeout 20 env GIT_TERMINAL_PROMPT=0 /usr/bin/git -C "$ROOT" ls-remote --exit-code origin "refs/heads/$REMOTE_BRANCH" 2>/dev/null | head -n1 || true)"
+    remote_line="$(timeout 20 env GIT_TERMINAL_PROMPT=0 /usr/bin/git -c "core.sshCommand=$SAFE_GIT_SSH_COMMAND" -c ssh.variant=ssh -C "$ROOT" ls-remote --exit-code origin "refs/heads/$REMOTE_BRANCH" 2>/dev/null | head -n1 || true)"
   else
-    remote_line="$(env GIT_TERMINAL_PROMPT=0 /usr/bin/git -C "$ROOT" ls-remote --exit-code origin "refs/heads/$REMOTE_BRANCH" 2>/dev/null | head -n1 || true)"
+    remote_line="$(env GIT_TERMINAL_PROMPT=0 /usr/bin/git -c "core.sshCommand=$SAFE_GIT_SSH_COMMAND" -c ssh.variant=ssh -C "$ROOT" ls-remote --exit-code origin "refs/heads/$REMOTE_BRANCH" 2>/dev/null | head -n1 || true)"
   fi
   remote_sha="${remote_line%%[[:space:]]*}"
   if [[ -n "$EXPECTED" && "$remote_sha" == "$EXPECTED" ]]; then
