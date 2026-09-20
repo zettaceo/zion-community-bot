@@ -121,6 +121,8 @@ Use the exact candidate SHA in a detached temporary worktree and follow:
 
 The candidate preflight binds its own worktree HEAD to the approved SHA while inspecting the unchanged production root.
 
+Before the first candidate worktree is created, the bootstrap must extract `scripts/check-git-release-boundary.py` directly from the exact approved commit as a raw Git blob and run it against the production repository. This pre-check prevents local attribute/smudge state from executing during the first `worktree add`; disabling Git hooks alone is not a sufficient checkout boundary.
+
 ## Remote/network gate
 
 Remote deployment is allowed only after the Tailscale/OpenSSH ceremony in `docs/REMOTE-ACCESS.md` is complete.
