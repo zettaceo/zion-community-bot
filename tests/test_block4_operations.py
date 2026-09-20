@@ -156,6 +156,34 @@ class Block4OperationsTests(unittest.TestCase):
             finally:
                 rt.close()
 
+    def test_delivered_alert_with_failed_dedup_write_does_not_spam(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            rt = Runtime(self._settings(root))
+            rt.housekeeping_last_error = "RuntimeError"
+            app = FakeApplication(rt)
+            original_set_setting = rt.db.set_setting
+
+            def fail_health_dedup_write(key: str, value: str) -> None:
+                if key.startswith("health_alert_"):
+                    raise RuntimeError("synthetic dedup write failure")
+                original_set_setting(key, value)
+
+            rt.db.set_setting = fail_health_dedup_write
+            try:
+                asyncio.run(operational_alert_cycle(app, rt))
+                self.assertEqual(app.bot.attempts, 1)
+                self.assertTrue(rt.health_alert_persistence_dirty)
+
+                asyncio.run(operational_alert_cycle(app, rt))
+                self.assertEqual(
+                    app.bot.attempts,
+                    1,
+                    "live dedup state must suppress premature duplicate alerts",
+                )
+            finally:
+                rt.close()
+
     def test_successful_alert_delivery_is_deduplicated(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
