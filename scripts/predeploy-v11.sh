@@ -83,8 +83,17 @@ echo "[3/8] Full repository validation..."
 ZION_VALIDATION_PYTHON="$PYTHON" bash "$ROOT/scripts/validate.sh"
 
 echo
-echo "[4/8] Candidate systemd unit..."
+echo "[4/8] Candidate systemd units..."
 /usr/bin/systemd-analyze verify "$ROOT/systemd/zion.service"
+
+DASHBOARD_LOAD_STATE="$(
+  /usr/bin/systemctl show zion-dashboard.service \
+    -p LoadState --value 2>/dev/null || true
+)"
+if [[ -n "$DASHBOARD_LOAD_STATE" && "$DASHBOARD_LOAD_STATE" != "not-found" ]]; then
+  /usr/bin/systemd-analyze verify "$ROOT/systemd/zion-dashboard.service"
+  echo "dashboard_systemd_unit=OK"
+fi
 echo "systemd_unit=OK"
 
 PROD_SERVICE_STATE_LAYOUT=false
