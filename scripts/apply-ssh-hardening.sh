@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT="${ZION_ROOT:-/home/zetta/zion-community-bot}"
-EXPECTED_USER="${ZION_REMOTE_USER:-zetta}"
-EXPECTED_GROUP="${ZION_REMOTE_GROUP:-$(id -gn "$EXPECTED_USER" 2>/dev/null || printf '%s' "$EXPECTED_USER")}"
-SRC="$ROOT/ops/sshd/99-zion-remote.conf"
+SCRIPT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+EXPECTED_USER="zetta"
+EXPECTED_GROUP="$(id -gn "$EXPECTED_USER" 2>/dev/null || printf '%s' "$EXPECTED_USER")"
+SRC="$SCRIPT_ROOT/ops/sshd/99-zion-remote.conf"
 DST="/etc/ssh/sshd_config.d/99-zion-remote.conf"
-SSH_DIR="${ZION_SSH_DIR:-$HOME/.ssh}"
-AUTHORIZED_KEYS="${ZION_AUTHORIZED_KEYS:-$SSH_DIR/authorized_keys}"
-STATE_DIR="${ZION_STATE_DIR:-/home/zetta/.local/state/zion-community-bot}"
+SSH_DIR="/home/zetta/.ssh"
+AUTHORIZED_KEYS="/home/zetta/.ssh/authorized_keys"
+STATE_DIR="/home/zetta/.local/state/zion-community-bot"
 BACKUP_DIR="$STATE_DIR/ssh-hardening-backups"
 
 if [[ "${ZION_REMOTE_ACCESS_PROVEN:-}" != "YES" ]]; then
@@ -51,7 +51,14 @@ PY
 
 if [[ -n "${SSH_CONNECTION:-}" ]]; then
   source_ip="${SSH_CONNECTION%% *}"
-  python3 - "$source_ip" <<'PY'
+elif [[ "${ZION_PHYSICAL_CONSOLE:-}" == "YES" && -n "${ZION_TAILSCALE_CLIENT_IP:-}" ]]; then
+  source_ip="$ZION_TAILSCALE_CLIENT_IP"
+else
+  echo "ERRO: é necessário um contexto real de cliente Tailscale. Use uma sessão SSH Tailscale ou, no console físico, informe ZION_TAILSCALE_CLIENT_IP." >&2
+  exit 2
+fi
+
+python3 - "$source_ip" <<'PY'
 import ipaddress
 import sys
 address = ipaddress.ip_address(sys.argv[1])
@@ -59,13 +66,9 @@ tailscale_v4 = ipaddress.ip_network("100.64.0.0/10")
 tailscale_v6 = ipaddress.ip_network("fd7a:115c:a1e0::/48")
 if address not in tailscale_v4 and address not in tailscale_v6:
     raise SystemExit(
-        "Sessão SSH atual não veio de um endereço Tailscale; abortando."
+        "Cliente informado não pertence ao espaço de endereços Tailscale."
     )
 PY
-elif [[ "${ZION_PHYSICAL_CONSOLE:-}" != "YES" ]]; then
-  echo "ERRO: sem sessão SSH Tailscale comprovada. Em console físico, defina ZION_PHYSICAL_CONSOLE=YES." >&2
-  exit 2
-fi
 
 if [[ ! -d "$SSH_DIR" || -L "$SSH_DIR" ]]; then
   echo "ERRO: $SSH_DIR ausente ou symlink." >&2
@@ -124,7 +127,7 @@ rollback() {
 trap rollback ERR
 
 if [[ -f "$DST" ]]; then
-  backup="$BACKUP_DIR/99-zion-remote.$stamp.$.conf"
+  backup="$BACKUP_DIR/99-zion-remote.$stamp.$BASHPID.conf"
   sudo /usr/bin/install     -o "$EXPECTED_USER"     -g "$EXPECTED_GROUP"     -m 0600     "$DST"     "$backup"
 fi
 
@@ -140,7 +143,8 @@ if ! /usr/bin/systemctl is-active --quiet ssh.service 2>/dev/null   && ! /usr/bi
   exit 1
 fi
 
-effective="$(sudo /usr/sbin/sshd -T)"
+context="user=$EXPECTED_USER,host=zion-server,addr=$source_ip,laddr=$tailscale_ip,lport=22"
+effective="$(sudo /usr/sbin/sshd -T -C "$context")"
 declare -a required=(
   "passwordauthentication no"
   "kbdinteractiveauthentication no"
