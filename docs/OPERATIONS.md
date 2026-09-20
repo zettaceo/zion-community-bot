@@ -85,13 +85,17 @@ A future remote backup target can be added after deciding retention/privacy poli
 
 ## AI budget
 
-`ZION_AI_DAILY_TOKEN_BUDGET` limits combined recorded Mistral input+output tokens per UTC day.
+`ZION_AI_DAILY_TOKEN_BUDGET` limits the software-side daily Mistral budget per UTC day.
 
 Default: `50000`.
 
-Set `0` only if the team intentionally wants no software-side daily token ceiling.
+Successful calls use recorded provider input+output token counts. For a timeout or other uncertain provider outcome, ZION cannot prove that the provider consumed zero resources, so it conservatively charges the request's reserved token estimate against the same UTC-day software budget. This conservative amount is persisted as internal accounting state, survives restart and rolls over at the UTC-day boundary.
 
-Use admin `/aistatus` to inspect current UTC-day usage.
+If that accounting cannot be read or persisted, AI accounting fails closed and new provider calls are blocked. The deterministic Guardian is unaffected.
+
+Set `0` only if the team intentionally wants no software-side daily token ceiling. Even with an unlimited configured ceiling, failed accounting is reported as unavailable rather than as healthy/unlimited remaining capacity.
+
+Use admin `/aistatus` or `/diagnostics` to inspect current UTC-day usage.
 
 ## Mistral circuit breaker
 
@@ -128,26 +132,56 @@ Knowledge-gap samples older than the configured retention are deleted. Resolved/
 
 `/diagnostics` is operator-only and reports:
 - SQLite quick-check and foreign-key integrity;
+- database-file presence;
+- current and supported schema version;
 - runtime PRAGMA verification and invariant drift;
+- ZION application ID;
 - SQLite total/DB/WAL/SHM sizes;
 - free disk and low-disk threshold state;
 - sensitive runtime file permissions;
 - configured Wi-Fi interface presence;
-- recent Telegram update-lag latest/p95 sample;
+- Telegram update-lag latest/p95/sample count and freshness;
 - successful Mistral latency average/p95 over 24 hours;
 - AI accounting health;
 - UTC-day token usage, configured budget and remaining budget;
-- Mistral circuit-breaker state and provider failure count.
+- Mistral circuit-breaker state and provider failure count;
+- scheduler RUNNING/STOPPED state;
+- hourly housekeeping status;
+- passive WAL checkpoint status;
+- temporary-state maintenance status;
+- delivery-safety preflight;
+- scheduled-delivery health gate and blocking reasons;
+- alert-dedup persistence state;
+- health-check and unchanged-alert repeat cadence.
 
-It also reports scheduler RUNNING/STOPPED state, hourly housekeeping status, passive WAL checkpoint status, temporary-state maintenance status and the delivery-safety preflight. Failed disk/schema/latency probes are shown as unavailable instead of being rendered as healthy defaults.
+Failed disk/schema/latency/SQLite telemetry is shown as UNAVAILABLE or WARNING instead of being rendered as a healthy default.
 
 It never prints API keys, Telegram tokens, provider headers, prompts or user message bodies.
 
-The hourly scheduler deduplicates operational alerts so unchanged conditions do not create repeated notifications. A notification is only marked as delivered after at least one operator Telegram send succeeds. If every delivery attempt fails, the issue remains eligible for retry. This is intentionally not an exactly-once guarantee: a crash after Telegram accepts a notification but before local deduplication state is persisted may produce a later duplicate.
+Operational health is checked independently from housekeeping. Default cadence:
+
+```text
+ZION_HEALTH_CHECK_INTERVAL_SECONDS=60
+ZION_HEALTH_ALERT_REPEAT_SECONDS=21600
+```
+
+A changed issue set is eligible immediately. An unchanged active alert that was successfully delivered is repeated only after the configured repeat interval. If every Telegram send fails, the alert is not marked delivered and remains retryable.
+
+This intentionally does not provide exactly-once semantics between Telegram and SQLite. If Telegram accepts a notification and the process crashes before local dedup state is committed, a later duplicate may occur.
+
+The alert signature and last-send timestamp are persisted as one SQLite transaction after a confirmed Telegram delivery. No Telegram I/O occurs inside that transaction. If the write fails, the live runtime preserves the newer in-memory state, marks persistence DIRTY and attempts repair without trusting a stale persisted value.
+
+Incident-ledger persistence is retried independently from notification deduplication, so a successfully delivered alert does not permanently suppress a failed incident write.
 
 Housekeeping and passive WAL checkpoint failures are isolated from the health-alert path. Independent housekeeping steps are isolated from each other, so one failed retention operation does not skip all later cleanup steps.
 
-Before scheduled or recurring sends, ZION performs a delivery-safety preflight that quarantines stale unknown delivery claims. If that quarantine step itself fails, the scheduler fails closed for external scheduled delivery on that iteration and surfaces `delivery_safety_preflight_failed`. A newly observed delivery-safety failure triggers an immediate operator alert attempt; the normal hourly cycle remains the bounded retry path.
+Before scheduled or recurring sends, ZION performs a delivery-safety preflight that quarantines stale unknown delivery claims. If that quarantine step itself fails, the scheduler fails closed for scheduled/recurring external delivery.
+
+Scheduled delivery also has a critical SQLite health gate. Delivery is blocked when ZION cannot prove database integrity/identity/schema or critical runtime PRAGMAs. If the operational health cycle itself raises unexpectedly, the gate also closes until a later healthy check clears it.
+
+The 60-second scheduler cadence uses a monotonic clock so wall-clock/NTP changes cannot postpone health checks. Retention and audit timestamps continue to use wall-clock UTC semantics.
+
+Telegram lag samples are bounded to 100. Edited messages use the Telegram edit timestamp when present. Old samples remain visible as STALE but do not trigger a current-lag alert.
 
 ## AMA retention
 
@@ -166,9 +200,20 @@ Follow `docs/REMOTE-ACCESS.md` for Tailscale + SSH setup and `docs/DEPLOYMENT-MO
 
 ## Operational alert cadence
 
-Unchanged active operational conditions are not sent on every hourly health cycle. ZION records the alert signature and last-send time, then repeats an unchanged active alert only after `ZION_HEALTH_ALERT_REPEAT_SECONDS` (default: 21600 seconds / 6 hours).
+Operational health checks are independent from hourly housekeeping.
 
-A changed issue set is alerted immediately. When all tracked issues clear, explicit operators receive one recovery notification.
+Defaults:
+
+```text
+ZION_HEALTH_CHECK_INTERVAL_SECONDS=60
+ZION_HEALTH_ALERT_REPEAT_SECONDS=21600
+```
+
+The first health check and housekeeping pass run on the first scheduler iteration after startup.
+
+An unchanged active condition is not sent on every health check. ZION records the alert signature and last successful-send time, then repeats the unchanged delivered alert only after the repeat interval.
+
+A changed issue set is eligible immediately. When all tracked issues clear, explicit operators receive a recovery notification. Failed alert or recovery delivery remains retryable.
 
 
 ## Runtime and concurrency hardening
