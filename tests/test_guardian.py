@@ -43,11 +43,21 @@ class GuardianTests(unittest.TestCase):
             normalize_policy_domain("not a domain"),
         )
 
-    def test_fullwidth_and_zero_width_link_is_normalized(self) -> None:
+    def test_fullwidth_link_is_normalized(self) -> None:
         domains = extract_domains(
-            "Veja ｈｔｔｐｓ：／／exa\u200bmple.com/path"
+            "Veja ｈｔｔｐｓ：／／example.com/path"
         )
         self.assertEqual(domains, ["example.com"])
+
+    def test_zero_width_hostname_obfuscation_fails_closed(self) -> None:
+        decision = self.guardian.evaluate_links(
+            "Veja https://exa\u200bmple.com/path"
+        )
+        self.assertTrue(decision.should_delete)
+        self.assertIn(
+            "invisible-link-character",
+            decision.unsupported_schemes,
+        )
 
     def test_unicode_lookalike_remains_distinct_punycode(self) -> None:
         domain = normalize_policy_domain("еxample.com")
