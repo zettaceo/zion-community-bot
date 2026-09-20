@@ -199,6 +199,19 @@ class V11ReleaseGateTests(unittest.TestCase):
             text,
         )
         self.assertIn(
+            'DASHBOARD_STATE_DIR="$STATE_DIR/dashboard"',
+            text,
+        )
+        self.assertIn(
+            '/usr/bin/install -d -m 0700 "$DASHBOARD_STATE_DIR"',
+            text,
+        )
+        self.assertIn("DASHBOARD_STATE_REAL=", text)
+        self.assertIn(
+            "dashboard state dir deve ser 0700 e pertencer a $EXPECTED_USER",
+            text,
+        )
+        self.assertIn(
             "zion-dashboard.service Wi-Fi interface diverge from bot config",
             text,
         )
@@ -470,6 +483,15 @@ class V11ReleaseGateTests(unittest.TestCase):
             "zion-dashboard.service não ficou ativo",
             text,
         )
+        self.assertIn(
+            'DASHBOARD_STATE_DIR="$STATE_DIR/dashboard"',
+            text,
+        )
+        self.assertIn(
+            'sudo /usr/bin/install \\\n    -d \\\n    -o zetta \\\n    -g zetta \\\n    -m 0700 \\\n    "$DASHBOARD_STATE_DIR"',
+            text,
+        )
+        self.assertIn("DASHBOARD_STATE_REAL=", text)
 
     def test_deployment_preflight_report_only_remains_read_only(self) -> None:
         script = ROOT / "scripts" / "deployment-preflight.sh"
