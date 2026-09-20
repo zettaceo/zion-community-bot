@@ -386,7 +386,9 @@ class Block4OperationsTests(unittest.TestCase):
                 source = inspect.getsource(scheduler_loop)
                 self.assertLess(
                     source.index("if preflight_changed"),
-                    source.index("if not delivery_guard_ok:"),
+                    source.index(
+                        "if not delivery_guard_ok or rt.delivery_health_blocked:"
+                    ),
                 )
                 self.assertLess(
                     source.index("rt.delivery_health_blocked"),
