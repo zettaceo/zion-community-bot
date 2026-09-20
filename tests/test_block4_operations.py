@@ -9,6 +9,7 @@ from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from tests.helpers import make_settings
 from zion.admin_dashboard import _status_payload
@@ -280,6 +281,7 @@ class Block4OperationsTests(unittest.TestCase):
                 )
                 self.assertIn("AI circuit: OPEN", output)
                 self.assertIn("AI provider failures: 2/3", output)
+                self.assertIn("NO-SAMPLES", output)
                 self.assertNotIn("synthetic-key-material", output)
             finally:
                 rt.close()
@@ -384,6 +386,70 @@ class Block4OperationsTests(unittest.TestCase):
                 self.assertEqual(app.bot.attempts, 1)
                 self.assertIn(
                     "health_alert_persistence_unavailable",
+                    app.bot.sent[0][1],
+                )
+            finally:
+                rt.close()
+
+    def test_disk_usage_failure_is_not_reported_as_ok(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            rt = Runtime(self._settings(root))
+            app = FakeApplication(rt)
+
+            try:
+                with patch(
+                    "zion.health.shutil.disk_usage",
+                    side_effect=OSError("synthetic disk probe failure"),
+                ):
+                    diagnostics = rt.health.diagnostics()
+                    self.assertFalse(diagnostics["disk_usage_ok"])
+
+                    asyncio.run(operational_alert_cycle(app, rt))
+
+                self.assertEqual(app.bot.attempts, 1)
+                self.assertIn(
+                    "disk_usage_unavailable",
+                    app.bot.sent[0][1],
+                )
+            finally:
+                rt.close()
+
+    def test_ai_latency_query_failure_becomes_operational_issue(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            rt = Runtime(self._settings(root))
+            app = FakeApplication(rt)
+
+            def fail(*args, **kwargs):
+                raise RuntimeError("synthetic latency query failure")
+
+            rt.db.ai_latency_stats = fail
+            try:
+                asyncio.run(operational_alert_cycle(app, rt))
+                self.assertEqual(app.bot.attempts, 1)
+                self.assertIn(
+                    "ai_latency_telemetry_unavailable",
+                    app.bot.sent[0][1],
+                )
+            finally:
+                rt.close()
+
+    def test_schema_version_query_failure_becomes_operational_issue(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            rt = Runtime(self._settings(root))
+            app = FakeApplication(rt)
+
+            def fail():
+                raise RuntimeError("synthetic schema query failure")
+
+            rt.db.schema_version = fail
+            try:
+                asyncio.run(operational_alert_cycle(app, rt))
+                self.assertEqual(app.bot.attempts, 1)
+                self.assertIn(
+                    "sqlite_schema_version_unavailable",
                     app.bot.sent[0][1],
                 )
             finally:
