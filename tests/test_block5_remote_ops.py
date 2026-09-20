@@ -132,6 +132,39 @@ class Block5RemoteOperationsTests(unittest.TestCase):
         self.assertNotIn("ZION_SSH_DIR:-", text)
         self.assertNotIn("ZION_AUTHORIZED_KEYS:-", text)
 
+    def test_ssh_rollback_evidence_is_root_owned_outside_bot_state(
+        self,
+    ) -> None:
+        installer = self.read("scripts/apply-ssh-hardening.sh")
+        runbook = self.read("docs/REMOTE-ACCESS.md")
+
+        self.assertIn(
+            'BACKUP_PARENT="/var/lib/zion-community-bot"',
+            installer,
+        )
+        self.assertIn(
+            'BACKUP_DIR="$BACKUP_PARENT/ssh-hardening-backups"',
+            installer,
+        )
+        self.assertIn(
+            'install -d -o root -g root -m 0700 "$BACKUP_DIR"',
+            installer,
+        )
+        self.assertIn("root:root:700", installer)
+        self.assertIn("root:root:600", installer)
+        self.assertIn("had_previous=false", installer)
+        self.assertIn(
+            "/var/lib/zion-community-bot/ssh-hardening-backups/",
+            runbook,
+        )
+
+        forbidden = (
+            "/home/zetta/.local/state/zion-community-bot/"
+            "ssh-hardening-backups"
+        )
+        self.assertNotIn(forbidden, installer)
+        self.assertNotIn(forbidden, runbook)
+
     def test_strict_remote_preflight_fixes_sensitive_paths_and_match_context(
         self,
     ) -> None:
