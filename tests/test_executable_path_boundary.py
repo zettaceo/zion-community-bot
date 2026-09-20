@@ -49,6 +49,16 @@ class ExecutablePathBoundaryTests(unittest.TestCase):
         text = (ROOT / "scripts" / "validate.sh").read_text(encoding="utf-8")
         self.assertIn("/usr/bin/git ls-files", text)
 
+    def test_ci_binds_validation_to_setup_python_runtime(self) -> None:
+        text = (
+            ROOT / ".github" / "workflows" / "ci.yml"
+        ).read_text(encoding="utf-8")
+        self.assertIn(
+            'ZION_VALIDATION_PYTHON="$pythonLocation/bin/python" '
+            "bash scripts/validate.sh",
+            text,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
