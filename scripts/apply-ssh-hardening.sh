@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT="${ZION_ROOT:-/home/zetta/zion-community-bot}"
 EXPECTED_USER="${ZION_REMOTE_USER:-zetta}"
+EXPECTED_GROUP="${ZION_REMOTE_GROUP:-$(id -gn "$EXPECTED_USER" 2>/dev/null || printf '%s' "$EXPECTED_USER")}"
 SRC="$ROOT/ops/sshd/99-zion-remote.conf"
 DST="/etc/ssh/sshd_config.d/99-zion-remote.conf"
 SSH_DIR="${ZION_SSH_DIR:-$HOME/.ssh}"
@@ -96,8 +97,8 @@ if ! grep -Eq '^[[:space:]]*(ssh-ed25519|sk-ssh-ed25519@openssh.com|ecdsa-sha2-n
   exit 2
 fi
 
-sudo /usr/bin/install -d -o "$EXPECTED_USER" -g "$EXPECTED_USER" -m 0700 "$STATE_DIR"
-sudo /usr/bin/install -d -o "$EXPECTED_USER" -g "$EXPECTED_USER" -m 0700 "$BACKUP_DIR"
+sudo /usr/bin/install -d -o "$EXPECTED_USER" -g "$EXPECTED_GROUP" -m 0700 "$STATE_DIR"
+sudo /usr/bin/install -d -o "$EXPECTED_USER" -g "$EXPECTED_GROUP" -m 0700 "$BACKUP_DIR"
 
 stamp="$(date -u +%Y%m%dT%H%M%SZ)"
 backup=""
@@ -120,7 +121,7 @@ trap rollback ERR
 
 if [[ -f "$DST" ]]; then
   backup="$BACKUP_DIR/99-zion-remote.$stamp.conf"
-  sudo /usr/bin/install     -o "$EXPECTED_USER"     -g "$EXPECTED_USER"     -m 0600     "$DST"     "$backup"
+  sudo /usr/bin/install     -o "$EXPECTED_USER"     -g "$EXPECTED_GROUP"     -m 0600     "$DST"     "$backup"
 fi
 
 sudo /usr/bin/install -o root -g root -m 0644 "$SRC" "$DST"
