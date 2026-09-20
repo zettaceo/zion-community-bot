@@ -12,6 +12,8 @@ RUNTIME_BASE="$RUNTIME_PARENT/runtimes"
 RUNTIME_DIR="$RUNTIME_BASE/$EXPECTED"
 CURRENT_LINK="$RUNTIME_BASE/current"
 LEGACY_RUNTIME="$PROD_ROOT/.venv"
+INSTALLED_SERVICE="/etc/systemd/system/zion.service"
+STATE_DB="/home/zetta/.local/state/zion-community-bot/zion.db"
 
 if [[ "$(id -un)" != "$EXPECTED_USER" ]]; then
   echo "ERRO: execute como $EXPECTED_USER." >&2
@@ -86,6 +88,11 @@ validate_previous_runtime_target() {
   local target="$1"
 
   if [[ "$target" == "$LEGACY_RUNTIME" ]]; then
+    if [[ -f "$INSTALLED_SERVICE" ]] \
+      && grep -Fq "ZION_DB_PATH=$STATE_DB" "$INSTALLED_SERVICE"; then
+      echo "ERRO: runtime legado só é aceito antes do primeiro cutover v1.1." >&2
+      return 1
+    fi
     if [[ ! -x "$target/bin/python" ]]; then
       echo "ERRO: runtime legado inválido." >&2
       return 1
