@@ -115,6 +115,11 @@ if [[ -e "$RUNTIME_DIR" || -L "$RUNTIME_DIR" ]]; then
     exit 2
   fi
   validate_runtime "$RUNTIME_DIR/bin/python"
+  if find "$RUNTIME_DIR" \( -type f -o -type d \) -perm /0222 -print -quit \
+    | grep -q .; then
+    echo "ERRO: runtime candidato existente contém caminho gravável." >&2
+    exit 2
+  fi
   echo "release runtime: OK (reused) | sha=$EXPECTED"
   echo "runtime_path=$RUNTIME_DIR"
   echo "current_runtime_before=$CURRENT_TARGET"
@@ -130,18 +135,34 @@ cleanup() {
 trap cleanup EXIT
 
 "$SYSTEM_PYTHON" -m venv "$TMP_RUNTIME"
-"$TMP_RUNTIME/bin/python" -m pip install   --disable-pip-version-check   --no-input   -r "$ROOT/requirements.lock"
+"$TMP_RUNTIME/bin/python" -m pip --isolated install \
+  --disable-pip-version-check \
+  --no-input \
+  --no-deps \
+  --only-binary=:all: \
+  --index-url https://pypi.org/simple \
+  -r "$ROOT/requirements.lock"
 
 validate_runtime "$TMP_RUNTIME/bin/python"
 
 printf '%s\n' "$EXPECTED" > "$TMP_RUNTIME/release-sha.txt"
-sha256sum "$ROOT/requirements.lock"   | awk '{print $1}' > "$TMP_RUNTIME/requirements-lock.sha256"
-chmod 0444   "$TMP_RUNTIME/release-sha.txt"   "$TMP_RUNTIME/requirements-lock.sha256"
+sha256sum "$ROOT/requirements.lock" \
+  | awk '{print $1}' > "$TMP_RUNTIME/requirements-lock.sha256"
+chmod 0444 \
+  "$TMP_RUNTIME/release-sha.txt" \
+  "$TMP_RUNTIME/requirements-lock.sha256"
+
+chmod -R a-w "$TMP_RUNTIME"
 
 mv "$TMP_RUNTIME" "$RUNTIME_DIR"
 TMP_RUNTIME=""
 
 validate_runtime "$RUNTIME_DIR/bin/python"
+if find "$RUNTIME_DIR" \( -type f -o -type d \) -perm /0222 -print -quit \
+  | grep -q .; then
+  echo "ERRO: runtime publicado contém caminho gravável." >&2
+  exit 2
+fi
 
 echo "release runtime: OK (created) | sha=$EXPECTED"
 echo "runtime_path=$RUNTIME_DIR"
