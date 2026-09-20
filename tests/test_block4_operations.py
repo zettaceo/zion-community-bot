@@ -860,6 +860,28 @@ class Block4OperationsTests(unittest.TestCase):
             finally:
                 rt.close()
 
+    def test_schema_version_drift_blocks_scheduled_delivery(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            rt = Runtime(self._settings(root))
+            app = FakeApplication(rt)
+
+            rt.db.schema_version = lambda: 999
+            try:
+                asyncio.run(operational_alert_cycle(app, rt))
+                self.assertEqual(app.bot.attempts, 1)
+                self.assertIn(
+                    "sqlite_schema_version_mismatch",
+                    app.bot.sent[0][1],
+                )
+                self.assertTrue(rt.delivery_health_blocked)
+                self.assertIn(
+                    "sqlite_schema_version_mismatch",
+                    rt.delivery_health_block_reasons,
+                )
+            finally:
+                rt.close()
+
     def test_schema_version_query_failure_becomes_operational_issue(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
