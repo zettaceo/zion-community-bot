@@ -90,3 +90,17 @@ If GitHub protection must ever be bypassed during an incident:
 - preserve the commit SHA involved;
 - restore normal repository protection before the next ordinary deployment;
 - run the same CI/review gates on the forward fix.
+
+
+## Verification snapshot — 2026-09-20 final repository re-audit
+
+Live GitHub branch metadata was re-read after the implementation hardening:
+
+- `zion-v1`: `protected=false`;
+- `zion-v1.1-dev`: `protected=false`;
+- required status-check enforcement in branch metadata: off;
+- PR #2: open, Draft, unmerged; no submitted reviews or review threads at the checkpoint;
+- repository rulesets API returned HTTP 403 with GitHub's message that the private repository must be public or the account upgraded to GitHub Pro to enable that feature;
+- the connected GitHub App does not have repository-administration permission to read/change classic branch-protection settings.
+
+The branch metadata itself is sufficient to keep the GitHub governance gate **BLOCKED**. Do not set `ZION_GITHUB_GATES_PROVEN=YES` from CI success alone.
