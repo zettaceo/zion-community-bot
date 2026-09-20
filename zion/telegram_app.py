@@ -180,8 +180,11 @@ def format_duration(seconds: int) -> str:
     return f"{seconds} segundos"
 
 
-def telegram_entity_targets(message: Any) -> list[str]:
+def _telegram_entity_candidates(
+    message: Any,
+) -> tuple[list[str], bool]:
     targets: list[str] = []
+    parse_failed = False
 
     entity_sets = (
         (
@@ -202,11 +205,17 @@ def telegram_entity_targets(message: Any) -> list[str]:
             candidate = None
             if entity_type == "text_link":
                 candidate = getattr(entity, "url", None)
-            elif entity_type == "url" and callable(parser):
-                try:
-                    candidate = parser(entity)
-                except Exception:
-                    candidate = None
+                if not candidate:
+                    parse_failed = True
+            elif entity_type == "url":
+                if not callable(parser):
+                    parse_failed = True
+                else:
+                    try:
+                        candidate = parser(entity)
+                    except Exception:
+                        parse_failed = True
+                        candidate = None
 
             if not candidate:
                 continue
@@ -215,8 +224,13 @@ def telegram_entity_targets(message: Any) -> list[str]:
             if value not in targets:
                 targets.append(value)
             if len(targets) >= 20:
-                return targets
+                return targets, parse_failed
 
+    return targets, parse_failed
+
+
+def telegram_entity_targets(message: Any) -> list[str]:
+    targets, _ = _telegram_entity_candidates(message)
     return targets
 
 
@@ -224,9 +238,14 @@ def telegram_entity_link_evidence(
     message: Any,
 ) -> tuple[list[str], list[str]]:
     domains: list[str] = []
-    unsupported_schemes: list[str] = []
+    targets, parse_failed = _telegram_entity_candidates(message)
+    unsupported_schemes: list[str] = (
+        ["unparseable-url-entity"]
+        if parse_failed
+        else []
+    )
 
-    for candidate in telegram_entity_targets(message):
+    for candidate in targets:
         domain, unsupported_scheme = normalize_link_target(candidate)
         if domain and domain not in domains:
             domains.append(domain)
