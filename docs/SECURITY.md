@@ -131,9 +131,23 @@ Chat-wide burst detection is deliberately non-punitive. Its only automatic polic
 
 ## Remote administration
 
-Remote shell access is designed for Tailscale + SSH public-key authentication. TCP/22 must not be exposed by router port forwarding. Private SSH keys and Tailscale authentication material never belong in Git.
+Remote shell access is designed for OpenSSH over Tailscale with a dedicated client key and out-of-band server host-key verification.
 
-See `docs/REMOTE-ACCESS.md` and `docs/DEPLOYMENT-MODEL.md`.
+Security boundary:
+
+- TCP/22 must not be exposed by router/NAT port forwarding;
+- the Android private key never leaves the client;
+- server host identity is pinned before normal use;
+- password, keyboard-interactive and root SSH login are disabled only after public-key access is proven;
+- SSH agent/TCP/X11/tunnel forwarding is disabled by the ZION sshd drop-in;
+- a second independent session must succeed before the bootstrap session closes;
+- Tailnet policy and firewall exposure remain separate controls;
+- the production host must not run a privileged GitHub Actions self-hosted runner;
+- remote deployment is bound to the exact SHA already present in `origin/zion-v1`.
+
+Private SSH keys and Tailscale authentication material never belong in Git.
+
+See `docs/REMOTE-ACCESS.md`, `docs/GITHUB-DEPLOY-GATES.md` and `docs/DEPLOYMENT-MODEL.md`.
 
 
 ## High-confidence credential exposure
