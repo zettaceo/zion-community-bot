@@ -156,6 +156,35 @@ class CommunityCommandRateLimitTests(unittest.TestCase):
             2,
         )
 
+    def test_domain_policy_rolls_back_if_audit_write_fails(self) -> None:
+        update = make_update(
+            user_id=1,
+            message_id=7,
+        )
+        context = FakeContext(
+            self.runtime,
+            ["rollback.example"],
+        )
+
+        with patch.object(
+            self.runtime.db,
+            "record_action",
+            side_effect=RuntimeError("forced audit failure"),
+        ):
+            with self.assertRaises(RuntimeError):
+                asyncio.run(
+                    allow_domain_command(
+                        update,
+                        context,
+                    )
+                )
+
+        self.assertIsNone(
+            self.runtime.db.domain_disposition(
+                "rollback.example"
+            )
+        )
+
     def test_report_rate_limit_prevents_incident_spam(self) -> None:
         target = SimpleNamespace(
             message_id=99,
