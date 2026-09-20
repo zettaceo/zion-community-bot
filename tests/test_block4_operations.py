@@ -533,6 +533,7 @@ class Block4OperationsTests(unittest.TestCase):
                     "Delivery safety preflight: OK",
                     output,
                 )
+                self.assertIn("Alert dedup persistence: OK", output)
                 self.assertNotIn("synthetic-key-material", output)
             finally:
                 rt.close()
