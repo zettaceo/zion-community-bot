@@ -43,6 +43,12 @@ if /usr/bin/systemctl is-active --quiet zion.service; then
   exit 1
 fi
 
+PREVIOUS_SERVICE_STATE_LAYOUT=false
+if [[ -f "$SERVICE_DST" ]] \
+  && grep -Fq "ZION_DB_PATH=$TARGET_DB" "$SERVICE_DST"; then
+  PREVIOUS_SERVICE_STATE_LAYOUT=true
+fi
+
 DASHBOARD_INSTALLED=false
 if [[ -f "$DASHBOARD_DST" ]]; then
   DASHBOARD_INSTALLED=true
@@ -52,6 +58,7 @@ if [[ -f "$DASHBOARD_DST" ]]; then
   fi
 fi
 
+echo "previous_service_state_layout=$PREVIOUS_SERVICE_STATE_LAYOUT"
 echo "[1/15] Conferindo runtime candidato por SHA..."
 if [[ ! -d "$RUNTIME_DIR" || -L "$RUNTIME_DIR" || ! -x "$PYTHON" ]]; then
   echo "ERRO: runtime candidato inválido: $RUNTIME_DIR" >&2
@@ -332,7 +339,11 @@ if [[ "$DASHBOARD_INSTALLED" == true ]]; then
   chmod 600 "$DEST/zion-dashboard.service.installed"
 fi
 
-DEST="$DEST" "$PYTHON" - <<'PY'
+DEST="$DEST" \
+PREVIOUS_SERVICE_STATE_LAYOUT="$PREVIOUS_SERVICE_STATE_LAYOUT" \
+ZION_TARGET_DB="$TARGET_DB" \
+ZION_TARGET_LEGACY="$TARGET_LEGACY" \
+"$PYTHON" - <<'PY'
 import os
 import shutil
 from pathlib import Path
@@ -342,13 +353,29 @@ from zion.db import ZION_APPLICATION_ID, ZionDB
 
 settings = Settings.from_env()
 dest = Path(os.environ["DEST"])
+target_db = Path(os.environ["ZION_TARGET_DB"]).expanduser()
+target_legacy = Path(os.environ["ZION_TARGET_LEGACY"]).expanduser()
+state_layout = os.environ["PREVIOUS_SERVICE_STATE_LAYOUT"] == "true"
 
-if settings.legacy_state_path.is_file():
+source = target_db if state_layout else settings.db_path.expanduser()
+legacy_source = (
+    target_legacy
+    if state_layout
+    else settings.legacy_state_path.expanduser()
+)
+
+if source.is_symlink():
+    raise RuntimeError(f"production database must not be symlink: {source}")
+if legacy_source.is_symlink():
+    raise RuntimeError(
+        f"production legacy state must not be symlink: {legacy_source}"
+    )
+
+if legacy_source.is_file():
     target = dest / "zion_state.json"
-    shutil.copy2(settings.legacy_state_path, target)
+    shutil.copy2(legacy_source, target)
     os.chmod(target, 0o600)
 
-source = settings.db_path
 if source.is_file():
     target = dest / "zion.db"
     db = ZionDB(source, readonly=True)
@@ -396,6 +423,7 @@ if [[ "$(readlink -f -- "$CURRENT_RUNTIME" 2>/dev/null || true)" != "$RUNTIME_DI
 fi
 
 echo "[11/15] Relocando estado mutável e migrando SQLite..."
+PREVIOUS_SERVICE_STATE_LAYOUT="$PREVIOUS_SERVICE_STATE_LAYOUT" \
 ZION_TARGET_DB="$TARGET_DB" \
 ZION_TARGET_LEGACY="$TARGET_LEGACY" \
 ZION_TARGET_LOG="$TARGET_LOG" \
@@ -411,10 +439,16 @@ from zion.migrate import migrate_legacy_guardian_state
 
 settings = Settings.from_env()
 
-source_db_raw = settings.db_path.expanduser()
-source_legacy_raw = settings.legacy_state_path.expanduser()
 target_db_raw = Path(os.environ["ZION_TARGET_DB"]).expanduser()
 target_legacy_raw = Path(os.environ["ZION_TARGET_LEGACY"]).expanduser()
+state_layout = os.environ["PREVIOUS_SERVICE_STATE_LAYOUT"] == "true"
+
+if state_layout:
+    source_db_raw = target_db_raw
+    source_legacy_raw = target_legacy_raw
+else:
+    source_db_raw = settings.db_path.expanduser()
+    source_legacy_raw = settings.legacy_state_path.expanduser()
 
 for label, path in (
     ("source_db", source_db_raw),
@@ -436,7 +470,7 @@ os.chmod(target_db.parent, 0o700)
 if source_db != target_db:
     if target_db.exists():
         raise RuntimeError(
-            f"target database already exists during relocation: {target_db}"
+            f"target database already exists during first relocation: {target_db}"
         )
     if not source_db.is_file():
         raise RuntimeError(
@@ -452,6 +486,11 @@ if source_db != target_db:
         source.backup_to(target_db)
     finally:
         source.close()
+else:
+    if not target_db.is_file():
+        raise RuntimeError(
+            f"state-layout production database missing: {target_db}"
+        )
 
 if source_legacy != target_legacy and source_legacy.is_file():
     if target_legacy.exists():
