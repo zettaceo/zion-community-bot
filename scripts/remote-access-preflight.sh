@@ -66,7 +66,7 @@ else
   tailscale_ip="$(tailscale ip -4 2>/dev/null | head -n1 || true)"
   if [[ -z "$tailscale_ip" ]]; then
     fail "Tailscale has no active IPv4 address"
-  elif python3 - "$tailscale_ip" <<'PY' >/dev/null 2>&1
+  elif /usr/bin/python3 -I - "$tailscale_ip" <<'PY' >/dev/null 2>&1
 import ipaddress
 import sys
 address = ipaddress.ip_address(sys.argv[1])
@@ -94,7 +94,7 @@ elif [[ -n "${ZION_TAILSCALE_CLIENT_IP:-}" ]]; then
 fi
 
 if [[ -n "$client_ip" ]]; then
-  if python3 - "$client_ip" <<'PY' >/dev/null 2>&1
+  if /usr/bin/python3 -I - "$client_ip" <<'PY' >/dev/null 2>&1
 import ipaddress
 import sys
 address = ipaddress.ip_address(sys.argv[1])
