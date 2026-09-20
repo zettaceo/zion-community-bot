@@ -326,6 +326,8 @@ ZION_IDEMPOTENCY_RETENTION_DAYS=30
 
 ## SQLite persistence hardening
 
+At runtime, pre-existing `zion.db`, `zion.db-wal`, `zion.db-shm` and active log files must be regular files with exactly one hard link. Symlink/hardlink state is rejected rather than normalized. This complements the private state directory and prevents a prepared filesystem alias from being treated as ordinary ZION mutable state.
+
 ZION v1.1 treats SQLite as critical runtime state.
 
 Runtime invariants:
