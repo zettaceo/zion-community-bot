@@ -164,6 +164,8 @@ Authoritative template:
 
 `ops/sshd/00-zion-remote.conf`
 
+The `00-` priority is deliberate: OpenSSH generally keeps the first value obtained for a keyword, so the ZION drop-in must precede ordinary distro/cloud drop-ins. The installer still verifies the resulting effective policy rather than trusting filename order alone.
+
 The guarded installer refuses to run unless the operator explicitly attests that **both** public-key login and the out-of-band ED25519 host fingerprint were proven.
 
 From a proven Tailscale SSH session:
@@ -175,13 +177,14 @@ ZION_HOSTKEY_PROVEN=YES \
   bash scripts/apply-ssh-hardening.sh
 ```
 
-From a physical console instead:
+From a physical console instead, also provide the **actual Tailscale IP of the Android client** that will be used for remote administration. This lets `sshd -T -C` evaluate any `Match User/Address` rules against the real access context:
 
 ```bash
 cd /home/zetta/zion-community-bot
 ZION_REMOTE_ACCESS_PROVEN=YES \
 ZION_HOSTKEY_PROVEN=YES \
 ZION_PHYSICAL_CONSOLE=YES \
+ZION_TAILSCALE_CLIENT_IP=<android-tailscale-ip> \
   bash scripts/apply-ssh-hardening.sh
 ```
 
@@ -192,7 +195,8 @@ The installer:
 - installs the reviewed drop-in;
 - runs `sshd -t`;
 - reloads, never restarts, the SSH daemon;
-- verifies the effective hardening;
+- verifies the effective hardening in the real `zetta` + Tailscale client context, including `Match` rules;
+- disables alternate key/certificate authorization sources (`AuthorizedKeysCommand`, trusted user CAs and principals files);
 - rolls back the drop-in if a post-install gate fails;
 - does not alter Tailscale, firewall, router, Wi-Fi or `zion.service`.
 
