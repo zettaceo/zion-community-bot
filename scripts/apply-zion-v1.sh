@@ -12,6 +12,7 @@ REMOTE_BRANCH="zion-v1"
 APPROVED_REF="origin/zion-v1"
 EXPECTED_REPO="zettaceo/zion-community-bot"
 PREVIOUS_COMMIT="${ZION_PREVIOUS_COMMIT:-}"
+LOCAL_PROD_BRANCH="zion-v1-prod"
 
 cd "$ROOT"
 
@@ -22,6 +23,11 @@ if [[ ! -x "$PYTHON" ]]; then
 fi
 
 echo "[2/13] Conferindo worktree e commit..."
+CURRENT_BRANCH="$(git symbolic-ref --quiet --short HEAD 2>/dev/null || true)"
+if [[ "$CURRENT_BRANCH" != "$LOCAL_PROD_BRANCH" ]]; then
+  echo "ERRO: branch local=$CURRENT_BRANCH; esperado=$LOCAL_PROD_BRANCH." >&2
+  exit 1
+fi
 if ! git diff --quiet || ! git diff --cached --quiet; then
   echo "ERRO: existem alterações rastreadas não commitadas." >&2
   exit 1
