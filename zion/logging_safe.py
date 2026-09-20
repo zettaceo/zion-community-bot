@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+import unicodedata
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
@@ -28,7 +29,9 @@ BEARER_REGEX = re.compile(
 
 LABELED_CREDENTIAL_REGEX = re.compile(
     r"(?is)\b("
-    r"api[ _-]?key|client[ _-]?secret|password|passwd|"
+    r"api[ _-]?key|client[ _-]?secret|secret[ _-]?key|"
+    r"access[ _-]?token|refresh[ _-]?token|auth[ _-]?token|"
+    r"webhook[ _-]?secret|password|passwd|"
     r"telegram[ _-]?bot[ _-]?token|bot[ _-]?token"
     r")\b\s*[:=]\s*([^\s,;]{8,})"
 )
@@ -39,6 +42,23 @@ SECRET_PARAMETER_REGEX = re.compile(
     r"access[_-]?key|client[_-]?secret)=)"
     r"([^&\s]+)"
 )
+
+INVISIBLE_SECURITY_CODEPOINTS = {
+    0x200B,
+    0x200C,
+    0x200D,
+    0x2060,
+    0xFEFF,
+}
+
+
+def _normalize_security_text(value: object) -> str:
+    text = unicodedata.normalize("NFKC", str(value))
+    return "".join(
+        char
+        for char in text
+        if ord(char) not in INVISIBLE_SECURITY_CODEPOINTS
+    )
 
 
 def _sensitive_values() -> list[str]:
@@ -53,7 +73,7 @@ def _sensitive_values() -> list[str]:
 
 
 def contains_high_confidence_credential(value: object) -> bool:
-    text = str(value)
+    text = _normalize_security_text(value)
     if TELEGRAM_TOKEN_REGEX.search(text):
         return True
     if BEARER_REGEX.search(text):
@@ -64,7 +84,7 @@ def contains_high_confidence_credential(value: object) -> bool:
 
 
 def redact_secrets(value: object) -> str:
-    text = str(value)
+    text = _normalize_security_text(value)
 
     for secret in _sensitive_values():
         text = text.replace(secret, "[REDACTED]")
