@@ -96,12 +96,21 @@ def normalize_policy_domain(value: str) -> str | None:
     return domain
 
 
-def extract_domains(text: str) -> list[str]:
+def _extract_domains_and_invalid(text: str) -> tuple[list[str], bool]:
     domains: list[str] = []
+    invalid = False
     for raw in URL_REGEX.findall(text or ""):
         domain = _normalize_domain(raw)
-        if domain and domain not in domains:
+        if not domain:
+            invalid = True
+            continue
+        if domain not in domains:
             domains.append(domain)
+    return domains, invalid
+
+
+def extract_domains(text: str) -> list[str]:
+    domains, _ = _extract_domains_and_invalid(text)
     return domains
 
 
@@ -351,18 +360,32 @@ class Guardian:
         self,
         text: str,
         extra_domains: list[str] | tuple[str, ...] | None = None,
+        extra_urls: list[str] | tuple[str, ...] | None = None,
     ) -> LinkDecision:
-        domains = extract_domains(text)
+        domains, invalid_link = _extract_domains_and_invalid(text)
+
+        for raw_url in extra_urls or ():
+            normalized = normalize_policy_domain(raw_url)
+            if normalized:
+                if normalized not in domains:
+                    domains.append(normalized)
+            else:
+                # A clickable URL that cannot be mapped into the domain policy
+                # is not silently ignored. Unknown/unsupported schemes fail
+                # closed without persisting the raw target.
+                invalid_link = True
 
         for raw_domain in extra_domains or ():
             normalized = normalize_policy_domain(raw_domain)
             if normalized and normalized not in domains:
                 domains.append(normalized)
 
-        if not domains:
+        if not domains and not invalid_link:
             return LinkDecision()
 
         unauthorized: list[str] = []
+        if invalid_link:
+            unauthorized.append("<invalid-or-unsupported-url>")
 
         for domain in domains:
             labels = domain.split(".")

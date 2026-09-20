@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+import unicodedata
 from collections import defaultdict, deque
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -151,15 +152,24 @@ def runtime(context: ContextTypes.DEFAULT_TYPE) -> Runtime:
     return value
 
 
+def safe_display_text(value: object, max_chars: int = 80) -> str:
+    raw = str(value or "")
+    without_controls = "".join(
+        " " if unicodedata.category(char).startswith("C") else char
+        for char in raw
+    )
+    return " ".join(without_controls.split())[:max_chars]
+
+
 def user_display_name(user: Any) -> str:
-    username = getattr(user, "username", None)
-    first_name = getattr(user, "first_name", None)
+    username = safe_display_text(getattr(user, "username", None), 32)
+    first_name = safe_display_text(getattr(user, "first_name", None), 80)
     user_id = getattr(user, "id", "?")
 
     if username:
         return f"@{username}"
     if first_name:
-        return str(first_name)
+        return first_name
     return f"usuário {user_id}"
 
 
@@ -1714,7 +1724,10 @@ async def mute_command(
         category="manual_mute",
         severity=Severity.MEDIUM,
         source="admin",
-        evidence={"duration_seconds": seconds},
+        evidence={
+            "duration_seconds": seconds,
+            "requested_by_user_id": update.effective_user.id,
+        },
     )
     success = await mute_user_safe(
         context,
@@ -1771,6 +1784,9 @@ async def ban_command(
         category="manual_ban",
         severity=Severity.HIGH,
         source="admin",
+        evidence={
+            "requested_by_user_id": update.effective_user.id,
+        },
     )
     success = await ban_user_safe(
         context,
@@ -1830,6 +1846,9 @@ async def unban_command(
         category="manual_unban",
         severity=Severity.INFO,
         source="admin",
+        evidence={
+            "requested_by_user_id": update.effective_user.id,
+        },
     )
     success = await unban_user_safe(
         context,
@@ -2619,9 +2638,13 @@ async def welcome_handler(
                 "joined",
             )
 
+        welcome_name = (
+            safe_display_text(member.first_name)
+            or "novo membro"
+        )
         await update.effective_message.reply_text(
             f"⚡ Bem-vindo(a) / Welcome, "
-            f"{member.first_name or 'novo membro'}!\n\n"
+            f"{welcome_name}!\n\n"
             "PT-BR: Você entrou na comunidade Z-SWAP. "
             "Leia /rules, consulte /help e use /report para sinalizar problemas.\n"
             "EN: Welcome to the Z-SWAP community. "
@@ -3021,7 +3044,7 @@ async def command_guard_handler(
 
     links = rt.guardian.evaluate_links(
         text,
-        extra_domains=telegram_entity_domains(message),
+        extra_urls=external_urls,
     )
     if links.should_delete:
         deleted = await delete_message_safe(
@@ -3172,7 +3195,7 @@ async def moderation_handler(
 
     links = rt.guardian.evaluate_links(
         text,
-        extra_domains=telegram_entity_domains(message),
+        extra_urls=external_urls,
     )
     if links.should_delete:
         deleted = await delete_message_safe(

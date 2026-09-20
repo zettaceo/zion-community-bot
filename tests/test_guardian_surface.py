@@ -24,6 +24,7 @@ from zion.telegram_app import (
     moderation_handler,
     mute_command,
     require_admin,
+    safe_display_text,
     unban_command,
     telegram_entity_domains,
     telegram_external_urls,
@@ -97,6 +98,26 @@ class TelegramLinkSurfaceTests(unittest.TestCase):
             telegram_entity_domains(message),
             ["login.evil.example", "web.evil.example"],
         )
+
+
+    def test_unsupported_clickable_scheme_fails_closed(self) -> None:
+        decision = self.guardian.evaluate_links(
+            "",
+            extra_urls=["tg://resolve?domain=untrusted"],
+        )
+        self.assertTrue(decision.should_delete)
+        self.assertIn(
+            "<invalid-or-unsupported-url>",
+            decision.unauthorized_domains,
+        )
+
+    def test_display_text_strips_control_and_bidi_formatting(self) -> None:
+        value = "Alice\n\u202eADMIN\tSupport"
+        rendered = safe_display_text(value)
+        self.assertNotIn("\n", rendered)
+        self.assertNotIn("\t", rendered)
+        self.assertNotIn("\u202e", rendered)
+        self.assertEqual(rendered, "Alice ADMIN Support")
 
     def test_hidden_url_credentials_are_visible_to_secret_detector(self) -> None:
         hidden = SimpleNamespace(
@@ -292,6 +313,39 @@ class AuthorizationAndPrivateBoundaryTests(unittest.TestCase):
         self.assertEqual(bot.deleted, [])
         self.assertEqual(bot.member_calls, 0)
 
+
+    def test_hidden_url_credential_is_blocked_before_admin_exemption(self) -> None:
+        bot = FakeBot()
+        context = FakeContext(self.runtime, bot)
+        update = make_update(
+            user_id=1,
+            chat_type="supergroup",
+            text="safe visible label",
+            message_id=9,
+        )
+        update.effective_message.entities = [
+            SimpleNamespace(
+                type="text_link",
+                url=(
+                    "https://z-swap.example/support?"
+                    "api_key=example-secret-value-123456"
+                ),
+            )
+        ]
+
+        asyncio.run(moderation_handler(update, context))
+
+        self.assertEqual(
+            bot.deleted,
+            [(update.effective_chat.id, update.effective_message.message_id)],
+        )
+        self.assertEqual(bot.member_calls, 0)
+        incidents = self.runtime.db.list_incidents()
+        self.assertEqual(
+            incidents[0]["category"],
+            "possible_credential_exposure",
+        )
+
     def test_private_command_still_blocks_exposed_credential(self) -> None:
         bot = FakeBot()
         context = FakeContext(self.runtime, bot)
@@ -378,6 +432,12 @@ class ModerationDurabilityTests(unittest.TestCase):
         incidents = self.runtime.db.list_incidents()
         self.assertEqual(len(incidents), 1)
         self.assertEqual(incidents[0]["category"], "manual_ban")
+        detail = self.runtime.db.get_incident(incidents[0]["id"])
+        self.assertIsNotNone(detail)
+        self.assertIn(
+            '"requested_by_user_id":1',
+            str(detail["evidence_json"]),
+        )
 
     def test_pending_flood_ban_has_persistent_local_containment(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -445,40 +505,47 @@ class ModerationDurabilityTests(unittest.TestCase):
                 db.close()
 
     def test_successful_flood_ban_clears_pending_containment(self) -> None:
-        root = Path(self.temp.name)
-        self.runtime.close()
-        settings = replace(
-            make_settings(root),
-            flood_max_messages=2,
-            flood_ban_after_strikes=1,
-        )
-        self.runtime = Runtime(settings)
-        bot = FakeBot()
-        context = FakeContext(self.runtime, bot)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "knowledge").mkdir()
+            settings = replace(
+                make_settings(root),
+                flood_max_messages=2,
+                flood_ban_after_strikes=1,
+            )
+            runtime = Runtime(settings)
+            try:
+                bot = FakeBot()
+                context = FakeContext(runtime, bot)
 
-        first = make_update(
-            user_id=2,
-            chat_type="supergroup",
-            text="one",
-            message_id=40,
-        )
-        second = make_update(
-            user_id=2,
-            chat_type="supergroup",
-            text="two",
-            message_id=41,
-        )
-        asyncio.run(moderation_handler(first, context))
-        asyncio.run(moderation_handler(second, context))
+                first = make_update(
+                    user_id=2,
+                    chat_type="supergroup",
+                    text="one",
+                    message_id=40,
+                )
+                second = make_update(
+                    user_id=2,
+                    chat_type="supergroup",
+                    text="two",
+                    message_id=41,
+                )
+                asyncio.run(moderation_handler(first, context))
+                asyncio.run(moderation_handler(second, context))
 
-        self.assertEqual(bot.banned, [(second.effective_chat.id, 2)])
-        self.assertEqual(
-            self.runtime.guardian.containment_remaining(
-                second.effective_chat.id,
-                2,
-            ),
-            0,
-        )
+                self.assertEqual(
+                    bot.banned,
+                    [(second.effective_chat.id, 2)],
+                )
+                self.assertEqual(
+                    runtime.guardian.containment_remaining(
+                        second.effective_chat.id,
+                        2,
+                    ),
+                    0,
+                )
+            finally:
+                runtime.close()
 
 
 if __name__ == "__main__":

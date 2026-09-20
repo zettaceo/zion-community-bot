@@ -66,6 +66,18 @@ class SettingsTests(unittest.TestCase):
             self.assertIn("ai_enabled_without_key", issues)
             self.assertIn("runtime_lock_inside_worktree", issues)
 
+
+    def test_allowed_domains_use_nontransitional_idna2008(self) -> None:
+        with patch.dict(
+            os.environ,
+            {"ALLOWED_DOMAINS": "faß.de"},
+            clear=False,
+        ):
+            settings = Settings.from_env()
+
+        self.assertIn("xn--fa-hia.de", settings.allowed_domains)
+        self.assertNotIn("fass.de", settings.allowed_domains)
+
     def test_allowed_domains_are_normalized_to_idna(self) -> None:
         env = {
             "ALLOWED_DOMAINS": "Example.COM.,例え.テスト,https://bad.example",
