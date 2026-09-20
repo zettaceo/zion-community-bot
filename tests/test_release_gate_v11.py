@@ -430,6 +430,11 @@ class V11ReleaseGateTests(unittest.TestCase):
         text = self.read("scripts/apply-zion-v1.sh")
 
         self.assertIn('DASHBOARD_INSTALLED=false', text)
+        self.assertIn('DASHBOARD_SHOULD_START=false', text)
+        self.assertIn(
+            "systemctl is-enabled --quiet zion-dashboard.service",
+            text,
+        )
         self.assertIn(
             "dashboard instalado deve estar parado no mesmo cutover",
             text,
@@ -437,6 +442,10 @@ class V11ReleaseGateTests(unittest.TestCase):
         self.assertIn("zion-dashboard.service.installed", text)
         self.assertIn('"$DASHBOARD_SRC"', text)
         self.assertIn('"$DASHBOARD_DST"', text)
+        self.assertIn(
+            'if [[ "$DASHBOARD_SHOULD_START" == true ]]',
+            text,
+        )
         self.assertIn("systemctl start zion-dashboard.service", text)
         self.assertIn(
             "zion-dashboard.service não ficou ativo",
