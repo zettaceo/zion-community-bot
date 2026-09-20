@@ -32,6 +32,8 @@ FORBIDDEN_GIT_ENV = (
     "GIT_SSL_NO_VERIFY",
     "GIT_SSL_CAINFO",
     "GIT_SSL_CAPATH",
+    "SSH_ASKPASS",
+    "SSH_ASKPASS_REQUIRE",
 )
 
 
@@ -211,6 +213,98 @@ class GitReleaseBoundaryTests(unittest.TestCase):
 
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("core.sshCommand is configured", result.stderr)
+
+    def test_absolute_credential_helper_execution_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.make_repo(root)
+            marker = root / "credential-helper-ran"
+            helper = root / "helper.sh"
+            helper.write_text(
+                "#!/bin/sh\n"
+                f"printf x > {str(marker)!r}\n"
+                "exit 1\n",
+                encoding="utf-8",
+            )
+            helper.chmod(0o700)
+            self.git(root, "config", "credential.helper", str(helper))
+
+            env = os.environ.copy()
+            env["GIT_TERMINAL_PROMPT"] = "0"
+            subprocess.run(
+                ["git", "-C", str(root), "credential", "fill"],
+                input="protocol=https\nhost=github.com\n\n",
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertTrue(marker.is_file())
+
+            result = self.run_check(root)
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("unsafe credential.helper", result.stderr)
+
+    def test_shell_credential_helper_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.make_repo(root)
+            self.git(
+                root,
+                "config",
+                "credential.helper",
+                "!printf attacker >/tmp/zion-credential-helper-test",
+            )
+
+            result = self.run_check(root)
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("unsafe credential.helper", result.stderr)
+
+    def test_core_askpass_config_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.make_repo(root)
+            self.git(
+                root,
+                "config",
+                "core.askPass",
+                "/tmp/zion-askpass",
+            )
+
+            result = self.run_check(root)
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("core.askPass is configured", result.stderr)
+
+    def test_named_system_credential_helper_is_allowed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.make_repo(root)
+            self.git(
+                root,
+                "config",
+                "credential.helper",
+                "cache --timeout=60",
+            )
+
+            result = self.run_check(root)
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_ssh_askpass_environment_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.make_repo(root)
+
+            result = self.run_check(
+                root,
+                extra_env={"SSH_ASKPASS": "/tmp/zion-ssh-askpass"},
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("SSH_ASKPASS", result.stderr)
 
     def test_ignored_importable_bytecode_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

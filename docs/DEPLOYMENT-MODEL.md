@@ -29,6 +29,8 @@ No feature branch, PR head, local-only commit or arbitrary SHA may be deployed m
 
 Any Git credential present on the Acer should be fetch/read-only. The host has no operational need to push to `zion-v1` or modify repository administration state.
 
+Git authentication is part of the executable release boundary. The Git boundary rejects `core.askPass`, shell/absolute-path credential helpers and inherited `SSH_ASKPASS*` overrides. If HTTPS uses a credential helper, it must be a simple named system helper with inert arguments resolved through the release scripts' fixed system `PATH`; the release design does not authorize a repository-local or shell-script helper.
+
 ## GitHub governance gate
 
 Before the first remote deployment, `zion-v1` must have repository rules/branch protection that at minimum:

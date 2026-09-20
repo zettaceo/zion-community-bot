@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import subprocess
 from pathlib import Path, PurePosixPath
 
@@ -22,6 +23,10 @@ SAFE_IGNORED_TOP_LEVEL = frozenset(
 )
 IMPORTABLE_CODE_SUFFIXES = (".py", ".pyc", ".pyo", ".pyd", ".so")
 GIT_EXECUTABLE = "/usr/bin/git"
+SAFE_CREDENTIAL_HELPER_RE = re.compile(
+    r"^[A-Za-z0-9._-]+"
+    r"(?:[ \t]+[A-Za-z0-9_./:@%+=,~:-]+)*$"
+)
 
 
 def git(
@@ -70,6 +75,8 @@ def reject_git_environment() -> None:
         "GIT_SSL_NO_VERIFY",
         "GIT_SSL_CAINFO",
         "GIT_SSL_CAPATH",
+        "SSH_ASKPASS",
+        "SSH_ASKPASS_REQUIRE",
     )
     present = {
         name
@@ -155,6 +162,51 @@ def reject_local_ignore_and_attribute_overrides(root: Path) -> None:
             raise RuntimeError(
                 f"{label} is configured; release requires a neutral Git boundary"
             )
+
+
+def reject_git_credential_execution_overrides(root: Path) -> None:
+    askpass = git(
+        root,
+        "config",
+        "--show-origin",
+        "--get-all",
+        "core.askPass",
+        allow_no_match=True,
+    )
+    if askpass:
+        raise RuntimeError(
+            "core.askPass is configured; release Git must not execute askpass programs"
+        )
+
+    configured = git(
+        root,
+        "config",
+        "--get-regexp",
+        r"^credential\.",
+        allow_no_match=True,
+    )
+    unsafe: list[str] = []
+    for raw in configured.splitlines():
+        if not raw.strip():
+            continue
+        parts = raw.split(None, 1)
+        key = parts[0].strip().lower()
+        if key != "credential.helper" and not key.endswith(".helper"):
+            continue
+        value = parts[1].strip() if len(parts) > 1 else ""
+        if not value:
+            continue
+        if SAFE_CREDENTIAL_HELPER_RE.fullmatch(value) is None:
+            unsafe.append(f"{key}={value}")
+
+    if unsafe:
+        preview = ",".join(unsafe[:8])
+        if len(unsafe) > 8:
+            preview += f",...(+{len(unsafe) - 8})"
+        raise RuntimeError(
+            "unsafe credential.helper configuration is not allowed for release: "
+            + preview
+        )
 
 
 def reject_ignored_importable_code(root: Path) -> None:
@@ -245,6 +297,7 @@ def validate(root: Path) -> None:
         )
 
     reject_local_ignore_and_attribute_overrides(root)
+    reject_git_credential_execution_overrides(root)
 
     url_rewrites = git(
         root,
@@ -313,7 +366,7 @@ def validate(root: Path) -> None:
     print(
         "git release boundary: OK | "
         "hooks=none replace_refs=none grafts=none shallow=false "
-        "local_ignores=none index_flags=none ignored_importable_code=none"
+        "local_ignores=none credential_helpers=safe index_flags=none ignored_importable_code=none"
     )
 
 
