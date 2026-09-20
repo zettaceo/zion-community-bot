@@ -508,7 +508,10 @@ def record_update_lag(
     message = update.effective_message
     if not message:
         return
-    date = getattr(message, "date", None)
+    date = (
+        getattr(message, "edit_date", None)
+        or getattr(message, "date", None)
+    )
     if date is None:
         return
     try:
