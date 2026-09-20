@@ -190,11 +190,30 @@ class AIService:
             int(self._circuit_open_until - time.time()),
         )
 
+    def _persist_circuit_state(self) -> bool:
+        try:
+            with self.db.transaction():
+                self.db.set_setting(
+                    "ai_circuit_failures",
+                    str(self._circuit_failures),
+                )
+                self.db.set_setting(
+                    "ai_circuit_open_until",
+                    str(self._circuit_open_until),
+                )
+            return True
+        except Exception as exc:
+            logger.warning(
+                "Falha ao persistir circuit breaker da IA atomicamente | "
+                "error=%s",
+                type(exc).__name__,
+            )
+            return False
+
     def _reset_circuit(self) -> None:
         self._circuit_failures = 0
         self._circuit_open_until = 0.0
-        self._safe_set_setting("ai_circuit_failures", "0")
-        self._safe_set_setting("ai_circuit_open_until", "0")
+        self._persist_circuit_state()
 
     def _record_provider_success(self) -> None:
         if self._circuit_failures or self._circuit_open_until:
@@ -202,21 +221,17 @@ class AIService:
 
     def _record_provider_failure(self) -> None:
         self._circuit_failures += 1
-        self._safe_set_setting(
-            "ai_circuit_failures",
-            str(self._circuit_failures),
-        )
+
+        if self._circuit_failures >= self.settings.ai_circuit_failures:
+            self._circuit_open_until = (
+                time.time() + self.settings.ai_circuit_seconds
+            )
+
+        self._persist_circuit_state()
 
         if self._circuit_failures < self.settings.ai_circuit_failures:
             return
 
-        self._circuit_open_until = (
-            time.time() + self.settings.ai_circuit_seconds
-        )
-        self._safe_set_setting(
-            "ai_circuit_open_until",
-            str(self._circuit_open_until),
-        )
         logger.warning(
             "Circuit breaker Mistral aberto por %ss após %s falhas consecutivas.",
             self.settings.ai_circuit_seconds,
