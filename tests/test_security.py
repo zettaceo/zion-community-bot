@@ -139,10 +139,12 @@ class SecurityTests(unittest.TestCase):
 
 
     def test_private_key_block_is_high_confidence_and_redacted(self) -> None:
+        begin = "-----BEGIN " + "OPENSSH PRIVATE" + " KEY-----"
+        end = "-----END " + "OPENSSH PRIVATE" + " KEY-----"
         value = (
-            "-----BEGIN OPENSSH PRIVATE KEY-----\n"
+            begin + "\n"
             "example-private-material-not-real\n"
-            "-----END OPENSSH PRIVATE KEY-----"
+            + end
         )
         self.assertTrue(contains_high_confidence_credential(value))
         redacted = redact_secrets(value)
