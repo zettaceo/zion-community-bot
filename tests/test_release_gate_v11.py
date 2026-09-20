@@ -237,6 +237,13 @@ class V11ReleaseGateTests(unittest.TestCase):
         )
         self.assertIn("fast-forward", text)
         self.assertIn("zion-v1-prod", text)
+        self.assertIn("ZION_REBUILD_RUNTIME_AFTER_STOP=YES", text)
+
+        stop_pos = text.index("sudo systemctl stop zion.service")
+        rebuild_pos = text.index("ZION_REBUILD_RUNTIME_AFTER_STOP=YES")
+        merge_pos = text.index('merge --ff-only "$ZION_DEPLOY_COMMIT"')
+        self.assertLess(stop_pos, rebuild_pos)
+        self.assertLess(rebuild_pos, merge_pos)
 
     def test_bootstrap_and_cutover_neutralize_git_hooks(self) -> None:
         first_upgrade = self.read("docs/V1.1-FIRST-UPGRADE.md")
@@ -335,6 +342,22 @@ class V11ReleaseGateTests(unittest.TestCase):
         self.assertIn("--only-binary=:all:", prepare)
         self.assertIn("--index-url https://pypi.org/simple", prepare)
         self.assertIn('chmod -R a-w "$TMP_RUNTIME"', prepare)
+        self.assertIn(
+            'REBUILD_AFTER_STOP="${ZION_REBUILD_RUNTIME_AFTER_STOP:-NO}"',
+            prepare,
+        )
+        self.assertIn(
+            "rebuild final do runtime exige zion.service parado",
+            prepare,
+        )
+        self.assertIn(
+            "rebuild pós-stop é exclusivo do primeiro cutover legado",
+            prepare,
+        )
+        self.assertIn(
+            'rm -rf --one-file-system -- "$RUNTIME_DIR"',
+            prepare,
+        )
 
         self.assertIn(
             'RUNTIME_DIR="$RUNTIME_BASE/$EXPECTED"',
