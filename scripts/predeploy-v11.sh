@@ -36,8 +36,9 @@ if [[ "$APPROVED_SHA" != "$EXPECTED_COMMIT" ]]; then
   echo "ERRO: $APPROVED_REF não aponta exatamente para o commit aprovado." >&2
   exit 1
 fi
-if ! git diff --quiet || ! git diff --cached --quiet; then
-  echo "ERRO: candidate worktree possui alterações rastreadas." >&2
+CANDIDATE_STATUS="$(git status --porcelain --untracked-files=all)"
+if [[ -n "$CANDIDATE_STATUS" ]]; then
+  echo "ERRO: candidate worktree possui alterações rastreadas ou arquivos não versionados." >&2
   exit 1
 fi
 
