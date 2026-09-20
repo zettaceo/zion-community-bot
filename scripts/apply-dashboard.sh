@@ -22,6 +22,7 @@ BOT_UNIT="/etc/systemd/system/zion.service"
 STATE_DIR="/home/zetta/.local/state/zion-community-bot"
 DB="$STATE_DIR/zion.db"
 UNIT_WIFI_INTERFACE="wlx78bdbc575d1c"
+SAFE_GIT_SSH_COMMAND="/usr/bin/ssh -F /dev/null -o BatchMode=yes -o StrictHostKeyChecking=yes -o ProxyCommand=none -o ProxyJump=none -o PermitLocalCommand=no"
 
 if [[ "$(id -un)" != "$EXPECTED_USER" ]]; then
   echo "ERRO: execute como $EXPECTED_USER, não como root." >&2
@@ -82,7 +83,7 @@ esac
 if command -v timeout >/dev/null 2>&1; then
   REMOTE_LINE="$(
     timeout 20 env GIT_TERMINAL_PROMPT=0 \
-      /usr/bin/git ls-remote --exit-code origin "refs/heads/$REMOTE_BRANCH" \
+      /usr/bin/git -c "core.sshCommand=$SAFE_GIT_SSH_COMMAND" -c ssh.variant=ssh ls-remote --exit-code origin "refs/heads/$REMOTE_BRANCH" \
       2>/dev/null | head -n1 || true
   )"
 else

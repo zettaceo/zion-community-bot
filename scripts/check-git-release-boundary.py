@@ -69,6 +69,7 @@ def reject_git_environment() -> None:
         "GIT_NAMESPACE",
         "GIT_SSH",
         "GIT_SSH_COMMAND",
+        "GIT_SSH_VARIANT",
         "GIT_ASKPASS",
         "GIT_PROXY_COMMAND",
         "GIT_EXEC_PATH",
@@ -147,6 +148,7 @@ def reject_local_ignore_and_attribute_overrides(root: Path) -> None:
         ("core.attributesFile", "core.attributesFile"),
         ("core.fsmonitor", "core.fsmonitor"),
         ("core.sshCommand", "core.sshCommand"),
+        ("ssh.variant", "ssh.variant"),
         ("core.worktree", "core.worktree"),
     )
     for key, label in forbidden_config:
@@ -206,6 +208,37 @@ def reject_git_credential_execution_overrides(root: Path) -> None:
         raise RuntimeError(
             "unsafe credential.helper configuration is not allowed for release: "
             + preview
+        )
+
+
+def reject_git_transport_tls_overrides(root: Path) -> None:
+    ssl_verify = git(
+        root,
+        "config",
+        "--get-regexp",
+        r"^http(\..*)?\.sslverify$",
+        allow_no_match=True,
+    )
+    for raw in ssl_verify.splitlines():
+        if not raw.strip():
+            continue
+        parts = raw.split(None, 1)
+        value = parts[1].strip().lower() if len(parts) > 1 else ""
+        if value not in {"true", "yes", "on", "1"}:
+            raise RuntimeError(
+                "Git HTTP TLS verification must not be disabled for release"
+            )
+
+    custom_ca = git(
+        root,
+        "config",
+        "--get-regexp",
+        r"^http(\..*)?\.(sslcainfo|sslcapath)$",
+        allow_no_match=True,
+    )
+    if custom_ca:
+        raise RuntimeError(
+            "custom Git HTTP CA overrides are not allowed for release"
         )
 
 
@@ -298,6 +331,7 @@ def validate(root: Path) -> None:
 
     reject_local_ignore_and_attribute_overrides(root)
     reject_git_credential_execution_overrides(root)
+    reject_git_transport_tls_overrides(root)
 
     url_rewrites = git(
         root,
@@ -366,7 +400,7 @@ def validate(root: Path) -> None:
     print(
         "git release boundary: OK | "
         "hooks=none replace_refs=none grafts=none shallow=false "
-        "local_ignores=none credential_helpers=safe index_flags=none ignored_importable_code=none"
+        "local_ignores=none credential_helpers=safe transport_tls=safe index_flags=none ignored_importable_code=none"
     )
 
 

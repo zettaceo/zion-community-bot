@@ -203,6 +203,43 @@ class V11ReleaseGateTests(unittest.TestCase):
             text,
         )
 
+    def test_remote_git_proofs_neutralize_user_ssh_config(self) -> None:
+        safe_ssh = (
+            "/usr/bin/ssh -F /dev/null -o BatchMode=yes "
+            "-o StrictHostKeyChecking=yes -o ProxyCommand=none "
+            "-o ProxyJump=none -o PermitLocalCommand=no"
+        )
+        for relative in (
+            "scripts/deployment-preflight.sh",
+            "scripts/verify-approved-release.sh",
+            "scripts/apply-dashboard.sh",
+        ):
+            with self.subTest(relative=relative):
+                text = self.read(relative)
+                self.assertIn(
+                    f'SAFE_GIT_SSH_COMMAND="{safe_ssh}"',
+                    text,
+                )
+                self.assertIn(
+                    '-c "core.sshCommand=$SAFE_GIT_SSH_COMMAND"',
+                    text,
+                )
+                self.assertIn("-c ssh.variant=ssh", text)
+                self.assertIn("GIT_TERMINAL_PROMPT=0", text)
+
+        first_upgrade = self.read("docs/V1.1-FIRST-UPGRADE.md")
+        self.assertIn(
+            f'SAFE_GIT_SSH_COMMAND="{safe_ssh}"',
+            first_upgrade,
+        )
+        self.assertIn(
+            '-c "core.sshCommand=$SAFE_GIT_SSH_COMMAND"',
+            first_upgrade,
+        )
+        self.assertIn("-c ssh.variant=ssh", first_upgrade)
+        self.assertIn("credential.helper executável inseguro", first_upgrade)
+        self.assertIn("GIT_SSL_NO_VERIFY", first_upgrade)
+
     def test_first_upgrade_bootstraps_gates_from_detached_candidate(
         self,
     ) -> None:
