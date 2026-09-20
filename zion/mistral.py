@@ -76,6 +76,64 @@ def _extract_content(message: dict[str, Any]) -> str:
     return str(content).strip()
 
 
+def _validated_usage_tokens(
+    usage: Any,
+) -> tuple[int, int]:
+    if not isinstance(usage, dict):
+        raise RuntimeError(
+            "Resposta Mistral sem telemetria de uso válida."
+        )
+
+    def parse_optional(*keys: str) -> int | None:
+        raw = None
+        for key in keys:
+            if key in usage and usage.get(key) is not None:
+                raw = usage.get(key)
+                break
+        if raw is None:
+            return None
+        try:
+            value = int(raw)
+        except (TypeError, ValueError) as exc:
+            raise RuntimeError(
+                "Resposta Mistral com telemetria de uso inválida."
+            ) from exc
+        if value < 0:
+            raise RuntimeError(
+                "Resposta Mistral com telemetria de uso inválida."
+            )
+        return value
+
+    input_tokens = parse_optional(
+        "prompt_tokens",
+        "input_tokens",
+    )
+    output_tokens = parse_optional(
+        "completion_tokens",
+        "output_tokens",
+    )
+    total_tokens = parse_optional("total_tokens")
+
+    component_total = (
+        (input_tokens or 0)
+        + (output_tokens or 0)
+    )
+
+    if total_tokens is not None and total_tokens > component_total:
+        # Preserve the provider-reported total even when it exposes only
+        # partial components. Budget accounting consumes the sum.
+        missing = total_tokens - component_total
+        input_tokens = (input_tokens or 0) + missing
+        component_total = total_tokens
+
+    if component_total <= 0:
+        raise RuntimeError(
+            "Resposta Mistral sem telemetria de uso contabilizável."
+        )
+
+    return input_tokens or 0, output_tokens or 0
+
+
 def _parse_json_object(text: str) -> dict[str, Any]:
     stripped = text.strip()
 
@@ -176,16 +234,8 @@ class MistralClient:
         if not text:
             raise RuntimeError("Resposta Mistral sem conteúdo textual.")
 
-        usage = data.get("usage") or {}
-        input_tokens = int(
-            usage.get("prompt_tokens")
-            or usage.get("input_tokens")
-            or 0
-        )
-        output_tokens = int(
-            usage.get("completion_tokens")
-            or usage.get("output_tokens")
-            or 0
+        input_tokens, output_tokens = _validated_usage_tokens(
+            data.get("usage")
         )
 
         return MistralRawResponse(
