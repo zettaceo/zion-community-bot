@@ -30,7 +30,8 @@ class Block5RemoteOperationsTests(unittest.TestCase):
             "systemctl restart",
             "systemctl stop",
             "systemctl start",
-            "sudo ",
+            "sudo /usr/bin/install",
+            "sudo /usr/bin/systemctl",
             "ufw ",
             "iptables ",
             "nft add",
@@ -88,9 +89,12 @@ class Block5RemoteOperationsTests(unittest.TestCase):
             "PasswordAuthentication no",
             "KbdInteractiveAuthentication no",
             "PermitEmptyPasswords no",
+            "StrictModes yes",
+            "AuthorizedKeysFile .ssh/authorized_keys",
             "AllowUsers zetta",
             "AllowAgentForwarding no",
             "AllowTcpForwarding no",
+            "AllowStreamLocalForwarding no",
             "X11Forwarding no",
             "GatewayPorts no",
             "PermitTunnel no",
@@ -103,6 +107,7 @@ class Block5RemoteOperationsTests(unittest.TestCase):
         text = self.read("scripts/apply-ssh-hardening.sh")
 
         self.assertIn("ZION_REMOTE_ACCESS_PROVEN", text)
+        self.assertIn("ZION_HOSTKEY_PROVEN", text)
         self.assertIn("ZION_PHYSICAL_CONSOLE", text)
         self.assertIn("100.64.0.0/10", text)
         self.assertIn("fd7a:115c:a1e0::/48", text)
@@ -125,6 +130,8 @@ class Block5RemoteOperationsTests(unittest.TestCase):
             "ZION_DEPLOY_COMMIT",
             "^[0-9a-fA-F]{40}$",
             "origin/zion-v1",
+            "zettaceo/zion-community-bot",
+            "ls-remote --exit-code origin",
             "zion-v1-prod",
             "merge-base --is-ancestor",
             "ZION_GITHUB_GATES_PROVEN",
@@ -181,6 +188,9 @@ class Block5RemoteOperationsTests(unittest.TestCase):
         required = (
             "ZION_DEPLOY_COMMIT",
             "origin/zion-v1",
+            "zettaceo/zion-community-bot",
+            "ls-remote --exit-code origin",
+            "ZION_GITHUB_GATES_PROVEN",
             "worktree add --detach",
             "worktree remove --force",
             "predeploy-v11.sh",
@@ -228,6 +238,9 @@ class Block5RemoteOperationsTests(unittest.TestCase):
         self.assertIn("ZION_APPROVED_REF", text)
         self.assertIn("origin/zion-v1", text)
         self.assertIn("ZION_PREVIOUS_COMMIT", text)
+        self.assertIn("ZION_GITHUB_GATES_PROVEN", text)
+        self.assertIn("zettaceo/zion-community-bot", text)
+        self.assertIn("ls-remote --exit-code origin", text)
         self.assertIn("rollback-head.txt", text)
         self.assertIn("approved-sha.txt", text)
         self.assertIn('CURRENT_HEAD" != "$EXPECTED_COMMIT', text)
