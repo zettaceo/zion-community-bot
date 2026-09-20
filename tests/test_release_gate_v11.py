@@ -355,6 +355,10 @@ class V11ReleaseGateTests(unittest.TestCase):
 
         self.assertIn("validate_previous_runtime_target", text)
         self.assertIn('if [[ "$target" == "$LEGACY_RUNTIME" ]]', text)
+        self.assertIn(
+            "runtime legado só é aceito antes do primeiro cutover v1.1",
+            text,
+        )
         self.assertIn('"$RUNTIME_BASE"/*', text)
         self.assertIn("runtime anterior não possui identidade SHA", text)
         self.assertIn("release-sha.txt", text)
