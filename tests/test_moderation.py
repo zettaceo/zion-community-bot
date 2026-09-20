@@ -164,6 +164,35 @@ class ModerationPipelineTests(unittest.TestCase):
         finally:
             self.runtime.db.claim_idempotency_key = original
 
+    def test_command_idempotency_failure_still_deletes_secret(self) -> None:
+        update = fake_update(
+            user_id=1,
+            text="/status API key: example-secret-value-123456",
+            message_id=89,
+            update_id=9003,
+        )
+        original = self.runtime.db.claim_idempotency_key
+
+        def fail(*args, **kwargs):
+            raise RuntimeError("forced idempotency failure")
+
+        self.runtime.db.claim_idempotency_key = fail
+        try:
+            with self.assertRaises(ApplicationHandlerStop):
+                asyncio.run(
+                    command_idempotency_guard_handler(
+                        update,
+                        self.context,
+                    )
+                )
+        finally:
+            self.runtime.db.claim_idempotency_key = original
+
+        self.assertIn(
+            (update.effective_chat.id, update.effective_message.message_id),
+            self.context.bot.deleted,
+        )
+
     def test_telegram_url_entities_are_extracted(self) -> None:
         url_entity = SimpleNamespace(
             type="url",
