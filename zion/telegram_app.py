@@ -4000,22 +4000,27 @@ async def operational_alert_cycle(
     last_sent_at = rt.health_alert_last_sent_at
     persistence_read_ok = True
 
-    try:
-        persisted = rt.db.get_setting("health_alert_signature")
-        if persisted is not None:
-            previous = persisted
+    # Persistent dedup state hydrates a fresh Runtime once. After that,
+    # in-memory state is authoritative for this single locked process.
+    # This preserves a confirmed Telegram delivery even when a later
+    # SQLite dedup write failed, preventing premature duplicate alerts.
+    if previous is None:
+        try:
+            persisted = rt.db.get_setting("health_alert_signature")
+            if persisted is not None:
+                previous = persisted
 
-        raw_last_sent = (
-            rt.db.get_setting("health_alert_last_sent_at")
-            or "0"
-        )
-        last_sent_at = float(raw_last_sent)
-    except Exception as exc:
-        persistence_read_ok = False
-        logger.warning(
-            "Health alert persistence indisponível: %s",
-            type(exc).__name__,
-        )
+            raw_last_sent = (
+                rt.db.get_setting("health_alert_last_sent_at")
+                or "0"
+            )
+            last_sent_at = float(raw_last_sent)
+        except Exception as exc:
+            persistence_read_ok = False
+            logger.warning(
+                "Health alert persistence indisponível: %s",
+                type(exc).__name__,
+            )
 
     if not persistence_read_ok:
         issues.append("health_alert_persistence_unavailable")
