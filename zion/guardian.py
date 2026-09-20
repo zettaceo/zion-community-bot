@@ -188,11 +188,18 @@ class Guardian:
             )
 
             state = self.db.get_operating_state()
-            threshold = self.settings.flood_max_messages
+            base_threshold = self.settings.flood_max_messages
+            threshold = base_threshold
             if state == OperatingState.ELEVATED:
-                threshold = max(3, threshold - 2)
+                threshold = min(
+                    base_threshold,
+                    max(3, base_threshold - 2),
+                )
             elif state == OperatingState.ATTACK:
-                threshold = max(2, threshold // 2)
+                threshold = min(
+                    base_threshold,
+                    max(2, base_threshold // 2),
+                )
 
             if count < threshold:
                 return FloodDecision()
@@ -237,14 +244,16 @@ class Guardian:
                 and strike_count >= self.settings.flood_ban_after_strikes
             )
 
-            if not should_ban:
-                self.db.set_containment(
-                    chat_id,
-                    user_id,
-                    ts + mute_seconds,
-                    "flood",
-                    ts,
-                )
+            # Keep a persistent local containment even when the next external
+            # action is a ban. If the process dies after this transaction but
+            # before Telegram confirms the ban, later messages remain blocked.
+            self.db.set_containment(
+                chat_id,
+                user_id,
+                ts + mute_seconds,
+                "flood_pending_ban" if should_ban else "flood",
+                ts,
+            )
 
             return FloodDecision(
                 triggered=True,

@@ -6,20 +6,25 @@ import unittest
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from tests.helpers import make_settings
 from zion.db import ZionDB
 from zion.guardian import Guardian, normalize_policy_domain
 from zion.logging_safe import contains_high_confidence_credential
+from zion.models import OperatingState
 from telegram.constants import ChatMemberStatus
 from telegram.ext import ApplicationHandlerStop
 
 from zion.telegram_app import (
     Runtime,
+    ban_command,
     command_guard_handler,
     is_admin,
     moderation_handler,
+    mute_command,
     require_admin,
+    unban_command,
     telegram_entity_domains,
     telegram_external_urls,
 )
@@ -132,6 +137,9 @@ class FakeBot:
         self.member_calls = 0
         self.deleted: list[tuple[int, int]] = []
         self.sent: list[tuple[int, str]] = []
+        self.restricted: list[tuple[int, int]] = []
+        self.banned: list[tuple[int, int]] = []
+        self.unbanned: list[tuple[int, int]] = []
 
     async def get_chat_member(self, *, chat_id: int, user_id: int):
         self.member_calls += 1
@@ -142,6 +150,21 @@ class FakeBot:
 
     async def send_message(self, *, chat_id: int, text: str):
         self.sent.append((chat_id, text))
+
+    async def restrict_chat_member(
+        self, *, chat_id: int, user_id: int, permissions, until_date
+    ):
+        self.restricted.append((chat_id, user_id))
+
+    async def ban_chat_member(
+        self, *, chat_id: int, user_id: int, revoke_messages: bool
+    ):
+        self.banned.append((chat_id, user_id))
+
+    async def unban_chat_member(
+        self, *, chat_id: int, user_id: int, only_if_banned: bool
+    ):
+        self.unbanned.append((chat_id, user_id))
 
 
 class FakeApplication:
@@ -162,7 +185,24 @@ class FakeContext:
         self.args: list[str] = []
 
 
-def make_update(*, user_id: int, chat_type: str, text: str, message_id: int = 1):
+def make_update(
+    *,
+    user_id: int,
+    chat_type: str,
+    text: str,
+    message_id: int = 1,
+    reply_target_id: int | None = None,
+):
+    message = FakeMessage(text, message_id=message_id)
+    if reply_target_id is not None:
+        message.reply_to_message = SimpleNamespace(
+            message_id=message_id - 1,
+            from_user=SimpleNamespace(
+                id=reply_target_id,
+                username=f"user{reply_target_id}",
+                first_name=f"User {reply_target_id}",
+            ),
+        )
     return SimpleNamespace(
         update_id=message_id,
         effective_user=SimpleNamespace(
@@ -175,7 +215,7 @@ def make_update(*, user_id: int, chat_type: str, text: str, message_id: int = 1)
             id=123 if chat_type == "private" else -100123,
             type=chat_type,
         ),
-        effective_message=FakeMessage(text, message_id=message_id),
+        effective_message=message,
     )
 
 
@@ -272,6 +312,172 @@ class AuthorizationAndPrivateBoundaryTests(unittest.TestCase):
         self.assertEqual(
             incidents[0]["category"],
             "possible_credential_exposure",
+        )
+
+
+class ModerationDurabilityTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        root = Path(self.temp.name)
+        (root / "knowledge").mkdir()
+        self.runtime = Runtime(make_settings(root))
+        self.addCleanup(self.runtime.close)
+
+    def test_manual_punitive_actions_fail_closed_without_audit_intent(self) -> None:
+        scenarios = (
+            (ban_command, "/ban", [], "banned"),
+            (mute_command, "/mute 10m", ["10m"], "restricted"),
+            (unban_command, "/unban 2", ["2"], "unbanned"),
+        )
+        for index, (handler, text, args, effect_attr) in enumerate(
+            scenarios, start=10
+        ):
+            with self.subTest(handler=handler.__name__):
+                bot = FakeBot()
+                context = FakeContext(self.runtime, bot)
+                context.args = args
+                update = make_update(
+                    user_id=1,
+                    chat_type="supergroup",
+                    text=text,
+                    message_id=index,
+                    reply_target_id=(
+                        None if handler is unban_command else 2
+                    ),
+                )
+                with patch.object(
+                    self.runtime.db,
+                    "create_incident",
+                    side_effect=RuntimeError("audit unavailable"),
+                ):
+                    with self.assertRaises(RuntimeError):
+                        asyncio.run(handler(update, context))
+                self.assertEqual(getattr(bot, effect_attr), [])
+
+    def test_manual_ban_keeps_intent_if_outcome_write_fails(self) -> None:
+        bot = FakeBot()
+        context = FakeContext(self.runtime, bot)
+        update = make_update(
+            user_id=1,
+            chat_type="supergroup",
+            text="/ban",
+            message_id=30,
+            reply_target_id=2,
+        )
+
+        with patch.object(
+            self.runtime.db,
+            "record_action",
+            side_effect=RuntimeError("outcome write failed"),
+        ):
+            with self.assertRaises(RuntimeError):
+                asyncio.run(ban_command(update, context))
+
+        self.assertEqual(bot.banned, [(update.effective_chat.id, 2)])
+        incidents = self.runtime.db.list_incidents()
+        self.assertEqual(len(incidents), 1)
+        self.assertEqual(incidents[0]["category"], "manual_ban")
+
+    def test_pending_flood_ban_has_persistent_local_containment(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            settings = replace(
+                make_settings(root),
+                flood_max_messages=2,
+                flood_ban_after_strikes=1,
+            )
+            db = ZionDB(settings.db_path)
+            db.initialize()
+            try:
+                guardian = Guardian(settings, db)
+                first = guardian.record_message(
+                    chat_id=10,
+                    user_id=20,
+                    message_id=1,
+                    now=1000.0,
+                )
+                second = guardian.record_message(
+                    chat_id=10,
+                    user_id=20,
+                    message_id=2,
+                    now=1001.0,
+                )
+                self.assertFalse(first.triggered)
+                self.assertTrue(second.triggered)
+                self.assertTrue(second.should_ban)
+                self.assertGreater(
+                    guardian.containment_remaining(10, 20, 1001.0),
+                    0,
+                )
+            finally:
+                db.close()
+
+    def test_elevated_state_never_relaxes_low_normal_threshold(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            settings = replace(
+                make_settings(root),
+                flood_max_messages=2,
+            )
+            db = ZionDB(settings.db_path)
+            db.initialize()
+            try:
+                db.set_operating_state(OperatingState.ELEVATED)
+                guardian = Guardian(settings, db)
+                self.assertFalse(
+                    guardian.record_message(
+                        chat_id=10,
+                        user_id=30,
+                        message_id=1,
+                        now=2000.0,
+                    ).triggered
+                )
+                self.assertTrue(
+                    guardian.record_message(
+                        chat_id=10,
+                        user_id=30,
+                        message_id=2,
+                        now=2001.0,
+                    ).triggered
+                )
+            finally:
+                db.close()
+
+    def test_successful_flood_ban_clears_pending_containment(self) -> None:
+        root = Path(self.temp.name)
+        self.runtime.close()
+        settings = replace(
+            make_settings(root),
+            flood_max_messages=2,
+            flood_ban_after_strikes=1,
+        )
+        self.runtime = Runtime(settings)
+        bot = FakeBot()
+        context = FakeContext(self.runtime, bot)
+
+        first = make_update(
+            user_id=2,
+            chat_type="supergroup",
+            text="one",
+            message_id=40,
+        )
+        second = make_update(
+            user_id=2,
+            chat_type="supergroup",
+            text="two",
+            message_id=41,
+        )
+        asyncio.run(moderation_handler(first, context))
+        asyncio.run(moderation_handler(second, context))
+
+        self.assertEqual(bot.banned, [(second.effective_chat.id, 2)])
+        self.assertEqual(
+            self.runtime.guardian.containment_remaining(
+                second.effective_chat.id,
+                2,
+            ),
+            0,
         )
 
 

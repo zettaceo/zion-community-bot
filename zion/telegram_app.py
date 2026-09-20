@@ -1704,33 +1704,35 @@ async def mute_command(
         )
         return
 
+    rt = runtime(context)
+    # Persist intent before the irreversible Telegram side effect. If this
+    # write fails, fail closed and do not mute. The outcome is recorded after
+    # Telegram returns; the incident remains evidence if that second write fails.
+    incident_id = rt.db.create_incident(
+        chat_id=update.effective_chat.id,
+        user_id=target.id,
+        category="manual_mute",
+        severity=Severity.MEDIUM,
+        source="admin",
+        evidence={"duration_seconds": seconds},
+    )
     success = await mute_user_safe(
         context,
         update.effective_chat.id,
         target.id,
         seconds,
     )
-    rt = runtime(context)
-    with rt.db.transaction():
-        incident_id = rt.db.create_incident(
-            chat_id=update.effective_chat.id,
-            user_id=target.id,
-            category="manual_mute",
-            severity=Severity.MEDIUM,
-            source="admin",
-            evidence={"duration_seconds": seconds},
-        )
-        rt.db.record_action(
-            incident_id=incident_id,
-            chat_id=update.effective_chat.id,
-            user_id=target.id,
-            action_type="mute",
-            actor_type="admin",
-            actor_id=str(update.effective_user.id),
-            reason="manual_admin_command",
-            success=success,
-            metadata={"duration_seconds": seconds},
-        )
+    rt.db.record_action(
+        incident_id=incident_id,
+        chat_id=update.effective_chat.id,
+        user_id=target.id,
+        action_type="mute",
+        actor_type="admin",
+        actor_id=str(update.effective_user.id),
+        reason="manual_admin_command",
+        success=success,
+        metadata={"duration_seconds": seconds},
+    )
     await update.effective_message.reply_text(
         (
             f"🔇 {user_display_name(target)} silenciado por "
@@ -1762,30 +1764,29 @@ async def ban_command(
         )
         return
 
+    rt = runtime(context)
+    incident_id = rt.db.create_incident(
+        chat_id=update.effective_chat.id,
+        user_id=target.id,
+        category="manual_ban",
+        severity=Severity.HIGH,
+        source="admin",
+    )
     success = await ban_user_safe(
         context,
         update.effective_chat.id,
         target.id,
     )
-    rt = runtime(context)
-    with rt.db.transaction():
-        incident_id = rt.db.create_incident(
-            chat_id=update.effective_chat.id,
-            user_id=target.id,
-            category="manual_ban",
-            severity=Severity.HIGH,
-            source="admin",
-        )
-        rt.db.record_action(
-            incident_id=incident_id,
-            chat_id=update.effective_chat.id,
-            user_id=target.id,
-            action_type="ban",
-            actor_type="admin",
-            actor_id=str(update.effective_user.id),
-            reason="manual_admin_command",
-            success=success,
-        )
+    rt.db.record_action(
+        incident_id=incident_id,
+        chat_id=update.effective_chat.id,
+        user_id=target.id,
+        action_type="ban",
+        actor_type="admin",
+        actor_id=str(update.effective_user.id),
+        reason="manual_admin_command",
+        success=success,
+    )
     await update.effective_message.reply_text(
         (
             f"⛔ {user_display_name(target)} foi banido."
@@ -1822,30 +1823,29 @@ async def unban_command(
         )
         return
 
+    rt = runtime(context)
+    incident_id = rt.db.create_incident(
+        chat_id=update.effective_chat.id,
+        user_id=target_id,
+        category="manual_unban",
+        severity=Severity.INFO,
+        source="admin",
+    )
     success = await unban_user_safe(
         context,
         update.effective_chat.id,
         target_id,
     )
-    rt = runtime(context)
-    with rt.db.transaction():
-        incident_id = rt.db.create_incident(
-            chat_id=update.effective_chat.id,
-            user_id=target_id,
-            category="manual_unban",
-            severity=Severity.INFO,
-            source="admin",
-        )
-        rt.db.record_action(
-            incident_id=incident_id,
-            chat_id=update.effective_chat.id,
-            user_id=target_id,
-            action_type="unban",
-            actor_type="admin",
-            actor_id=str(update.effective_user.id),
-            reason="manual_admin_command",
-            success=success,
-        )
+    rt.db.record_action(
+        incident_id=incident_id,
+        chat_id=update.effective_chat.id,
+        user_id=target_id,
+        action_type="unban",
+        actor_type="admin",
+        actor_id=str(update.effective_user.id),
+        reason="manual_admin_command",
+        success=success,
+    )
     await update.effective_message.reply_text(
         (
             f"✅ Usuário {target_id} desbanido."
@@ -2804,8 +2804,6 @@ async def _enforce_flood(
 
     if flood.should_ban:
         success = await ban_user_safe(context, chat.id, user.id)
-        if success:
-            rt.db.clear_containment(chat.id, user.id)
         action_type = "ban"
     else:
         success = await mute_user_safe(
@@ -2832,6 +2830,9 @@ async def _enforce_flood(
     )
 
     if flood.should_ban and success:
+        # Outcome is durably recorded before local cleanup. A DB failure in
+        # cleanup therefore cannot erase evidence of a successful external ban.
+        rt.db.clear_containment(chat.id, user.id)
         action_text = "banido por reincidência objetiva de flood."
     elif flood.should_ban:
         # Se o ban falhar, aplicamos contenção/mute como fallback
