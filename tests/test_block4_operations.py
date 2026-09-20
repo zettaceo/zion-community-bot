@@ -193,6 +193,33 @@ class Block4OperationsTests(unittest.TestCase):
             finally:
                 rt.close()
 
+    def test_dedup_pair_rolls_back_if_second_write_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            rt = Runtime(self._settings(root))
+            rt.housekeeping_last_error = "RuntimeError"
+            app = FakeApplication(rt)
+            original_set_setting = rt.db.set_setting
+
+            def fail_second_field(key: str, value: str) -> None:
+                if key == "health_alert_last_sent_at":
+                    raise RuntimeError("synthetic second-field failure")
+                original_set_setting(key, value)
+
+            rt.db.set_setting = fail_second_field
+            try:
+                asyncio.run(operational_alert_cycle(app, rt))
+                self.assertEqual(app.bot.attempts, 1)
+                self.assertTrue(rt.health_alert_persistence_dirty)
+                self.assertIsNone(
+                    rt.db.get_setting("health_alert_signature")
+                )
+                self.assertIsNone(
+                    rt.db.get_setting("health_alert_last_sent_at")
+                )
+            finally:
+                rt.close()
+
     def test_dirty_dedup_state_repairs_without_duplicate_when_storage_recovers(
         self,
     ) -> None:
