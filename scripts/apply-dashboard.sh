@@ -20,6 +20,7 @@ SRC="$ROOT/systemd/zion-dashboard.service"
 DST="/etc/systemd/system/zion-dashboard.service"
 BOT_UNIT="/etc/systemd/system/zion.service"
 STATE_DIR="/home/zetta/.local/state/zion-community-bot"
+DASHBOARD_STATE_DIR="$STATE_DIR/dashboard"
 DB="$STATE_DIR/zion.db"
 UNIT_WIFI_INTERFACE="wlx78bdbc575d1c"
 
@@ -144,6 +145,22 @@ if [[ "$(stat -c '%h' "$DB")" != "1" ]]; then
   echo "ERRO: $DB não pode possuir hard links." >&2
   exit 2
 fi
+if [[ -e "$DASHBOARD_STATE_DIR" || -L "$DASHBOARD_STATE_DIR" ]]; then
+  if [[ -L "$DASHBOARD_STATE_DIR" || ! -d "$DASHBOARD_STATE_DIR" ]]; then
+    echo "ERRO: dashboard state dir existente deve ser diretório regular." >&2
+    exit 2
+  fi
+  DASHBOARD_STATE_REAL="$(readlink -f -- "$DASHBOARD_STATE_DIR" 2>/dev/null || true)"
+  if [[ "$DASHBOARD_STATE_REAL" != "$DASHBOARD_STATE_DIR" ]]; then
+    echo "ERRO: dashboard state dir resolve por alias/symlink." >&2
+    exit 2
+  fi
+  if [[ "$(stat -c '%U' "$DASHBOARD_STATE_DIR")" != "$EXPECTED_USER" ]] \
+    || [[ "$(stat -c '%a' "$DASHBOARD_STATE_DIR")" != "700" ]]; then
+    echo "ERRO: dashboard state dir deve ser 0700 e pertencer a $EXPECTED_USER." >&2
+    exit 2
+  fi
+fi
 
 echo "[4/8] Validando código, unit e configuração..."
 if [[ ! -f "$SRC" || -L "$SRC" ]]; then
@@ -187,18 +204,25 @@ if [[ "$(readlink -f -- "$CURRENT_RUNTIME" || true)" != "$RUNTIME_DIR_REAL" ]]; 
 fi
 
 mutated=false
+created_dashboard_state=false
 rollback() {
-  if [[ "$mutated" != true ]]; then
-    return
+  if [[ "$mutated" == true ]]; then
+    echo "Falha após mutação; removendo bootstrap incompleto do dashboard..." >&2
+    sudo /usr/bin/systemctl disable --now zion-dashboard.service >/dev/null 2>&1 || true
+    sudo /usr/bin/rm -f "$DST"
+    sudo /usr/bin/systemctl daemon-reload || true
   fi
-  echo "Falha após mutação; removendo bootstrap incompleto do dashboard..." >&2
-  sudo /usr/bin/systemctl disable --now zion-dashboard.service >/dev/null 2>&1 || true
-  sudo /usr/bin/rm -f "$DST"
-  sudo /usr/bin/systemctl daemon-reload || true
+  if [[ "$created_dashboard_state" == true ]]; then
+    /usr/bin/rm -rf -- "$DASHBOARD_STATE_DIR"
+  fi
 }
 trap rollback ERR
 
-echo "[6/8] Instalando unit aprovada do dashboard..."
+echo "[6/8] Preparando estado mínimo e instalando unit aprovada..."
+if [[ ! -d "$DASHBOARD_STATE_DIR" ]]; then
+  /usr/bin/install -d -m 0700 "$DASHBOARD_STATE_DIR"
+  created_dashboard_state=true
+fi
 sudo /usr/bin/install \
   -o root \
   -g root \
