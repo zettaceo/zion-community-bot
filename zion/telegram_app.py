@@ -3743,9 +3743,11 @@ async def operational_alert_cycle(
     diagnostics = rt.health.diagnostics()
     _, p95_lag = update_lag_stats(rt)
 
+    community_stats_ok = True
     try:
         community = rt.db.community_stats()
     except Exception as exc:
+        community_stats_ok = False
         logger.warning(
             "Falha ao ler community_stats para health alert: %s",
             type(exc).__name__,
@@ -3812,6 +3814,8 @@ async def operational_alert_cycle(
     for config_issue in diagnostics.get("configuration_issues", []):
         issues.append(f"config:{config_issue}")
 
+    if not community_stats_ok:
+        issues.append("community_stats_unavailable")
     if community.get("failed_scheduled", 0) > 0:
         issues.append("scheduled_delivery_failed")
     if community.get("uncertain_scheduled", 0) > 0:
@@ -3835,11 +3839,11 @@ async def operational_alert_cycle(
         issues.append("telegram_update_lag")
 
     issues = sorted(set(issues))
-    signature = "|".join(issues) if issues else "OK"
     now = time.time()
 
     previous = rt.health_alert_signature
     last_sent_at = rt.health_alert_last_sent_at
+    persistence_read_ok = True
 
     try:
         persisted = rt.db.get_setting("health_alert_signature")
@@ -3852,11 +3856,17 @@ async def operational_alert_cycle(
         )
         last_sent_at = float(raw_last_sent)
     except Exception as exc:
+        persistence_read_ok = False
         logger.warning(
             "Health alert persistence indisponível: %s",
             type(exc).__name__,
         )
 
+    if not persistence_read_ok:
+        issues.append("health_alert_persistence_unavailable")
+        issues = sorted(set(issues))
+
+    signature = "|".join(issues) if issues else "OK"
     rt.health_alert_signature = previous
     rt.health_alert_last_sent_at = last_sent_at
 
