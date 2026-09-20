@@ -4055,11 +4055,12 @@ async def operational_alert_cycle(
     # before accepting persisted values again.
     if rt.health_alert_persistence_dirty and previous is not None:
         try:
-            rt.db.set_setting("health_alert_signature", previous)
-            rt.db.set_setting(
-                "health_alert_last_sent_at",
-                str(last_sent_at),
-            )
+            with rt.db.transaction():
+                rt.db.set_setting("health_alert_signature", previous)
+                rt.db.set_setting(
+                    "health_alert_last_sent_at",
+                    str(last_sent_at),
+                )
             rt.health_alert_persistence_dirty = False
         except Exception as exc:
             persistence_read_ok = False
@@ -4209,8 +4210,9 @@ async def operational_alert_cycle(
             return
 
         try:
-            rt.db.set_setting("health_alert_signature", "OK")
-            rt.db.set_setting("health_alert_last_sent_at", "0")
+            with rt.db.transaction():
+                rt.db.set_setting("health_alert_signature", "OK")
+                rt.db.set_setting("health_alert_last_sent_at", "0")
             rt.health_alert_persistence_dirty = False
         except Exception as exc:
             rt.health_alert_persistence_dirty = True
@@ -4268,8 +4270,9 @@ async def operational_alert_cycle(
         return
 
     try:
-        rt.db.set_setting("health_alert_signature", signature)
-        rt.db.set_setting("health_alert_last_sent_at", str(now))
+        with rt.db.transaction():
+            rt.db.set_setting("health_alert_signature", signature)
+            rt.db.set_setting("health_alert_last_sent_at", str(now))
         rt.health_alert_persistence_dirty = False
     except Exception as exc:
         rt.health_alert_persistence_dirty = True
