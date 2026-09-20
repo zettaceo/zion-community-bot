@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+export PATH
+
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PYTHON="${ZION_VALIDATION_PYTHON:-$ROOT/.venv/bin/python}"
 PYCACHE_ROOT="$(mktemp -d /tmp/zion-validation-pycache.XXXXXX)"
@@ -54,9 +57,9 @@ for script in scripts/*.sh; do
 done
 
 echo "[6/7] Verificando arquivos sensíveis versionados..."
-if git ls-files | grep -E '(^|/)(\.env|zion\.db|zion\.db-wal|zion\.db-shm)$' >/dev/null; then
+if /usr/bin/git ls-files | grep -E '(^|/)(\.env|zion\.db|zion\.db-wal|zion\.db-shm)$' >/dev/null; then
   echo "ERRO: arquivo sensível/runtime está versionado." >&2
-  git ls-files | grep -E '(^|/)(\.env|zion\.db|zion\.db-wal|zion\.db-shm)$' >&2 || true
+  /usr/bin/git ls-files | grep -E '(^|/)(\.env|zion\.db|zion\.db-wal|zion\.db-shm)$' >&2 || true
   exit 1
 fi
 

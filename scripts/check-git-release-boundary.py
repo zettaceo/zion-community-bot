@@ -21,6 +21,7 @@ SAFE_IGNORED_TOP_LEVEL = frozenset(
     }
 )
 IMPORTABLE_CODE_SUFFIXES = (".py", ".pyc", ".pyo", ".pyd", ".so")
+GIT_EXECUTABLE = "/usr/bin/git"
 
 
 def git(
@@ -31,7 +32,7 @@ def git(
     env = os.environ.copy()
     env["GIT_NO_REPLACE_OBJECTS"] = "1"
     result = subprocess.run(
-        ["git", "-C", str(root), *args],
+        [GIT_EXECUTABLE, "-C", str(root), *args],
         text=True,
         capture_output=True,
         env=env,

@@ -132,7 +132,7 @@ def main():
     finally:
         db.close()
     report['tested_head'] = __import__('subprocess').check_output(
-        ['git', 'rev-parse', 'HEAD'], cwd=Path(__file__).resolve().parents[1], text=True).strip()
+        ['/usr/bin/git', 'rev-parse', 'HEAD'], cwd=Path(__file__).resolve().parents[1], text=True).strip()
     evidence = root / 'evidence.json'
     fd = os.open(evidence, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     with os.fdopen(fd, 'w') as handle:

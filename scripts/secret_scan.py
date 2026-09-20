@@ -42,7 +42,7 @@ ALLOWED_ENV_VALUES = {
 
 def tracked_files() -> list[Path]:
     raw = subprocess.check_output(
-        ["git", "ls-files", "-z"],
+        ["/usr/bin/git", "ls-files", "-z"],
     )
     return [
         Path(item.decode("utf-8"))

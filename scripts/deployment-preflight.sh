@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -uo pipefail
 
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+export PATH
+
 REPORT_ONLY=false
 if [[ "${1:-}" == "--report-only" ]]; then
   REPORT_ONLY=true
