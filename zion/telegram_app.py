@@ -182,9 +182,10 @@ def format_duration(seconds: int) -> str:
 
 def _telegram_entity_candidates(
     message: Any,
-) -> tuple[list[str], bool]:
+) -> tuple[list[str], bool, bool]:
     targets: list[str] = []
     parse_failed = False
+    too_many = False
 
     entity_sets = (
         (
@@ -224,13 +225,14 @@ def _telegram_entity_candidates(
             if value not in targets:
                 targets.append(value)
             if len(targets) >= 20:
-                return targets, parse_failed
+                too_many = True
+                return targets, parse_failed, too_many
 
-    return targets, parse_failed
+    return targets, parse_failed, too_many
 
 
 def telegram_entity_targets(message: Any) -> list[str]:
-    targets, _ = _telegram_entity_candidates(message)
+    targets, _, _ = _telegram_entity_candidates(message)
     return targets
 
 
@@ -238,12 +240,14 @@ def telegram_entity_link_evidence(
     message: Any,
 ) -> tuple[list[str], list[str]]:
     domains: list[str] = []
-    targets, parse_failed = _telegram_entity_candidates(message)
-    unsupported_schemes: list[str] = (
-        ["unparseable-url-entity"]
-        if parse_failed
-        else []
+    targets, parse_failed, too_many = _telegram_entity_candidates(
+        message
     )
+    unsupported_schemes: list[str] = []
+    if parse_failed:
+        unsupported_schemes.append("unparseable-url-entity")
+    if too_many:
+        unsupported_schemes.append("too-many-link-entities")
 
     for candidate in targets:
         domain, unsupported_scheme = normalize_link_target(candidate)
