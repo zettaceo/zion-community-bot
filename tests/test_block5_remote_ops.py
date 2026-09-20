@@ -80,7 +80,7 @@ class Block5RemoteOperationsTests(unittest.TestCase):
     def test_authoritative_sshd_template_is_key_only_and_no_forwarding(
         self,
     ) -> None:
-        text = self.read("ops/sshd/99-zion-remote.conf")
+        text = self.read("ops/sshd/00-zion-remote.conf")
 
         required = (
             "PermitRootLogin no",
@@ -91,6 +91,9 @@ class Block5RemoteOperationsTests(unittest.TestCase):
             "PermitEmptyPasswords no",
             "StrictModes yes",
             "AuthorizedKeysFile .ssh/authorized_keys",
+            "AuthorizedKeysCommand none",
+            "TrustedUserCAKeys none",
+            "AuthorizedPrincipalsFile none",
             "AllowUsers zetta",
             "AllowAgentForwarding no",
             "AllowTcpForwarding no",
