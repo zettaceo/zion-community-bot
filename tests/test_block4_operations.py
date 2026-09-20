@@ -293,6 +293,9 @@ class Block4OperationsTests(unittest.TestCase):
                 self.assertIn("AI circuit: OPEN", output)
                 self.assertIn("AI provider failures: 2/3", output)
                 self.assertIn("NO-SAMPLES", output)
+                self.assertIn("Scheduler: STOPPED", output)
+                self.assertIn("Hourly housekeeping: OK", output)
+                self.assertIn("WAL checkpoint: OK", output)
                 self.assertNotIn("synthetic-key-material", output)
             finally:
                 rt.close()
