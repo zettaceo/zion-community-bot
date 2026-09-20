@@ -5,7 +5,7 @@ import time
 from pathlib import Path
 
 from .config import Settings
-from .db import ZION_APPLICATION_ID, ZionDB
+from .db import SUPPORTED_SCHEMA_VERSION, ZION_APPLICATION_ID, ZionDB
 from .models import HealthSnapshot, OperatingState
 
 
@@ -227,6 +227,10 @@ class HealthService:
         except Exception:
             schema_version_read_ok = False
             schema_version = -1
+        schema_version_ok = (
+            schema_version_read_ok
+            and schema_version == SUPPORTED_SCHEMA_VERSION
+        )
 
         return {
             "state": snapshot.state.value,
@@ -269,7 +273,9 @@ class HealthService:
             "ai_latency_24h": latency,
             "ai_latency_read_ok": ai_latency_read_ok,
             "schema_version": schema_version,
+            "schema_version_supported": SUPPORTED_SCHEMA_VERSION,
             "schema_version_read_ok": schema_version_read_ok,
+            "schema_version_ok": schema_version_ok,
             "sqlite_pragmas": pragmas,
             "sqlite_pragmas_ok": (
                 pragma_read_ok and not pragma_issues
