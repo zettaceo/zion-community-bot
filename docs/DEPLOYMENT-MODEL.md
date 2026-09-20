@@ -180,7 +180,7 @@ ZION_GITHUB_GATES_PROVEN=YES \
   bash scripts/apply-zion-v1.sh
 ```
 
-`apply-zion-v1.sh` now refuses to deploy unless the local branch is exactly `zion-v1-prod`, the expected SHA matches current HEAD and the approved production ref, the expected GitHub origin/live production branch still match, and the GitHub-governance attestation is present. It records the previous commit in pre-deploy backup metadata when supplied.
+`apply-zion-v1.sh` now refuses to deploy unless the local branch is exactly `zion-v1-prod`, current HEAD equals the selected immutable release SHA, that SHA remains in the locally approved `origin/zion-v1` history, the GitHub origin identity is correct, and the GitHub-governance attestation is present. The previous production SHA is mandatory and is recorded in pre-deploy backup metadata. Exact equality with the **live** remote branch head is intentionally a pre-cutover gate, not a post-stop gate, so a later fast-forward of `zion-v1` cannot create an unnecessary availability failure.
 
 If `apply-zion-v1.sh` fails **before** it stops `zion.service`, production runtime state has not been cut over; restore the local worktree to `PREVIOUS_HEAD` only if necessary and keep/restart the old service. If it fails after the stop/migration phase may have begun, do not guess: use the verified backup + recorded rollback SHA and follow the rollback procedure below.
 
