@@ -264,6 +264,36 @@ class ModerationPipelineTests(unittest.TestCase):
         self.assertTrue(is_operator(operator, self.context))
         self.assertFalse(is_operator(member, self.context))
 
+    def test_duplicate_moderation_update_does_not_repeat_action(self) -> None:
+        first = fake_update(
+            user_id=2,
+            text="veja https://duplicate.example/path",
+            message_id=88,
+            update_id=5001,
+        )
+        duplicate = fake_update(
+            user_id=2,
+            text="veja https://duplicate.example/path",
+            message_id=88,
+            update_id=5001,
+        )
+
+        asyncio.run(moderation_handler(first, self.context))
+        asyncio.run(moderation_handler(duplicate, self.context))
+
+        self.assertEqual(
+            self.context.bot.deleted.count(
+                (first.effective_chat.id, first.effective_message.message_id)
+            ),
+            1,
+        )
+        incidents = [
+            item
+            for item in self.runtime.db.list_incidents(limit=10)
+            if item["category"] == "unauthorized_link"
+        ]
+        self.assertEqual(len(incidents), 1)
+
     def test_member_unauthorized_link_is_deleted(self) -> None:
         update = fake_update(
             user_id=2,
