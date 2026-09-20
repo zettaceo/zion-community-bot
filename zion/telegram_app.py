@@ -180,11 +180,8 @@ def format_duration(seconds: int) -> str:
     return f"{seconds} segundos"
 
 
-def telegram_entity_link_evidence(
-    message: Any,
-) -> tuple[list[str], list[str]]:
-    domains: list[str] = []
-    unsupported_schemes: list[str] = []
+def telegram_entity_targets(message: Any) -> list[str]:
+    targets: list[str] = []
 
     entity_sets = (
         (
@@ -214,16 +211,30 @@ def telegram_entity_link_evidence(
             if not candidate:
                 continue
 
-            domain, unsupported_scheme = normalize_link_target(
-                str(candidate)
-            )
-            if domain and domain not in domains:
-                domains.append(domain)
-            if (
-                unsupported_scheme
-                and unsupported_scheme not in unsupported_schemes
-            ):
-                unsupported_schemes.append(unsupported_scheme)
+            value = str(candidate)[:2048]
+            if value not in targets:
+                targets.append(value)
+            if len(targets) >= 20:
+                return targets
+
+    return targets
+
+
+def telegram_entity_link_evidence(
+    message: Any,
+) -> tuple[list[str], list[str]]:
+    domains: list[str] = []
+    unsupported_schemes: list[str] = []
+
+    for candidate in telegram_entity_targets(message):
+        domain, unsupported_scheme = normalize_link_target(candidate)
+        if domain and domain not in domains:
+            domains.append(domain)
+        if (
+            unsupported_scheme
+            and unsupported_scheme not in unsupported_schemes
+        ):
+            unsupported_schemes.append(unsupported_scheme)
 
     return domains, unsupported_schemes
 
@@ -2998,10 +3009,14 @@ async def command_guard_handler(
     record_user(update, context, increment_messages=True)
 
     text = message.text or message.caption or ""
+    entity_targets = telegram_entity_targets(message)
+    sensitive_surface = "\n".join(
+        [text] + entity_targets
+    )
     if await protect_credential_exposure(
         update,
         context,
-        text,
+        sensitive_surface,
         source="guardian_command_preflight",
         notice_text=(
             "🚨 ZION bloqueou um comando que aparentava conter "
@@ -3013,7 +3028,7 @@ async def command_guard_handler(
     if await protect_wallet_secret(
         update,
         context,
-        text,
+        sensitive_surface,
         source="guardian_command_preflight",
         notice_text=(
             "🚨 ZION bloqueou um comando que aparentava conter "
@@ -3132,10 +3147,14 @@ async def moderation_handler(
     # Segredos são protegidos para TODOS, inclusive administradores.
     # Admin não deve perder esta camada por causa da isenção de moderação.
     text = message.text or message.caption or ""
+    entity_targets = telegram_entity_targets(message)
+    sensitive_surface = "\n".join(
+        [text] + entity_targets
+    )
     if await protect_credential_exposure(
         update,
         context,
-        text,
+        sensitive_surface,
         source="guardian",
         notice_text=(
             f"🚨 {user_display_name(user)}: mensagem removida por "
@@ -3148,7 +3167,7 @@ async def moderation_handler(
     if await protect_wallet_secret(
         update,
         context,
-        text,
+        sensitive_surface,
         source="guardian",
         notice_text=(
             f"🚨 {user_display_name(user)}: mensagem removida por "
