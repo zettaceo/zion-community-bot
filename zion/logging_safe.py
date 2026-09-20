@@ -27,6 +27,10 @@ BEARER_REGEX = re.compile(
     r"(?i)(authorization\s*[:=]\s*bearer\s+)([^\s,;]+)"
 )
 
+BASIC_AUTH_URL_REGEX = re.compile(
+    r"(?i)(https?://[^/\s:@]+:)([^@\s/]+)(@)"
+)
+
 LABELED_CREDENTIAL_REGEX = re.compile(
     r"(?is)\b("
     r"api[ _-]?key|client[ _-]?secret|secret[ _-]?key|"
@@ -78,6 +82,8 @@ def contains_high_confidence_credential(value: object) -> bool:
         return True
     if BEARER_REGEX.search(text):
         return True
+    if BASIC_AUTH_URL_REGEX.search(text):
+        return True
     if LABELED_CREDENTIAL_REGEX.search(text):
         return True
     return any(secret in text for secret in _sensitive_values())
@@ -94,6 +100,10 @@ def redact_secrets(value: object) -> str:
         text,
     )
     text = BEARER_REGEX.sub(r"\1[REDACTED]", text)
+    text = BASIC_AUTH_URL_REGEX.sub(
+        r"\1[REDACTED]\3",
+        text,
+    )
     text = LABELED_CREDENTIAL_REGEX.sub(
         lambda match: f"{match.group(1)}=[REDACTED]",
         text,
