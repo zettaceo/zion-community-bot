@@ -2,6 +2,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SYSTEM_PYTHON="/usr/bin/python3"
 PYTHON="${ZION_RUNTIME_PYTHON:-$ROOT/.venv/bin/python}"
 PROD_ROOT="/home/zetta/zion-community-bot"
 PROD_ENV="$PROD_ROOT/.env"
@@ -18,6 +19,15 @@ echo "================================================="
 
 echo
 echo "[1/8] Approved branch/commit..."
+if [[ ! -x "$SYSTEM_PYTHON" ]]; then
+  echo "ERRO: $SYSTEM_PYTHON ausente." >&2
+  exit 1
+fi
+"$SYSTEM_PYTHON" -I "$ROOT/scripts/check-git-release-boundary.py" \
+  --root "$ROOT"
+"$SYSTEM_PYTHON" -I "$ROOT/scripts/check-git-release-boundary.py" \
+  --root "$PROD_ROOT"
+
 cd "$ROOT"
 git status --short --branch
 HEAD_SHA="$(git rev-parse HEAD)"
