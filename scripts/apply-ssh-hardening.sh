@@ -43,7 +43,7 @@ if [[ -z "$tailscale_ip" ]]; then
   exit 2
 fi
 
-python3 - "$tailscale_ip" <<'PY'
+/usr/bin/python3 -I - "$tailscale_ip" <<'PY'
 import ipaddress
 import sys
 address = ipaddress.ip_address(sys.argv[1])
@@ -60,7 +60,7 @@ else
   exit 2
 fi
 
-python3 - "$source_ip" <<'PY'
+/usr/bin/python3 -I - "$source_ip" <<'PY'
 import ipaddress
 import sys
 address = ipaddress.ip_address(sys.argv[1])
