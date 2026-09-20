@@ -1,6 +1,6 @@
 # ZION — Block 5 Remote Operations Audit
 
-Status: **implementation in isolated development branch; host application pending**.
+Status: **repository implementation and adversarial review complete; host/control-plane application pending**.
 
 Base:
 - `zion-v1.1-dev`
@@ -140,6 +140,25 @@ Primary Block 5 surfaces:
 - `scripts/predeploy-v11.sh`
 - `scripts/apply-zion-v1.sh`
 - `ops/sshd/00-zion-remote.conf`
+
+## Automated regression coverage
+
+Block 5 source/behavior contracts cover:
+
+- strict preflight remains read-only and fails closed;
+- report-only mode cannot be confused with strict acceptance;
+- fixed production repo/branch/user/path identities;
+- full 40-character release SHA binding;
+- live GitHub production-head verification before cutover;
+- approved-release validation in a detached temporary worktree;
+- mandatory rollback SHA metadata;
+- runtime direct dependency ranges plus `pip check`;
+- `00-` sshd precedence and exclusive authorized-key sources;
+- real Tailscale client `sshd -T -C` Match context;
+- SSH reload + rollback behavior without bot/service restart;
+- GitHub-hosted CI remains read-only and is not self-hosted.
+
+Full repository CI, shell syntax validation and secret scan remain mandatory before integration.
 
 ## Residual host/control-plane gates
 
