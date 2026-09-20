@@ -164,6 +164,24 @@ A bounded deque of the last 100 values already existed, but samples had no age a
 - old samples are shown as `STALE`;
 - stale samples remain visible diagnostically but do not trigger a current-lag alert.
 
+### MEDIUM — circuit-breaker persistence could split across restart
+
+Circuit state used two independent settings writes. A crash or write failure between them could persist `failures` without the matching `open_until`, or vice versa.
+
+**Hardening:** circuit failure count and open-until are now persisted together inside one SQLite transaction. A failure on either write rolls the pair back, preserving a coherent persisted state. The live in-memory breaker still remains protective if persistence itself is unavailable.
+
+### MEDIUM — integrity cache was slower than the configured health cadence
+
+Operational health runs every 60 seconds by default, but `quick_check + foreign_key_check` could remain cached for 300 seconds.
+
+**Hardening:** the integrity cache TTL now follows `ZION_HEALTH_CHECK_INTERVAL_SECONDS`, capped at 300 seconds. With the default 60-second health cadence, critical structural/FK integrity is re-evaluated every 60 seconds.
+
+### MEDIUM — operational incidents remained open after recovery/signature transition
+
+Operational alerts created audit incidents, but recovery only cleared in-memory pointers and sent a recovery notification. The corresponding incident row could remain `open`, and a restart could lose the pointer and create another incident for the same active condition.
+
+**Hardening:** the active operational incident signature/id are persisted. Runtime restart hydrates and reuses the active open incident. On recovery, the active incident is marked `resolved` and the pointer is cleared atomically. When the issue signature changes, the previous incident is resolved and the new incident/pointer is created atomically. Recovery actions reference the incident being resolved.
+
 ### MEDIUM — uncertain provider failures could undercount AI budget
 
 A Mistral timeout/failure released the in-flight budget reservation and recorded zero provider tokens. A timeout does not prove zero external cost: the provider may have processed the request before the client lost confirmation.
@@ -179,6 +197,18 @@ The estimate is persisted without a schema migration using an internal settings 
 - forces AI accounting to fail closed if the conservative charge cannot be persisted.
 
 The deterministic Guardian is unaffected.
+
+### HIGH — successful provider usage could disappear after ledger-write failure
+
+A successful Mistral call could return real token usage while the exact `ai_event` write failed. The live process would fail closed, but after restart the unpersisted usage could disappear from the daily budget.
+
+**Hardening:** a successful provider call whose exact event write fails now persists the returned token usage in the conservative UTC-day accounting channel. If exact usage is unavailable, the reserved estimate is charged. Restart therefore cannot silently erase already-observed provider usage.
+
+### HIGH — successful response could be accepted without accountable usage telemetry
+
+A text response with missing/zero/incomplete usage fields could previously be treated as a successful zero-cost call.
+
+**Hardening:** Mistral usage telemetry is now validated. Missing, invalid, negative, zero or incomplete component telemetry is rejected unless a positive `total_tokens` value provides an accountable floor. The admission reserve also no longer relies on average characters-per-token; it uses a conservative UTF-8 byte reserve plus fixed wrapper overhead and the configured output ceiling.
 
 ## Diagnostics
 
@@ -232,9 +262,9 @@ The runtime records only safe step/error-type information for operational exposu
 
 ## Tests
 
-The full validation suite at implementation-validation SHA
-`cc8e579526c83426a787093e13202130e87290c3`
-ran **319 tests** successfully in GitHub Actions ZION CI run **#888**.
+The full validation suite at post-review remediation SHA
+`4cfb669012c08e87646a005a64844cb36adacc86`
+ran **331 tests** successfully in GitHub Actions ZION CI run **#902**.
 
 Block 4 regression coverage includes:
 
@@ -265,8 +295,16 @@ Block 4 regression coverage includes:
 - scheduler cadence is monotonic and immediate after startup;
 - unavailable disk/schema/latency/community telemetry is explicit;
 - provider-failure uncertain token usage is conservatively charged;
+- successful provider usage survives exact-ledger failure and restart;
+- missing/incomplete Mistral usage telemetry fails closed;
+- conservative UTF-8 admission reservation;
 - uncertain AI budget survives restart and rolls over by UTC day;
 - failure to persist uncertain AI usage makes accounting fail closed;
+- circuit-breaker state pair commits or rolls back atomically;
+- SQLite integrity cache follows the health cadence;
+- operational recovery resolves the active incident;
+- signature transition resolves the previous incident and creates a new one;
+- active operational incident pointer survives runtime restart;
 - existing transaction tests continue to prove no network `await` spans a DB transaction.
 
 Validation evidence for that SHA:
@@ -274,7 +312,7 @@ Validation evidence for that SHA:
 - Python compile: PASS
 - runtime compatibility: PASS
 - imports: OK
-- unit tests: **319/319**
+- unit tests: **331/331**
 - shell syntax: PASS
 - tracked sensitive-file check: PASS
 - SECRET SCAN: OK
