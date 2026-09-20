@@ -979,6 +979,26 @@ async def diagnostics_command(
         else "CLOSED"
     )
 
+    scheduler_task = context.application.bot_data.get(
+        "zion_scheduler_task"
+    )
+    scheduler_state = (
+        "RUNNING"
+        if isinstance(scheduler_task, asyncio.Task)
+        and not scheduler_task.done()
+        else "STOPPED"
+    )
+    housekeeping_state = (
+        f"WARNING ({rt.housekeeping_last_error})"
+        if rt.housekeeping_last_error
+        else "OK"
+    )
+    checkpoint_state = (
+        f"WARNING ({rt.wal_checkpoint_last_error})"
+        if rt.wal_checkpoint_last_error
+        else "OK"
+    )
+
     await update.effective_message.reply_text(
         "ZION DIAGNOSTICS\n"
         f"State: {diag['state']}\n"
@@ -986,6 +1006,9 @@ async def diagnostics_command(
         f"{'OK' if diag['sqlite_integrity_ok'] else 'FAIL'}\n"
         f"Runtime lock: "
         f"{'HELD' if rt.process_lock.acquired else 'MISSING'}\n"
+        f"Scheduler: {scheduler_state}\n"
+        f"Hourly housekeeping: {housekeeping_state}\n"
+        f"WAL checkpoint: {checkpoint_state}\n"
         f"SQLite schema: v{diag['schema_version']} "
         f"[{'OK' if diag['schema_version_read_ok'] else 'UNAVAILABLE'}]\n"
         f"SQLite PRAGMAs: {pragma_state} ({pragma_issues})\n"
