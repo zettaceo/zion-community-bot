@@ -2,6 +2,8 @@
 
 Status: **repository-admin action required before first remote production deployment**.
 
+At the start of Block 5, GitHub reported both `zion-v1` and `zion-v1.1-dev` as unprotected. Repository code cannot remediate that control-plane state through the currently available connection.
+
 The current ChatGPT GitHub connection can inspect branch state but cannot modify branch protection/rulesets because repository administration permission is intentionally unavailable.
 
 ## Production branch — `zion-v1`
@@ -22,6 +24,8 @@ Recommended when an independent human reviewer is available:
 - dismiss stale approvals after new commits.
 
 Do not enable a privileged self-hosted runner as a substitute for these controls.
+
+The Acer's Git credential, if one is needed for fetch/ls-remote, should be **read-only** for repository contents. The production host does not need permission to push, merge PRs, alter rulesets or administer the repository. Prefer a credential mechanism that does not place a token in the remote URL or shell history.
 
 ## Development integration branch — `zion-v1.1-dev`
 
@@ -60,7 +64,8 @@ Confirm:
 - `validate` required;
 - force push disabled;
 - deletion disabled;
-- no unexpected bypass actor.
+- no unexpected bypass actor;
+- the Acer's Git credential is fetch/read-only and cannot push to production.
 
 Then verify the production PR's final merged SHA is the same 40-character SHA shown by:
 
