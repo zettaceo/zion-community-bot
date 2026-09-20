@@ -9,13 +9,18 @@ elif [[ -n "${1:-}" ]]; then
   exit 64
 fi
 
-ROOT="${ZION_PROD_ROOT:-/home/zetta/zion-community-bot}"
+if [[ "$REPORT_ONLY" == true ]]; then
+  ROOT="${ZION_PROD_ROOT:-/home/zetta/zion-community-bot}"
+  EXPECTED_USER="${ZION_REMOTE_USER:-zetta}"
+else
+  ROOT="/home/zetta/zion-community-bot"
+  EXPECTED_USER="zetta"
+fi
 EXPECTED="${ZION_DEPLOY_COMMIT:-}"
 REMOTE_BRANCH="zion-v1"
 APPROVED_REF="origin/zion-v1"
 EXPECTED_REPO="zettaceo/zion-community-bot"
 LOCAL_PROD_BRANCH="zion-v1-prod"
-EXPECTED_USER="${ZION_REMOTE_USER:-zetta}"
 ENV_FILE="$ROOT/.env"
 
 failures=0
