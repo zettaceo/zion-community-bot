@@ -154,6 +154,8 @@ class Runtime:
             self.wal_checkpoint_last_error: str | None = None
             self.state_maintenance_last_error: str | None = None
             self.delivery_guard_last_error: str | None = None
+            self.delivery_health_blocked = False
+            self.delivery_health_block_reasons: tuple[str, ...] = ()
         except Exception:
             db = getattr(self, "db", None)
             if isinstance(db, ZionDB):
@@ -1043,6 +1045,13 @@ async def diagnostics_command(
         if rt.delivery_guard_last_error
         else "OK"
     )
+    delivery_health_gate = (
+        "BLOCKED ("
+        + ",".join(rt.delivery_health_block_reasons)
+        + ")"
+        if rt.delivery_health_blocked
+        else "OPEN"
+    )
 
     await update.effective_message.reply_text(
         "ZION DIAGNOSTICS\n"
@@ -1056,6 +1065,7 @@ async def diagnostics_command(
         f"WAL checkpoint: {checkpoint_state}\n"
         f"Temporary-state maintenance: {state_maintenance}\n"
         f"Delivery safety preflight: {delivery_guard}\n"
+        f"Scheduled delivery health gate: {delivery_health_gate}\n"
         f"Alert dedup persistence: "
         f"{'DIRTY' if rt.health_alert_persistence_dirty else 'OK'}\n"
         f"SQLite schema: v{diag['schema_version']} "
@@ -4044,6 +4054,27 @@ async def operational_alert_cycle(
         issues.append("telegram_update_lag")
 
     issues = sorted(set(issues))
+
+    delivery_blocking_issues = {
+        "database_or_integrity",
+        "sqlite_database_file_missing",
+        "sqlite_foreign_key_violation",
+        "sqlite_schema_version_unavailable",
+        "sqlite_pragmas_unavailable",
+        "sqlite_not_wal",
+        "sqlite_foreign_keys_off",
+        "sqlite_synchronous_not_full",
+        "sqlite_trusted_schema_on",
+        "sqlite_application_id_mismatch",
+    }
+    rt.delivery_health_block_reasons = tuple(
+        issue for issue in issues
+        if issue in delivery_blocking_issues
+    )
+    rt.delivery_health_blocked = bool(
+        rt.delivery_health_block_reasons
+    )
+
     now = time.time()
 
     previous = rt.health_alert_signature
@@ -4326,9 +4357,14 @@ async def hourly_operations_cycle(
 
     try:
         await operational_alert_cycle(application, rt)
-    except Exception:
+    except Exception as exc:
+        rt.delivery_health_blocked = True
+        rt.delivery_health_block_reasons = (
+            f"operational_health_check_failed:{type(exc).__name__}",
+        )
         logger.exception(
-            "Falha no ciclo de alerta operacional do ZION."
+            "Falha no ciclo de alerta operacional do ZION; "
+            "scheduled delivery bloqueada."
         )
 
 
@@ -4377,9 +4413,14 @@ async def scheduler_loop(application: Application) -> None:
             ):
                 try:
                     await operational_alert_cycle(application, rt)
-                except Exception:
+                except Exception as exc:
+                    rt.delivery_health_blocked = True
+                    rt.delivery_health_block_reasons = (
+                        f"operational_health_check_failed:{type(exc).__name__}",
+                    )
                     logger.exception(
-                        "Falha no ciclo periódico de saúde operacional."
+                        "Falha no ciclo periódico de saúde operacional; "
+                        "scheduled delivery bloqueada."
                     )
                 finally:
                     last_health_check_monotonic = monotonic_now
@@ -4388,14 +4429,19 @@ async def scheduler_loop(application: Application) -> None:
             if preflight_changed and not ran_operational_check:
                 try:
                     await operational_alert_cycle(application, rt)
-                except Exception:
+                except Exception as exc:
+                    rt.delivery_health_blocked = True
+                    rt.delivery_health_block_reasons = (
+                        f"operational_health_check_failed:{type(exc).__name__}",
+                    )
                     logger.exception(
-                        "Falha no alerta imediato do scheduler safety preflight."
+                        "Falha no alerta imediato do scheduler safety preflight; "
+                        "scheduled delivery bloqueada."
                     )
                 finally:
                     last_health_check_monotonic = monotonic_now
 
-            if not delivery_guard_ok:
+            if not delivery_guard_ok or rt.delivery_health_blocked:
                 await asyncio.sleep(20)
                 continue
 
