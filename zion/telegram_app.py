@@ -4328,8 +4328,8 @@ async def hourly_operations_cycle(
 
 
 async def scheduler_loop(application: Application) -> None:
-    last_housekeeping = 0.0
-    last_health_check = 0.0
+    last_housekeeping_monotonic = 0.0
+    last_health_check_monotonic = 0.0
 
     while True:
         try:
@@ -4339,6 +4339,7 @@ async def scheduler_loop(application: Application) -> None:
                 continue
 
             now = time.time()
+            monotonic_now = time.monotonic()
             previous_preflight_state = (
                 rt.state_maintenance_last_error,
                 rt.delivery_guard_last_error,
@@ -4354,17 +4355,17 @@ async def scheduler_loop(application: Application) -> None:
             )
 
             ran_operational_check = False
-            if now - last_housekeeping >= 3600:
+            if monotonic_now - last_housekeeping_monotonic >= 3600:
                 await hourly_operations_cycle(
                     application,
                     rt,
                     now=now,
                 )
-                last_housekeeping = now
-                last_health_check = now
+                last_housekeeping_monotonic = monotonic_now
+                last_health_check_monotonic = monotonic_now
                 ran_operational_check = True
             elif (
-                now - last_health_check
+                monotonic_now - last_health_check_monotonic
                 >= rt.settings.health_check_interval_seconds
             ):
                 try:
@@ -4374,7 +4375,7 @@ async def scheduler_loop(application: Application) -> None:
                         "Falha no ciclo periódico de saúde operacional."
                     )
                 finally:
-                    last_health_check = now
+                    last_health_check_monotonic = monotonic_now
                 ran_operational_check = True
 
             if preflight_changed and not ran_operational_check:
@@ -4385,7 +4386,7 @@ async def scheduler_loop(application: Application) -> None:
                         "Falha no alerta imediato do scheduler safety preflight."
                     )
                 finally:
-                    last_health_check = now
+                    last_health_check_monotonic = monotonic_now
 
             if not delivery_guard_ok:
                 await asyncio.sleep(20)
