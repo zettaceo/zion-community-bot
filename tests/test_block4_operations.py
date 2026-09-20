@@ -827,6 +827,7 @@ class Block4OperationsTests(unittest.TestCase):
 
             source = inspect.getsource(scheduler_loop)
             self.assertIn("last_health_check_monotonic", source)
+            self.assertIn('float("-inf")', source)
             self.assertIn("monotonic_now", source)
             self.assertIn("health_check_interval_seconds", source)
 
