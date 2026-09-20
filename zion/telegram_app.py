@@ -21,7 +21,11 @@ from telegram.ext import (
 from .ai_service import AIService
 from .config import Settings
 from .db import ZION_APPLICATION_ID, ZionDB
-from .guardian import Guardian, normalize_policy_domain
+from .guardian import (
+    Guardian,
+    normalize_link_target,
+    normalize_policy_domain,
+)
 from .health import HealthService
 from .knowledge import KnowledgeBase
 from .logging_safe import (
@@ -176,8 +180,11 @@ def format_duration(seconds: int) -> str:
     return f"{seconds} segundos"
 
 
-def telegram_entity_domains(message: Any) -> list[str]:
+def telegram_entity_link_evidence(
+    message: Any,
+) -> tuple[list[str], list[str]]:
     domains: list[str] = []
+    unsupported_schemes: list[str] = []
 
     entity_sets = (
         (
@@ -207,10 +214,22 @@ def telegram_entity_domains(message: Any) -> list[str]:
             if not candidate:
                 continue
 
-            domain = normalize_policy_domain(str(candidate))
+            domain, unsupported_scheme = normalize_link_target(
+                str(candidate)
+            )
             if domain and domain not in domains:
                 domains.append(domain)
+            if (
+                unsupported_scheme
+                and unsupported_scheme not in unsupported_schemes
+            ):
+                unsupported_schemes.append(unsupported_scheme)
 
+    return domains, unsupported_schemes
+
+
+def telegram_entity_domains(message: Any) -> list[str]:
+    domains, _ = telegram_entity_link_evidence(message)
     return domains
 
 
@@ -2987,9 +3006,13 @@ async def command_guard_handler(
         await _enforce_flood(update, context, flood)
         raise ApplicationHandlerStop
 
+    entity_domains, unsupported_schemes = (
+        telegram_entity_link_evidence(message)
+    )
     links = rt.guardian.evaluate_links(
         text,
-        extra_domains=telegram_entity_domains(message),
+        extra_domains=entity_domains,
+        unsupported_schemes=unsupported_schemes,
     )
     if links.should_delete:
         deleted = await delete_message_safe(
@@ -3006,6 +3029,7 @@ async def command_guard_handler(
                 source="guardian_command_preflight",
                 evidence={
                     "domains": links.unauthorized_domains,
+                    "unsupported_schemes": links.unsupported_schemes,
                     "message_id": message.message_id,
                 },
             )
@@ -3018,7 +3042,10 @@ async def command_guard_handler(
                 actor_id=None,
                 reason="unauthorized_link",
                 success=deleted,
-                metadata={"domains": links.unauthorized_domains},
+                metadata={
+                    "domains": links.unauthorized_domains,
+                    "unsupported_schemes": links.unsupported_schemes,
+                },
             )
         raise ApplicationHandlerStop
 
@@ -3131,9 +3158,13 @@ async def moderation_handler(
         await _enforce_flood(update, context, flood)
         return
 
+    entity_domains, unsupported_schemes = (
+        telegram_entity_link_evidence(message)
+    )
     links = rt.guardian.evaluate_links(
         text,
-        extra_domains=telegram_entity_domains(message),
+        extra_domains=entity_domains,
+        unsupported_schemes=unsupported_schemes,
     )
     if links.should_delete:
         deleted = await delete_message_safe(
