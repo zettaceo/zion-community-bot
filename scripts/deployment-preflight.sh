@@ -10,6 +10,7 @@ elif [[ -n "${1:-}" ]]; then
 fi
 
 SCRIPT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SYSTEM_PYTHON="/usr/bin/python3"
 
 if [[ "$REPORT_ONLY" == true ]]; then
   ROOT="${ZION_PROD_ROOT:-/home/zetta/zion-community-bot}"
@@ -60,9 +61,25 @@ else
   pass "candidate worktree has no local .env"
 fi
 
+if [[ -x "$SYSTEM_PYTHON" ]] \
+  && "$SYSTEM_PYTHON" -I "$SCRIPT_ROOT/scripts/check-git-release-boundary.py" \
+    --root "$SCRIPT_ROOT" >/dev/null; then
+  pass "candidate local Git boundary is clean"
+else
+  fail "candidate local Git boundary validation failed"
+fi
+
 if [[ ! -d "$ROOT/.git" && ! -f "$ROOT/.git" ]]; then
   fail "production Git worktree not found at $ROOT"
 else
+  if [[ -x "$SYSTEM_PYTHON" ]] \
+    && "$SYSTEM_PYTHON" -I "$SCRIPT_ROOT/scripts/check-git-release-boundary.py" \
+      --root "$ROOT" >/dev/null; then
+    pass "production local Git boundary is clean"
+  else
+    fail "production local Git boundary validation failed"
+  fi
+
   current_head="$(git -C "$ROOT" rev-parse HEAD 2>/dev/null || true)"
   current_branch="$(git -C "$ROOT" symbolic-ref --quiet --short HEAD 2>/dev/null || true)"
   approved_sha="$(git -C "$ROOT" rev-parse "$APPROVED_REF^{commit}" 2>/dev/null || true)"
