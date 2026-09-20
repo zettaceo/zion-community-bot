@@ -76,16 +76,53 @@ for path in "$RUNTIME_PARENT" "$RUNTIME_BASE"; do
   fi
 done
 
+validate_runtime() {
+  local python="$1"
+  "$python" "$ROOT/scripts/check-runtime.py"
+  "$python" -m pip check
+}
+
+validate_previous_runtime_target() {
+  local target="$1"
+
+  if [[ "$target" == "$LEGACY_RUNTIME" ]]; then
+    if [[ ! -x "$target/bin/python" ]]; then
+      echo "ERRO: runtime legado inválido." >&2
+      return 1
+    fi
+    return 0
+  fi
+
+  case "$target" in
+    "$RUNTIME_BASE"/*) ;;
+    *)
+      echo "ERRO: runtime/current anterior aponta fora da fronteira aprovada." >&2
+      return 1
+      ;;
+  esac
+
+  local name
+  name="$(basename "$target")"
+  if [[ ! "$name" =~ ^[0-9a-fA-F]{40}$ ]]; then
+    echo "ERRO: runtime anterior não possui identidade SHA." >&2
+    return 1
+  fi
+  if [[ ! -f "$target/release-sha.txt" ]] \
+    || [[ "$(cat "$target/release-sha.txt" 2>/dev/null || true)" != "$name" ]] \
+    || [[ ! -x "$target/bin/python" ]]; then
+    echo "ERRO: runtime anterior possui identidade inválida." >&2
+    return 1
+  fi
+  validate_runtime "$target/bin/python"
+}
+
 if [[ -e "$CURRENT_LINK" || -L "$CURRENT_LINK" ]]; then
   if [[ ! -L "$CURRENT_LINK" ]]; then
     echo "ERRO: runtime/current deve ser symlink." >&2
     exit 2
   fi
   CURRENT_TARGET="$(readlink -f -- "$CURRENT_LINK" 2>/dev/null || true)"
-  if [[ ! -x "$CURRENT_TARGET/bin/python" ]]; then
-    echo "ERRO: runtime/current aponta para runtime inválido." >&2
-    exit 2
-  fi
+  validate_previous_runtime_target "$CURRENT_TARGET"
 else
   if [[ ! -x "$LEGACY_RUNTIME/bin/python" ]]; then
     echo "ERRO: runtime legado ausente; não é possível bootstrap seguro." >&2
@@ -94,12 +131,6 @@ else
   ln -s "$LEGACY_RUNTIME" "$CURRENT_LINK"
   CURRENT_TARGET="$LEGACY_RUNTIME"
 fi
-
-validate_runtime() {
-  local python="$1"
-  "$python" "$ROOT/scripts/check-runtime.py"
-  "$python" -m pip check
-}
 
 if [[ -e "$RUNTIME_DIR" || -L "$RUNTIME_DIR" ]]; then
   if [[ -L "$RUNTIME_DIR" || ! -d "$RUNTIME_DIR" ]]; then
