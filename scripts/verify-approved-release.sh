@@ -3,9 +3,9 @@ set -euo pipefail
 
 ROOT="${ZION_PROD_ROOT:-/home/zetta/zion-community-bot}"
 EXPECTED="${ZION_DEPLOY_COMMIT:-}"
-REMOTE_BRANCH="${ZION_PRODUCTION_REMOTE_BRANCH:-zion-v1}"
-APPROVED_REF="${ZION_APPROVED_REF:-origin/$REMOTE_BRANCH}"
-EXPECTED_REPO="${ZION_EXPECTED_GITHUB_REPO:-zettaceo/zion-community-bot}"
+REMOTE_BRANCH="zion-v1"
+APPROVED_REF="origin/zion-v1"
+EXPECTED_REPO="zettaceo/zion-community-bot"
 PYTHON="${ZION_RUNTIME_PYTHON:-$ROOT/.venv/bin/python}"
 EXPECTED_USER="${ZION_REMOTE_USER:-zetta}"
 
