@@ -82,6 +82,27 @@ if [[ ! -x "$PREVIOUS_RUNTIME_TARGET/bin/python" ]]; then
   echo "ERRO: runtime/current anterior é inválido." >&2
   exit 1
 fi
+if [[ "$PREVIOUS_RUNTIME_TARGET" == "$ROOT/.venv" ]]; then
+  if [[ "$PREVIOUS_SERVICE_STATE_LAYOUT" == true ]]; then
+    echo "ERRO: runtime legado não é rollback válido após v1.1." >&2
+    exit 1
+  fi
+else
+  case "$PREVIOUS_RUNTIME_TARGET" in
+    "$RUNTIME_BASE"/*) ;;
+    *)
+      echo "ERRO: runtime anterior fora da fronteira aprovada." >&2
+      exit 1
+      ;;
+  esac
+  PREVIOUS_RUNTIME_SHA="$(basename "$PREVIOUS_RUNTIME_TARGET")"
+  if [[ ! "$PREVIOUS_RUNTIME_SHA" =~ ^[0-9a-fA-F]{40}$ ]] \
+    || [[ ! -f "$PREVIOUS_RUNTIME_TARGET/release-sha.txt" ]] \
+    || [[ "$(cat "$PREVIOUS_RUNTIME_TARGET/release-sha.txt" 2>/dev/null || true)" != "$PREVIOUS_RUNTIME_SHA" ]]; then
+    echo "ERRO: runtime anterior não possui identidade de release válida." >&2
+    exit 1
+  fi
+fi
 "$PYTHON" "$ROOT/scripts/check-runtime.py"
 "$PYTHON" -m pip check
 
