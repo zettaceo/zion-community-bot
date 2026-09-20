@@ -5,7 +5,7 @@ import time
 from pathlib import Path
 
 from .config import Settings
-from .db import ZionDB
+from .db import ZION_APPLICATION_ID, ZionDB
 from .models import HealthSnapshot, OperatingState
 
 
@@ -158,9 +158,11 @@ class HealthService:
         except Exception:
             latency = {"count": 0, "avg_ms": 0, "p95_ms": 0}
 
+        pragma_read_ok = True
         try:
             pragmas = self.db.runtime_pragmas()
         except Exception:
+            pragma_read_ok = False
             pragmas = {
                 "journal_mode": "unknown",
                 "foreign_keys": 0,
@@ -171,6 +173,25 @@ class HealthService:
                 "trusted_schema": -1,
                 "application_id": 0,
             }
+
+        pragma_issues: list[str] = []
+        if pragma_read_ok:
+            if pragmas["journal_mode"] != "wal":
+                pragma_issues.append("journal_mode")
+            if int(pragmas["foreign_keys"]) != 1:
+                pragma_issues.append("foreign_keys")
+            if int(pragmas["synchronous"]) != 2:
+                pragma_issues.append("synchronous")
+            if int(pragmas["trusted_schema"]) != 0:
+                pragma_issues.append("trusted_schema")
+            if int(pragmas["application_id"]) != ZION_APPLICATION_ID:
+                pragma_issues.append("application_id")
+            if int(pragmas["busy_timeout_ms"]) < 5000:
+                pragma_issues.append("busy_timeout")
+            if int(pragmas["wal_autocheckpoint"]) != 1000:
+                pragma_issues.append("wal_autocheckpoint")
+            if int(pragmas["journal_size_limit"]) != 16777216:
+                pragma_issues.append("journal_size_limit")
 
         try:
             schema_version = self.db.schema_version()
@@ -211,6 +232,11 @@ class HealthService:
             "ai_latency_24h": latency,
             "schema_version": schema_version,
             "sqlite_pragmas": pragmas,
+            "sqlite_pragmas_ok": (
+                pragma_read_ok and not pragma_issues
+            ),
+            "sqlite_pragma_read_ok": pragma_read_ok,
+            "sqlite_pragma_issues": pragma_issues,
             "configuration_issues": list(
                 snapshot.details.get("configuration_issues", ())
             ),
