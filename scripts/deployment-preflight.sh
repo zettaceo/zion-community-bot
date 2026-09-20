@@ -9,6 +9,8 @@ elif [[ -n "${1:-}" ]]; then
   exit 64
 fi
 
+SCRIPT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
 if [[ "$REPORT_ONLY" == true ]]; then
   ROOT="${ZION_PROD_ROOT:-/home/zetta/zion-community-bot}"
   EXPECTED_USER="${ZION_REMOTE_USER:-zetta}"
@@ -37,6 +39,13 @@ echo
 
 if [[ ! "$EXPECTED" =~ ^[0-9a-fA-F]{40}$ ]]; then
   fail "ZION_DEPLOY_COMMIT must be one full 40-character commit SHA"
+fi
+
+candidate_head="$(git -C "$SCRIPT_ROOT" rev-parse HEAD 2>/dev/null || true)"
+if [[ -n "$EXPECTED" && "$candidate_head" == "$EXPECTED" ]]; then
+  pass "preflight code itself is pinned to the approved candidate SHA"
+else
+  fail "preflight script worktree HEAD does not equal ZION_DEPLOY_COMMIT"
 fi
 
 if [[ ! -d "$ROOT/.git" && ! -f "$ROOT/.git" ]]; then
@@ -102,8 +111,10 @@ fi
 if [[ -f "$ENV_FILE" && ! -L "$ENV_FILE" ]]; then
   env_mode="$(stat -c '%a' "$ENV_FILE" 2>/dev/null || true)"
   env_owner="$(stat -c '%U' "$ENV_FILE" 2>/dev/null || true)"
+  env_links="$(stat -c '%h' "$ENV_FILE" 2>/dev/null || true)"
   [[ "$env_mode" == "600" ]] && pass ".env mode=600" || fail ".env mode=$env_mode"
   [[ "$env_owner" == "$EXPECTED_USER" ]] && pass ".env owner=$EXPECTED_USER" || fail ".env owner=$env_owner"
+  [[ "$env_links" == "1" ]] && pass ".env single-link boundary" || fail ".env hard-link count=$env_links"
 else
   fail ".env missing or symlinked"
 fi
@@ -111,8 +122,10 @@ fi
 if command -v systemctl >/dev/null 2>&1; then
   if systemctl is-active --quiet zion.service 2>/dev/null; then
     pass "zion.service is currently active"
-  else
+  elif [[ "$REPORT_ONLY" == true ]]; then
     warn "zion.service is not active"
+  else
+    fail "zion.service is not active; treat existing outage before release"
   fi
 
   runner_units="$(systemctl list-unit-files --type=service --no-legend 2>/dev/null     | awk '{print $1}'     | grep -E '^actions\.runner\.' || true)"
@@ -122,7 +135,11 @@ if command -v systemctl >/dev/null 2>&1; then
     pass "no actions.runner.* service detected"
   fi
 else
-  warn "systemctl unavailable"
+  if [[ "$REPORT_ONLY" == true ]]; then
+    warn "systemctl unavailable"
+  else
+    fail "systemctl unavailable"
+  fi
 fi
 
 if command -v pgrep >/dev/null 2>&1   && pgrep -af 'Runner\.Listener|runsvc\.sh' >/dev/null 2>&1; then
@@ -131,14 +148,14 @@ else
   pass "no GitHub Actions runner process detected"
 fi
 
-if [[ -x "$ROOT/scripts/remote-access-preflight.sh" ]]; then
-  if "$ROOT/scripts/remote-access-preflight.sh" >/dev/null 2>&1; then
-    pass "remote-access preflight passes"
+if [[ -x "$SCRIPT_ROOT/scripts/remote-access-preflight.sh" ]]; then
+  if "$SCRIPT_ROOT/scripts/remote-access-preflight.sh" >/dev/null 2>&1; then
+    pass "candidate remote-access preflight passes"
   else
-    fail "remote-access preflight does not pass"
+    fail "candidate remote-access preflight does not pass"
   fi
 else
-  fail "remote-access-preflight.sh missing or not executable"
+  fail "candidate remote-access-preflight.sh missing or not executable"
 fi
 
 if [[ "${ZION_GITHUB_GATES_PROVEN:-}" == "YES" ]]; then
@@ -159,10 +176,10 @@ else
   fail "production virtualenv Python missing"
 fi
 
-if [[ -x "$ROOT/scripts/predeploy-v11.sh" ]]; then
-  pass "candidate predeploy verifier present"
+if [[ -x "$SCRIPT_ROOT/scripts/predeploy-v11.sh" ]]; then
+  pass "candidate predeploy verifier present in approved worktree"
 else
-  fail "candidate predeploy verifier missing"
+  fail "candidate predeploy verifier missing from approved worktree"
 fi
 
 echo
