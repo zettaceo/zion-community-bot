@@ -25,6 +25,9 @@ APPROVED_REF="origin/zion-v1"
 EXPECTED_REPO="zettaceo/zion-community-bot"
 LOCAL_PROD_BRANCH="zion-v1-prod"
 ENV_FILE="$ROOT/.env"
+RUNTIME_BASE="/home/zetta/.local/share/zion-community-bot/runtimes"
+RUNTIME_DIR="$RUNTIME_BASE/$EXPECTED"
+CURRENT_RUNTIME="$RUNTIME_BASE/current"
 
 failures=0
 warnings=0
@@ -138,17 +141,14 @@ else
   fail "operator user must be $EXPECTED_USER"
 fi
 
-if [[ -x "$ROOT/.venv/bin/python" ]]; then
-  if "$ROOT/.venv/bin/python" "$SCRIPT_ROOT/scripts/check-env-boundary.py" \
+if [[ -x "$SYSTEM_PYTHON" ]] \
+  && "$SYSTEM_PYTHON" -I "$SCRIPT_ROOT/scripts/check-env-boundary.py" \
     --env "$ENV_FILE" \
     --allowlist "$SCRIPT_ROOT/.env.example" \
     --owner "$EXPECTED_USER" >/dev/null; then
-    pass "production .env metadata and key allowlist are valid"
-  else
-    fail "production .env boundary validation failed"
-  fi
+  pass "production .env metadata and key allowlist are valid"
 else
-  fail "production virtualenv Python missing"
+  fail "production .env boundary validation failed"
 fi
 
 if command -v systemctl >/dev/null 2>&1; then
@@ -202,10 +202,25 @@ else
   fail "set ZION_REMOTE_NETWORK_PROVEN=YES only after verifying no public TCP/22 forward and Tailnet policy"
 fi
 
-if [[ -x "$ROOT/.venv/bin/python" ]]; then
-  pass "production virtualenv Python present"
+if [[ -L "$CURRENT_RUNTIME" ]] \
+  && [[ -x "$(readlink -f -- "$CURRENT_RUNTIME" 2>/dev/null || true)/bin/python" ]]; then
+  pass "runtime/current points to an executable runtime"
 else
-  fail "production virtualenv Python missing"
+  fail "runtime/current is missing or invalid"
+fi
+
+if [[ -d "$RUNTIME_DIR" && ! -L "$RUNTIME_DIR" ]] \
+  && [[ -x "$RUNTIME_DIR/bin/python" ]] \
+  && [[ -f "$RUNTIME_DIR/release-sha.txt" ]] \
+  && [[ "$(cat "$RUNTIME_DIR/release-sha.txt" 2>/dev/null || true)" == "$EXPECTED" ]]; then
+  if "$RUNTIME_DIR/bin/python" "$SCRIPT_ROOT/scripts/check-runtime.py" >/dev/null \
+    && "$RUNTIME_DIR/bin/python" -m pip check >/dev/null; then
+    pass "staged candidate runtime matches audited release lock"
+  else
+    fail "staged candidate runtime validation failed"
+  fi
+else
+  fail "staged candidate runtime is missing or has wrong identity"
 fi
 
 if [[ -x "$SCRIPT_ROOT/scripts/predeploy-v11.sh" ]]; then
