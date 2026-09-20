@@ -1,0 +1,13 @@
+{
+  "5875e8f60e342b0af8cd0e1712f4e961e6a30eb1": {
+    "source_tests": 226,
+    "missing_names": [
+      "tests/test_guardian.py:test_transitional_idna_mapping_cannot_alias_ascii_allowlist",
+      "tests/test_guardian.py:test_visible_transitional_idna_target_fails_closed"
+    ]
+  },
+  "d7cc22aa398967a3a003afb09e6401fe87d75de6": {
+    "source_tests": 223,
+    "missing_names": []
+  }
+}
