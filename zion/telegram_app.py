@@ -148,6 +148,8 @@ class Runtime:
             self.health_alert_last_sent_at = 0.0
             self.housekeeping_last_error: str | None = None
             self.wal_checkpoint_last_error: str | None = None
+            self.state_maintenance_last_error: str | None = None
+            self.delivery_guard_last_error: str | None = None
         except Exception:
             db = getattr(self, "db", None)
             if isinstance(db, ZionDB):
@@ -998,6 +1000,16 @@ async def diagnostics_command(
         if rt.wal_checkpoint_last_error
         else "OK"
     )
+    state_maintenance = (
+        f"WARNING ({rt.state_maintenance_last_error})"
+        if rt.state_maintenance_last_error
+        else "OK"
+    )
+    delivery_guard = (
+        f"BLOCKED ({rt.delivery_guard_last_error})"
+        if rt.delivery_guard_last_error
+        else "OK"
+    )
 
     await update.effective_message.reply_text(
         "ZION DIAGNOSTICS\n"
@@ -1009,6 +1021,8 @@ async def diagnostics_command(
         f"Scheduler: {scheduler_state}\n"
         f"Hourly housekeeping: {housekeeping_state}\n"
         f"WAL checkpoint: {checkpoint_state}\n"
+        f"Temporary-state maintenance: {state_maintenance}\n"
+        f"Delivery safety preflight: {delivery_guard}\n"
         f"SQLite schema: v{diag['schema_version']} "
         f"[{'OK' if diag['schema_version_read_ok'] else 'UNAVAILABLE'}]\n"
         f"SQLite PRAGMAs: {pragma_state} ({pragma_issues})\n"
@@ -3712,6 +3726,67 @@ def expire_temporary_state(rt: Runtime) -> None:
         rt.db.set_setting("operating_state_expires_at", "0")
 
 
+def scheduler_safety_preflight(
+    rt: Runtime,
+    now: float,
+) -> bool:
+    try:
+        expire_temporary_state(rt)
+        rt.state_maintenance_last_error = None
+    except Exception as exc:
+        rt.state_maintenance_last_error = type(exc).__name__
+        logger.warning(
+            "Falha ao atualizar estado temporário: %s",
+            type(exc).__name__,
+        )
+
+    try:
+        quarantined = rt.db.quarantine_stale_delivery_claims(
+            now=now,
+            stale_after_seconds=(
+                rt.settings.delivery_claim_timeout_seconds
+            ),
+        )
+        rt.delivery_guard_last_error = None
+    except Exception as exc:
+        rt.delivery_guard_last_error = type(exc).__name__
+        logger.error(
+            "Falha no delivery safety preflight: %s",
+            type(exc).__name__,
+        )
+        return False
+
+    if any(quarantined.values()):
+        try:
+            rt.db.create_incident(
+                chat_id=None,
+                user_id=None,
+                category="stale_delivery_claims_quarantined",
+                severity=Severity.HIGH,
+                source="scheduler",
+                evidence=quarantined,
+                note=(
+                    "A delivery claim exceeded its timeout. "
+                    "ZION quarantined it instead of auto-replaying, "
+                    "preventing duplicate delivery after an unknown outcome."
+                ),
+            )
+        except Exception as exc:
+            logger.error(
+                "Claims stale foram isolados, mas o incidente "
+                "não pôde ser persistido: %s",
+                type(exc).__name__,
+            )
+        logger.error(
+            "Delivery claim quarantine | scheduled_uncertain=%s | "
+            "recurring_paused=%s",
+            quarantined["scheduled_uncertain"],
+            quarantined["recurring_paused"],
+        )
+
+    return True
+
+
 def housekeeping_cycle(
     rt: Runtime,
     now: float,
@@ -3862,6 +3937,10 @@ async def operational_alert_cycle(
         issues.append("housekeeping_failed")
     if rt.wal_checkpoint_last_error:
         issues.append("wal_checkpoint_failed")
+    if rt.state_maintenance_last_error:
+        issues.append("temporary_state_maintenance_failed")
+    if rt.delivery_guard_last_error:
+        issues.append("delivery_safety_preflight_failed")
 
     if rt.settings.ai_enabled:
         if not rt.ai.accounting_healthy:
@@ -4026,6 +4105,7 @@ async def operational_alert_cycle(
                 if not snapshot.db_ok
                 or "sqlite_pragmas_unavailable" in issues
                 or "housekeeping_failed" in issues
+                or "delivery_safety_preflight_failed" in issues
                 else Severity.MEDIUM
             ),
             source="health",
@@ -4038,6 +4118,10 @@ async def operational_alert_cycle(
                 ),
                 "housekeeping_error_type": rt.housekeeping_last_error,
                 "wal_checkpoint_error_type": rt.wal_checkpoint_last_error,
+                "state_maintenance_error_type": (
+                    rt.state_maintenance_last_error
+                ),
+                "delivery_guard_error_type": rt.delivery_guard_last_error,
             },
             note=(
                 "Operational alert; no automated destructive action executed."
@@ -4162,36 +4246,8 @@ async def scheduler_loop(application: Application) -> None:
                 await asyncio.sleep(10)
                 continue
 
-            expire_temporary_state(rt)
-
             now = time.time()
-
-            quarantined = rt.db.quarantine_stale_delivery_claims(
-                now=now,
-                stale_after_seconds=(
-                    rt.settings.delivery_claim_timeout_seconds
-                ),
-            )
-            if any(quarantined.values()):
-                rt.db.create_incident(
-                    chat_id=None,
-                    user_id=None,
-                    category="stale_delivery_claims_quarantined",
-                    severity=Severity.HIGH,
-                    source="scheduler",
-                    evidence=quarantined,
-                    note=(
-                        "A delivery claim exceeded its timeout. "
-                        "ZION quarantined it instead of auto-replaying, "
-                        "preventing duplicate delivery after an unknown outcome."
-                    ),
-                )
-                logger.error(
-                    "Delivery claim quarantine | scheduled_uncertain=%s | "
-                    "recurring_paused=%s",
-                    quarantined["scheduled_uncertain"],
-                    quarantined["recurring_paused"],
-                )
+            delivery_guard_ok = scheduler_safety_preflight(rt, now)
 
             if now - last_housekeeping >= 3600:
                 await hourly_operations_cycle(
@@ -4200,6 +4256,10 @@ async def scheduler_loop(application: Application) -> None:
                     now=now,
                 )
                 last_housekeeping = now
+
+            if not delivery_guard_ok:
+                await asyncio.sleep(20)
+                continue
 
             state = rt.db.get_operating_state()
             due = (
