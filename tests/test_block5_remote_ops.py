@@ -218,8 +218,8 @@ class Block5RemoteOperationsTests(unittest.TestCase):
         text = self.read("scripts/predeploy-v11.sh")
 
         self.assertIn("ZION_EXPECTED_COMMIT", text)
-        self.assertIn("ZION_APPROVED_REF", text)
-        self.assertIn("origin/zion-v1", text)
+        self.assertIn('APPROVED_REF="origin/zion-v1"', text)
+        self.assertNotIn("ZION_APPROVED_REF:-", text)
         self.assertIn('HEAD_SHA" != "$EXPECTED_COMMIT', text)
         self.assertIn('APPROVED_SHA" != "$EXPECTED_COMMIT', text)
         self.assertIn("ZION_VALIDATION_PYTHON", text)
@@ -229,14 +229,28 @@ class Block5RemoteOperationsTests(unittest.TestCase):
         self.assertNotIn("systemctl start", text)
         self.assertNotIn("systemctl restart", text)
 
+    def test_predeploy_requires_private_zetta_owned_env(self) -> None:
+        text = self.read("scripts/predeploy-v11.sh")
+
+        self.assertIn('env_path.owner() != "zetta"', text)
+        self.assertIn("production .env owner must be zetta", text)
+        self.assertIn("mode & 0o077", text)
+
+    def test_deployment_preflight_fixes_local_production_branch(self) -> None:
+        text = self.read("scripts/deployment-preflight.sh")
+
+        self.assertIn('LOCAL_PROD_BRANCH="zion-v1-prod"', text)
+        self.assertNotIn("ZION_LOCAL_PROD_BRANCH", text)
+
     def test_apply_deploy_requires_exact_production_sha_and_rollback_metadata(
         self,
     ) -> None:
         text = self.read("scripts/apply-zion-v1.sh")
 
         self.assertIn("ZION_EXPECTED_COMMIT", text)
-        self.assertIn("ZION_APPROVED_REF", text)
-        self.assertIn("origin/zion-v1", text)
+        self.assertIn('APPROVED_REF="origin/zion-v1"', text)
+        self.assertNotIn("ZION_APPROVED_REF:-", text)
+        self.assertIn('LOCAL_PROD_BRANCH="zion-v1-prod"', text)
         self.assertIn("ZION_PREVIOUS_COMMIT", text)
         self.assertIn("ZION_GITHUB_GATES_PROVEN", text)
         self.assertIn("zettaceo/zion-community-bot", text)
