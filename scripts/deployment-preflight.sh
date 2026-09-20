@@ -112,6 +112,18 @@ else
   fail "remote-access-preflight.sh missing or not executable"
 fi
 
+if [[ "${ZION_GITHUB_GATES_PROVEN:-}" == "YES" ]]; then
+  pass "GitHub production branch/ruleset gate explicitly confirmed"
+else
+  fail "set ZION_GITHUB_GATES_PROVEN=YES only after verifying zion-v1 protection and required CI"
+fi
+
+if [[ "${ZION_REMOTE_NETWORK_PROVEN:-}" == "YES" ]]; then
+  pass "router/Tailnet exposure controls explicitly confirmed"
+else
+  fail "set ZION_REMOTE_NETWORK_PROVEN=YES only after verifying no public TCP/22 forward and Tailnet policy"
+fi
+
 if [[ -x "$ROOT/.venv/bin/python" ]]; then
   pass "production virtualenv Python present"
 else
@@ -125,11 +137,10 @@ else
 fi
 
 echo
-echo "External GitHub gate:"
-echo "- Verify zion-v1 branch protection/ruleset before remote deployment."
-echo "- Required CI must be green for the exact approved SHA."
-echo "- This host script cannot prove GitHub branch-protection state."
-warnings=$((warnings + 1))
+echo "External controls are explicit attestations:"
+echo "- ZION_GITHUB_GATES_PROVEN=YES: zion-v1 protection + required CI verified."
+echo "- ZION_REMOTE_NETWORK_PROVEN=YES: no public TCP/22 forward + Tailnet policy verified."
+echo "- The host cannot independently prove those control-plane settings."
 
 echo
 echo "Summary: failures=$failures warnings=$warnings"
