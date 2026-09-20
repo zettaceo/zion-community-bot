@@ -7,7 +7,7 @@ PROD_ROOT="${ZION_PROD_ROOT:-/home/zetta/zion-community-bot}"
 PROD_ENV="$PROD_ROOT/.env"
 SERVICE="${ZION_SERVICE:-zion.service}"
 EXPECTED_COMMIT="${ZION_EXPECTED_COMMIT:-}"
-APPROVED_REF="${ZION_APPROVED_REF:-origin/zion-v1}"
+APPROVED_REF="origin/zion-v1"
 
 TMP_ROOT="$(mktemp -d /tmp/zion-v11-predeploy.XXXXXX)"
 chmod 700 "$TMP_ROOT"
