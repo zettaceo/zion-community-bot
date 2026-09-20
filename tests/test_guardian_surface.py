@@ -19,12 +19,16 @@ from telegram.ext import ApplicationHandlerStop
 from zion.telegram_app import (
     AskRateLimiter,
     Runtime,
+    allow_domain_command,
     ban_command,
+    block_domain_command,
     command_guard_handler,
     is_admin,
     moderation_handler,
     mute_command,
+    reload_knowledge_command,
     require_admin,
+    resolve_gap_command,
     safe_display_text,
     unban_command,
     telegram_entity_domains,
@@ -660,6 +664,132 @@ class BoundedRuntimeCacheTests(unittest.TestCase):
                 )
             finally:
                 runtime.close()
+
+
+class OperatorAuditLedgerTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        root = Path(self.temp.name)
+        (root / "knowledge").mkdir()
+        self.runtime = Runtime(make_settings(root))
+        self.addCleanup(self.runtime.close)
+
+    def _context(self, args: list[str]) -> tuple[FakeBot, FakeContext]:
+        bot = FakeBot()
+        context = FakeContext(self.runtime, bot)
+        context.args = args
+        return bot, context
+
+    def test_domain_policy_change_and_ledger_are_atomic(self) -> None:
+        _, context = self._context(["trusted.example"])
+        update = make_update(
+            user_id=1,
+            chat_type="supergroup",
+            text="/allowdomain trusted.example",
+            message_id=80,
+        )
+
+        self.runtime.db._conn.execute(
+            """
+            CREATE TEMP TRIGGER fail_domain_audit
+            BEFORE INSERT ON actions
+            BEGIN SELECT RAISE(ABORT, 'injected'); END
+            """
+        )
+        with self.assertRaises(Exception):
+            asyncio.run(allow_domain_command(update, context))
+
+        self.assertIsNone(
+            self.runtime.db.domain_disposition("trusted.example")
+        )
+
+    def test_domain_policy_change_records_operator_actor(self) -> None:
+        _, context = self._context(["blocked.example"])
+        update = make_update(
+            user_id=1,
+            chat_type="supergroup",
+            text="/blockdomain blocked.example",
+            message_id=81,
+        )
+
+        asyncio.run(block_domain_command(update, context))
+
+        self.assertEqual(
+            self.runtime.db.domain_disposition("blocked.example"),
+            "block",
+        )
+        row = self.runtime.db._conn.execute(
+            """
+            SELECT actor_type, actor_id, metadata_json
+            FROM actions
+            WHERE action_type='domain_policy_change'
+            ORDER BY created_at DESC
+            LIMIT 1
+            """
+        ).fetchone()
+        self.assertEqual(row["actor_type"], "operator")
+        self.assertEqual(row["actor_id"], "1")
+        self.assertIn('"disposition":"block"', row["metadata_json"])
+
+    def test_resolve_gap_is_audited_atomically(self) -> None:
+        self.runtime.db.record_knowledge_gap(
+            question_hash="gap-hash",
+            sample_text="sample",
+        )
+        _, context = self._context(["gap-hash"])
+        update = make_update(
+            user_id=1,
+            chat_type="supergroup",
+            text="/resolvegap gap-hash",
+            message_id=82,
+        )
+
+        asyncio.run(resolve_gap_command(update, context))
+
+        self.assertEqual(
+            self.runtime.db.list_knowledge_gaps(limit=10),
+            [],
+        )
+        count = self.runtime.db._conn.execute(
+            """
+            SELECT COUNT(*) FROM actions
+            WHERE action_type='knowledge_gap_resolve'
+              AND actor_id='1'
+              AND success=1
+            """
+        ).fetchone()[0]
+        self.assertEqual(count, 1)
+
+    def test_knowledge_reload_records_outcome_without_message_body(self) -> None:
+        root = self.runtime.settings.knowledge_dir
+        (root / "official.md").write_text(
+            "# Test\nApproved fact.",
+            encoding="utf-8",
+        )
+        _, context = self._context([])
+        update = make_update(
+            user_id=1,
+            chat_type="supergroup",
+            text="/reloadkb",
+            message_id=83,
+        )
+
+        asyncio.run(reload_knowledge_command(update, context))
+
+        row = self.runtime.db._conn.execute(
+            """
+            SELECT actor_id, success, metadata_json
+            FROM actions
+            WHERE action_type='knowledge_reload'
+            ORDER BY created_at DESC
+            LIMIT 1
+            """
+        ).fetchone()
+        self.assertEqual(row["actor_id"], "1")
+        self.assertEqual(row["success"], 1)
+        self.assertIn('"chunks":1', row["metadata_json"])
+        self.assertNotIn("Approved fact", row["metadata_json"])
 
 
 if __name__ == "__main__":

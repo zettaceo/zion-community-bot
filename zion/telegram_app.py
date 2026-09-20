@@ -1263,10 +1263,32 @@ async def resolve_gap_command(
         )
         return
 
-    success = runtime(context).db.set_knowledge_gap_status(
-        context.args[0].strip(),
-        "resolved",
-    )
+    rt = runtime(context)
+    question_hash = context.args[0].strip()
+    with rt.db.transaction():
+        success = rt.db.set_knowledge_gap_status(
+            question_hash,
+            "resolved",
+        )
+        rt.db.record_action(
+            incident_id=None,
+            chat_id=(
+                update.effective_chat.id
+                if update.effective_chat
+                else None
+            ),
+            user_id=None,
+            action_type="knowledge_gap_resolve",
+            actor_type="operator",
+            actor_id=(
+                str(update.effective_user.id)
+                if update.effective_user
+                else None
+            ),
+            reason="manual_operator_command",
+            success=success,
+            metadata={"question_hash": question_hash[:128]},
+        )
     await update.effective_message.reply_text(
         "Lacuna marcada como resolvida."
         if success
@@ -1636,7 +1658,31 @@ async def allow_domain_command(
         )
         return
 
-    runtime(context).db.set_domain(domain, "allow", "operator")
+    rt = runtime(context)
+    with rt.db.transaction():
+        rt.db.set_domain(domain, "allow", "operator")
+        rt.db.record_action(
+            incident_id=None,
+            chat_id=(
+                update.effective_chat.id
+                if update.effective_chat
+                else None
+            ),
+            user_id=None,
+            action_type="domain_policy_change",
+            actor_type="operator",
+            actor_id=(
+                str(update.effective_user.id)
+                if update.effective_user
+                else None
+            ),
+            reason="manual_operator_command",
+            success=True,
+            metadata={
+                "domain": domain,
+                "disposition": "allow",
+            },
+        )
     await update.effective_message.reply_text(
         f"Domínio permitido: {domain}"
     )
@@ -1664,7 +1710,31 @@ async def block_domain_command(
         )
         return
 
-    runtime(context).db.set_domain(domain, "block", "operator")
+    rt = runtime(context)
+    with rt.db.transaction():
+        rt.db.set_domain(domain, "block", "operator")
+        rt.db.record_action(
+            incident_id=None,
+            chat_id=(
+                update.effective_chat.id
+                if update.effective_chat
+                else None
+            ),
+            user_id=None,
+            action_type="domain_policy_change",
+            actor_type="operator",
+            actor_id=(
+                str(update.effective_user.id)
+                if update.effective_user
+                else None
+            ),
+            reason="manual_operator_command",
+            success=True,
+            metadata={
+                "domain": domain,
+                "disposition": "block",
+            },
+        )
     await update.effective_message.reply_text(
         f"Domínio bloqueado: {domain}"
     )
@@ -2636,8 +2706,31 @@ async def reload_knowledge_command(
     if not update.effective_message:
         return
 
-    knowledge = runtime(context).knowledge
+    rt = runtime(context)
+    knowledge = rt.knowledge
     count = knowledge.reload()
+    rt.db.record_action(
+        incident_id=None,
+        chat_id=(
+            update.effective_chat.id
+            if update.effective_chat
+            else None
+        ),
+        user_id=None,
+        action_type="knowledge_reload",
+        actor_type="operator",
+        actor_id=(
+            str(update.effective_user.id)
+            if update.effective_user
+            else None
+        ),
+        reason="manual_operator_command",
+        success=not knowledge.load_errors,
+        metadata={
+            "chunks": count,
+            "load_error_count": len(knowledge.load_errors),
+        },
+    )
     await update.effective_message.reply_text(
         f"Knowledge base recarregada: {count} blocos | "
         f"errors={len(knowledge.load_errors)}."
