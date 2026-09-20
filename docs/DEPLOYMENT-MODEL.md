@@ -27,6 +27,8 @@ local zion-v1-prod worktree on Acer
 
 No feature branch, PR head, local-only commit or arbitrary SHA may be deployed merely because it passes tests.
 
+Any Git credential present on the Acer should be fetch/read-only. The host has no operational need to push to `zion-v1` or modify repository administration state.
+
 ## GitHub governance gate
 
 Before the first remote deployment, `zion-v1` must have repository rules/branch protection that at minimum:
@@ -99,7 +101,8 @@ This means the operator has actually verified:
 
 - no public TCP/22 forwarding;
 - intended Tailnet identity/device policy;
-- private SSH path works with pinned host identity.
+- private SSH path works with pinned host identity;
+- Tailscale SSH/Funnel/Serve are not unexpectedly exposing the host.
 
 ## Read-only deployment preflight
 
@@ -166,19 +169,20 @@ sudo systemctl stop zion.service
 git merge --ff-only "$ZION_DEPLOY_COMMIT"
 ```
 
-If the fast-forward fails, do **not** improvise with reset/rebase/force. Restart the old service if necessary and investigate.
+If the fast-forward fails, do **not** improvise with reset/rebase/force. The worktree is still on the previous release; restart the old service and investigate.
 
 After the fast-forward succeeds:
 
 ```bash
 ZION_EXPECTED_COMMIT="$ZION_DEPLOY_COMMIT" \
 ZION_PREVIOUS_COMMIT="$PREVIOUS_HEAD" \
-ZION_APPROVED_REF=origin/zion-v1 \
 ZION_GITHUB_GATES_PROVEN=YES \
   bash scripts/apply-zion-v1.sh
 ```
 
-`apply-zion-v1.sh` now refuses to deploy without an exact expected SHA matching current HEAD and the approved production ref, verifies the expected GitHub origin and live production branch head before its own mutation stages, and requires the GitHub-governance attestation. It also records the previous commit, when supplied, in the pre-deploy backup metadata.
+`apply-zion-v1.sh` now refuses to deploy unless the local branch is exactly `zion-v1-prod`, the expected SHA matches current HEAD and the approved production ref, the expected GitHub origin/live production branch still match, and the GitHub-governance attestation is present. It records the previous commit in pre-deploy backup metadata when supplied.
+
+If `apply-zion-v1.sh` fails **before** it stops `zion.service`, production runtime state has not been cut over; restore the local worktree to `PREVIOUS_HEAD` only if necessary and keep/restart the old service. If it fails after the stop/migration phase may have begun, do not guess: use the verified backup + recorded rollback SHA and follow the rollback procedure below.
 
 ## Post-deploy acceptance
 
