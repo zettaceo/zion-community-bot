@@ -100,6 +100,60 @@ class GuardianTests(unittest.TestCase):
             ["untrusted.example"],
         )
 
+    def test_allowed_domain_does_not_match_suffix_confusion(self) -> None:
+        settings = replace(
+            self.settings,
+            allow_links=True,
+            allowed_domains=frozenset({"example.com"}),
+        )
+        guardian = Guardian(settings, self.db)
+
+        good = guardian.evaluate_links(
+            "https://sub.example.com/path"
+        )
+        deceptive = guardian.evaluate_links(
+            "https://example.com.evil.test/path"
+        )
+
+        self.assertFalse(good.should_delete)
+        self.assertTrue(deceptive.should_delete)
+
+    def test_runtime_block_overrides_environment_allow(self) -> None:
+        settings = replace(
+            self.settings,
+            allow_links=True,
+            allowed_domains=frozenset({"example.com"}),
+        )
+        guardian = Guardian(settings, self.db)
+        self.db.set_domain("sub.example.com", "block", "test")
+
+        decision = guardian.evaluate_links(
+            "https://sub.example.com/path"
+        )
+        self.assertTrue(decision.should_delete)
+        self.assertEqual(
+            decision.unauthorized_domains,
+            ["sub.example.com"],
+        )
+
+    def test_specific_runtime_allow_can_override_parent_block(self) -> None:
+        self.db.set_domain("example.com", "block", "test")
+        self.db.set_domain(
+            "safe.example.com",
+            "allow",
+            "test",
+        )
+
+        safe = self.guardian.evaluate_links(
+            "https://safe.example.com/path"
+        )
+        blocked = self.guardian.evaluate_links(
+            "https://other.example.com/path"
+        )
+
+        self.assertFalse(safe.should_delete)
+        self.assertTrue(blocked.should_delete)
+
     def test_runtime_domain_allow(self) -> None:
         self.db.set_domain("trusted.example", "allow", "test")
         decision = self.guardian.evaluate_links(
