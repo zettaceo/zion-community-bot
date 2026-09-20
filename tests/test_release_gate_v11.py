@@ -397,8 +397,9 @@ class V11ReleaseGateTests(unittest.TestCase):
             'if [[ "$STATE_REAL" != "$STATE_DIR" ]]',
             text,
         )
-        self.assertIn("source_db must not be a symlink", text)
-        self.assertIn("target_db must not be a symlink", text)
+        self.assertIn('"source_db", source_db_raw', text)
+        self.assertIn('"target_db", target_db_raw', text)
+        self.assertIn("must not be a symlink", text)
         self.assertIn('sha256sum -c "$DEST/env.sha256"', text)
         self.assertIn("HEAD mudou durante o cutover", text)
         self.assertIn("worktree mudou durante o cutover", text)
@@ -413,7 +414,8 @@ class V11ReleaseGateTests(unittest.TestCase):
             text,
         )
         self.assertIn("zion-dashboard.service.installed", text)
-        self.assertIn('"$DASHBOARD_SRC" \\', text)
+        self.assertIn('"$DASHBOARD_SRC"', text)
+        self.assertIn('"$DASHBOARD_DST"', text)
         self.assertIn("systemctl start zion-dashboard.service", text)
         self.assertIn(
             "zion-dashboard.service não ficou ativo",
