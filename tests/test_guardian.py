@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 
 from tests.helpers import make_settings
@@ -67,6 +68,20 @@ class GuardianTests(unittest.TestCase):
         )
         self.assertTrue(decision.should_delete)
         self.assertEqual(decision.unsupported_schemes, ["tg"])
+
+    def test_visible_non_http_scheme_is_blocked(self) -> None:
+        decision = self.guardian.evaluate_links(
+            "abra tg://resolve?domain=example"
+        )
+        self.assertTrue(decision.should_delete)
+        self.assertEqual(decision.unsupported_schemes, ["tg"])
+
+    def test_visible_ftp_scheme_is_blocked(self) -> None:
+        decision = self.guardian.evaluate_links(
+            "download ftp://evil.example/file"
+        )
+        self.assertTrue(decision.should_delete)
+        self.assertEqual(decision.unsupported_schemes, ["ftp"])
 
     def test_extract_domains(self) -> None:
         domains = extract_domains(
@@ -142,6 +157,44 @@ class GuardianTests(unittest.TestCase):
         self.assertTrue(
             detect_sensitive_content(text).detected
         )
+
+    def test_labeled_base58_private_key_is_detected(self) -> None:
+        text = "private key: " + ("1" * 64)
+        decision = detect_sensitive_content(text)
+        self.assertTrue(decision.detected)
+        self.assertEqual(decision.kind, "possible_private_key")
+
+    def test_labeled_byte_array_private_key_is_detected(self) -> None:
+        payload = ",".join(str(index) for index in range(64))
+        decision = detect_sensitive_content(
+            f"private key: [{payload}]"
+        )
+        self.assertTrue(decision.detected)
+        self.assertEqual(decision.kind, "possible_private_key")
+
+    def test_elevated_threshold_never_becomes_weaker_than_normal(self) -> None:
+        settings = replace(
+            self.settings,
+            flood_max_messages=2,
+        )
+        guardian = Guardian(settings, self.db)
+        self.db.set_operating_state(OperatingState.ELEVATED)
+
+        first = guardian.record_message(
+            chat_id=99,
+            user_id=99,
+            message_id=1,
+            now=9000.0,
+        )
+        second = guardian.record_message(
+            chat_id=99,
+            user_id=99,
+            message_id=2,
+            now=9001.0,
+        )
+
+        self.assertFalse(first.triggered)
+        self.assertTrue(second.triggered)
 
     def test_elevated_state_tightens_flood_threshold(self) -> None:
         self.db.set_operating_state(OperatingState.ELEVATED)
