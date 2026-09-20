@@ -91,6 +91,15 @@ class SecurityTests(unittest.TestCase):
         self.assertNotIn(secret, value)
         self.assertIn("[REDACTED]", value)
 
+    def test_basic_auth_url_is_detected_and_redacted(self) -> None:
+        value = "https://alice:super-secret-password@example.com/path"
+        self.assertTrue(
+            contains_high_confidence_credential(value)
+        )
+        redacted = redact_secrets(value)
+        self.assertNotIn("super-secret-password", redacted)
+        self.assertIn("alice:[REDACTED]@", redacted)
+
     def test_bearer_redacted(self) -> None:
         result = redact_secrets(
             "Authorization: Bearer fake-secret-value-123"
