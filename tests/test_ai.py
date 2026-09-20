@@ -401,6 +401,72 @@ class AITests(unittest.TestCase):
         finally:
             self.db.record_ai_event = original_record
 
+    def test_success_ledger_failure_preserves_usage_across_restart(
+        self,
+    ) -> None:
+        (self.root / "knowledge" / "official.md").write_text(
+            "# Guardian\nGuardian protection remains active.\n",
+            encoding="utf-8",
+        )
+        knowledge = KnowledgeBase(self.settings.knowledge_dir)
+        settings = replace(
+            self.settings,
+            ai_enabled=True,
+            mistral_api_key="fake-key-for-test-only",
+            ai_daily_token_budget=50000,
+        )
+        ai = AIService(settings, self.db, knowledge)
+
+        class SuccessfulClient:
+            configured = True
+
+            async def answer(self, *, question: str, context: str):
+                return AIAnswer(
+                    text="grounded",
+                    model="fake",
+                    input_tokens=7,
+                    output_tokens=5,
+                    latency_ms=1,
+                )
+
+        ai.client = SuccessfulClient()
+        original_record = self.db.record_ai_event
+
+        def fail_success_ledger(*args, **kwargs):
+            raise RuntimeError("synthetic success ledger failure")
+
+        self.db.record_ai_event = fail_success_ledger
+        try:
+            answer = asyncio.run(
+                ai.answer(
+                    chat_id=1,
+                    user_id=2,
+                    question="Guardian protection",
+                )
+            )
+            self.assertIn("grounded", answer.text)
+            self.assertFalse(ai.accounting_healthy)
+            self.assertIsNotNone(
+                self.db.get_setting("ai_uncertain_budget")
+            )
+        finally:
+            self.db.record_ai_event = original_record
+
+        restored = AIService(settings, self.db, knowledge)
+        self.assertEqual(restored.tokens_used_today(), 12)
+        self.assertEqual(
+            restored.budget_remaining(),
+            settings.ai_daily_token_budget - 12,
+        )
+
+    def test_budget_admission_reserve_is_utf8_conservative(self) -> None:
+        text = "🔥" * 10
+        estimate = self.ai._estimate_tokens(text, 100)
+        self.assertGreaterEqual(
+            estimate,
+            (len(text.encode("utf-8")) * 2) + 4096 + 100,
+        )
+
     def test_circuit_persistence_failure_does_not_break_in_memory_guard(self) -> None:
         settings = replace(
             self.settings,
