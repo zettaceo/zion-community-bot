@@ -80,6 +80,10 @@ if mode & 0o077:
     raise RuntimeError(
         f"production .env permissions too broad: {oct(mode)}"
     )
+if env_path.owner() != "zetta":
+    raise RuntimeError(
+        f"production .env owner must be zetta: {env_path.owner()}"
+    )
 
 load_dotenv(env_path, override=True)
 
