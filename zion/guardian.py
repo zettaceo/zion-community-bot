@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import re
 import time
+import unicodedata
+from urllib.parse import urlparse
 
 import idna
-from urllib.parse import urlparse
 
 from .config import Settings
 from .db import ZionDB
@@ -20,6 +21,17 @@ from .models import (
 
 URL_REGEX = re.compile(
     r"(?i)\b(?:https?://|www\.|t\.me/)[^\s<>]+"
+)
+
+UNSUPPORTED_VISIBLE_SCHEME_REGEX = re.compile(
+    r"(?i)\b("
+    r"tg|ton|solana|ethereum|javascript|data|file|intent|mailto|ftp"
+    r"):(?://)?[^\s<>]+"
+)
+
+BASE58_PRIVATE_KEY_REGEX = re.compile(
+    r"(?<![1-9A-HJ-NP-Za-km-z])[1-9A-HJ-NP-Za-km-z]{48,128}"
+    r"(?![1-9A-HJ-NP-Za-km-z])"
 )
 
 POLICY_DOMAIN_REGEX = re.compile(
@@ -38,7 +50,7 @@ SENSITIVE_LABEL_REGEX = re.compile(
 )
 
 LONG_SECRET_AFTER_LABEL_REGEX = re.compile(
-    r"(?i)\b("
+    r"(?is)\b("
     r"private\s+key|chave\s+privada|"
     r"seed\s+phrase|frase\s+semente|"
     r"recovery\s+phrase|frase\s+de\s+recupera[cç][aã]o|"
@@ -46,15 +58,77 @@ LONG_SECRET_AFTER_LABEL_REGEX = re.compile(
     r")\b\s*[:=\-]?\s*(.{24,})"
 )
 
+INVISIBLE_SECURITY_CODEPOINTS = {
+    0x200B,  # zero width space
+    0x200C,  # zero width non-joiner
+    0x200D,  # zero width joiner
+    0x2060,  # word joiner
+    0xFEFF,  # zero width no-break space / BOM
+}
+
+ALLOWED_LINK_SCHEMES = frozenset({"http", "https"})
+
+
+def _nfkc_text(value: str) -> str:
+    return unicodedata.normalize("NFKC", value or "")
+
+
+def _contains_invisible_security_char(value: str) -> bool:
+    return any(
+        ord(char) in INVISIBLE_SECURITY_CODEPOINTS
+        for char in value
+    )
+
+
+def _normalize_security_text(value: str) -> str:
+    normalized = _nfkc_text(value)
+    return "".join(
+        char
+        for char in normalized
+        if ord(char) not in INVISIBLE_SECURITY_CODEPOINTS
+    )
+
+
+def normalize_link_target(value: str) -> tuple[str | None, str | None]:
+    raw = _nfkc_text(value).strip()
+    if _contains_invisible_security_char(raw):
+        return None, "invisible-link-character"
+    if not raw:
+        return None, None
+
+    lowered = raw.lower()
+    if lowered.startswith("www.") or lowered.startswith("t.me/"):
+        raw = "https://" + raw
+
+    try:
+        parsed = urlparse(raw)
+    except ValueError:
+        return None, "unparseable-url"
+
+    scheme = (parsed.scheme or "").lower()
+    if scheme and scheme not in ALLOWED_LINK_SCHEMES:
+        return None, scheme
+
+    if not scheme:
+        raw = "https://" + raw
+        scheme = "https"
+
+    domain = _normalize_domain(raw)
+    if scheme in ALLOWED_LINK_SCHEMES and not domain:
+        return None, f"invalid-{scheme}"
+
+    return domain, None
+
 
 def _normalize_domain(raw_url: str) -> str | None:
-    candidate = (raw_url or "").strip().rstrip(".,);]}>")
+    candidate = _nfkc_text(raw_url).strip().rstrip(".,);]}>")
+    if _contains_invisible_security_char(candidate):
+        return None
     candidate = candidate.translate({
         0x3002: ".",
         0xFF0E: ".",
         0xFF61: ".",
     })
-    candidate = candidate.replace("\u200b", "").replace("\u2060", "")
     if candidate.lower().startswith("www."):
         candidate = "https://" + candidate
     elif candidate.lower().startswith("t.me/"):
@@ -70,48 +144,62 @@ def _normalize_domain(raw_url: str) -> str | None:
         host = host[4:]
     if not host:
         return None
+
     try:
-        host = idna.encode(
+        ascii_host = idna.encode(
             host,
             uts46=True,
             transitional=False,
+            std3_rules=True,
         ).decode("ascii").lower()
     except (idna.IDNAError, UnicodeError, ValueError):
         return None
-    return host or None
+
+    return ascii_host or None
 
 
 def normalize_policy_domain(value: str) -> str | None:
-    raw = (value or "").strip()
+    raw = _nfkc_text(value).strip()
     if not raw:
         return None
 
-    candidate = raw
-    if not re.match(r"(?i)^(?:https?://|www\.|t\.me/)", candidate):
-        candidate = "https://" + candidate
-
-    domain = _normalize_domain(candidate)
+    domain, unsupported_scheme = normalize_link_target(raw)
+    if unsupported_scheme is not None:
+        return None
     if not domain or not POLICY_DOMAIN_REGEX.fullmatch(domain):
         return None
     return domain
 
 
-def _extract_domains_and_invalid(text: str) -> tuple[list[str], bool]:
-    domains: list[str] = []
-    invalid = False
-    for raw in URL_REGEX.findall(text or ""):
-        domain = _normalize_domain(raw)
-        if not domain:
-            invalid = True
-            continue
-        if domain not in domains:
-            domains.append(domain)
-    return domains, invalid
-
-
 def extract_domains(text: str) -> list[str]:
-    domains, _ = _extract_domains_and_invalid(text)
+    domains: list[str] = []
+    normalized_text = _nfkc_text(text)
+    for raw in URL_REGEX.findall(normalized_text):
+        domain = _normalize_domain(raw)
+        if domain and domain not in domains:
+            domains.append(domain)
     return domains
+
+
+def extract_unsupported_schemes(text: str) -> list[str]:
+    normalized_text = _nfkc_text(text)
+    schemes: list[str] = []
+
+    for raw in URL_REGEX.findall(normalized_text):
+        domain, error = normalize_link_target(raw)
+        if domain:
+            continue
+        marker = error or "invalid-http-target"
+        if marker not in schemes:
+            schemes.append(marker)
+
+    for match in UNSUPPORTED_VISIBLE_SCHEME_REGEX.finditer(
+        normalized_text
+    ):
+        scheme = match.group(1).lower()
+        if scheme not in schemes:
+            schemes.append(scheme)
+    return schemes
 
 
 def domain_matches(domain: str, allowed: str) -> bool:
@@ -121,7 +209,7 @@ def domain_matches(domain: str, allowed: str) -> bool:
 
 
 def detect_sensitive_content(text: str) -> SensitiveContentDecision:
-    text = text or ""
+    text = _normalize_security_text(text)
     if not SENSITIVE_LABEL_REGEX.search(text):
         return SensitiveContentDecision()
 
@@ -130,9 +218,21 @@ def detect_sensitive_content(text: str) -> SensitiveContentDecision:
         return SensitiveContentDecision()
 
     tail = match.group(2).strip()
-    words = re.findall(r"[A-Za-zÀ-ÿ0-9_'-]+", tail)
+    words = re.findall(
+        r"[^\W\d_]+(?:['-][^\W\d_]+)*",
+        tail,
+        flags=re.UNICODE,
+    )
 
-    if len(words) in {12, 15, 18, 21, 24}:
+    plausible_seed_prefix = (
+        len(words) >= 12
+        and all(
+            word.replace("'", "").replace("-", "").isalpha()
+            and 1 <= len(word) <= 32
+            for word in words[:12]
+        )
+    )
+    if plausible_seed_prefix:
         return SensitiveContentDecision(
             detected=True,
             kind="possible_wallet_secret",
@@ -152,10 +252,7 @@ def detect_sensitive_content(text: str) -> SensitiveContentDecision:
             ),
         )
 
-    # Solana and other ecosystems may serialize private keys as Base58 rather
-    # than hexadecimal. The sensitive label above is mandatory, which keeps
-    # ordinary addresses/transaction identifiers out of this rule.
-    if re.search(r"(?<![1-9A-HJ-NP-Za-km-z])[1-9A-HJ-NP-Za-km-z]{48,128}(?![1-9A-HJ-NP-Za-km-z])", tail):
+    if BASE58_PRIVATE_KEY_REGEX.search(tail):
         return SensitiveContentDecision(
             detected=True,
             kind="possible_private_key",
@@ -165,8 +262,6 @@ def detect_sensitive_content(text: str) -> SensitiveContentDecision:
             ),
         )
 
-    # Solana secret-key exports are also commonly represented as a JSON-like
-    # array of 64 byte values. Validate both count and byte range.
     array_match = re.search(
         r"\[((?:\s*\d{1,3}\s*,){31,63}\s*\d{1,3}\s*)\]",
         tail,
@@ -176,7 +271,10 @@ def detect_sensitive_content(text: str) -> SensitiveContentDecision:
             int(value)
             for value in re.findall(r"\d{1,3}", array_match.group(1))
         ]
-        if len(values) in {32, 64} and all(0 <= value <= 255 for value in values):
+        if (
+            len(values) in {32, 64}
+            and all(0 <= value <= 255 for value in values)
+        ):
             return SensitiveContentDecision(
                 detected=True,
                 kind="possible_private_key",
@@ -236,7 +334,7 @@ class Guardian:
             if state == OperatingState.ELEVATED:
                 threshold = min(
                     base_threshold,
-                    max(3, base_threshold - 2),
+                    max(2, base_threshold - 2),
                 )
             elif state == OperatingState.ATTACK:
                 threshold = min(
@@ -247,10 +345,13 @@ class Guardian:
             if count < threshold:
                 return FloodDecision()
 
+            # Delete only messages that participated in the triggering window.
+            # Older legitimate traffic retained for purge bookkeeping must not
+            # be swept into a flood enforcement action.
             message_ids = self.db.recent_message_ids(
                 chat_id,
                 user_id,
-                ts - self.settings.flood_purge_window_seconds,
+                ts - self.settings.flood_window_seconds,
             )
             self.db.clear_recent_messages(chat_id, user_id)
 
@@ -287,9 +388,9 @@ class Guardian:
                 and strike_count >= self.settings.flood_ban_after_strikes
             )
 
-            # Keep a persistent local containment even when the next external
-            # action is a ban. If the process dies after this transaction but
-            # before Telegram confirms the ban, later messages remain blocked.
+            # Persist containment and the incident before external Telegram
+            # enforcement. If the process dies before Telegram returns, local
+            # protection and evidence survive.
             self.db.set_containment(
                 chat_id,
                 user_id,
@@ -302,11 +403,7 @@ class Guardian:
                 chat_id=chat_id,
                 user_id=user_id,
                 category="flood",
-                severity=(
-                    Severity.HIGH
-                    if should_ban
-                    else Severity.MEDIUM
-                ),
+                severity=Severity.HIGH if should_ban else Severity.MEDIUM,
                 source="guardian",
                 evidence={
                     "strike_count": strike_count,
@@ -326,7 +423,7 @@ class Guardian:
                 incident_id=incident_id,
             )
 
-    def evaluate_chat_burst(
+    valuate_chat_burst(
         self,
         chat_id: int,
         user_id: int | None = None,
@@ -415,32 +512,35 @@ class Guardian:
         text: str,
         extra_domains: list[str] | tuple[str, ...] | None = None,
         extra_urls: list[str] | tuple[str, ...] | None = None,
+        unsupported_schemes: list[str] | tuple[str, ...] | None = None,
     ) -> LinkDecision:
-        domains, invalid_link = _extract_domains_and_invalid(text)
+        domains = extract_domains(text)
+        unsupported = {
+            str(scheme).strip().lower()
+            for scheme in (
+                list(extract_unsupported_schemes(text))
+                + list(unsupported_schemes or ())
+            )
+            if str(scheme).strip()
+        }
 
         for raw_url in extra_urls or ():
-            normalized = normalize_policy_domain(raw_url)
-            if normalized:
-                if normalized not in domains:
-                    domains.append(normalized)
-            else:
-                # A clickable URL that cannot be mapped into the domain policy
-                # is not silently ignored. Unknown/unsupported schemes fail
-                # closed without persisting the raw target.
-                invalid_link = True
+            domain, error = normalize_link_target(raw_url)
+            if domain and domain not in domains:
+                domains.append(domain)
+            if error:
+                unsupported.add(error)
 
         for raw_domain in extra_domains or ():
             normalized = normalize_policy_domain(raw_domain)
             if normalized and normalized not in domains:
                 domains.append(normalized)
 
-        if not domains and not invalid_link:
+        unsupported_list = sorted(unsupported)
+        if not domains and not unsupported_list:
             return LinkDecision()
 
         unauthorized: list[str] = []
-        if invalid_link:
-            unauthorized.append("<invalid-or-unsupported-url>")
-
         for domain in domains:
             labels = domain.split(".")
             candidates = [
@@ -464,17 +564,21 @@ class Guardian:
                 domain_matches(domain, allowed)
                 for allowed in self.settings.allowed_domains
             )
-
             if not self.settings.allow_links or not allowed_by_env:
                 unauthorized.append(domain)
 
-        if unauthorized:
+        if unauthorized or unsupported_list:
             return LinkDecision(
                 has_links=True,
                 domains=domains,
                 unauthorized_domains=unauthorized,
+                unsupported_schemes=unsupported_list,
                 should_delete=True,
-                reason="link/domínio não autorizado",
+                reason=(
+                    "link/esquema não autorizado"
+                    if unsupported_list
+                    else "link/domínio não autorizado"
+                ),
             )
 
         return LinkDecision(
@@ -482,7 +586,7 @@ class Guardian:
             domains=domains,
         )
 
-    def sensitive_content(
+    ensitive_content(
         self,
         text: str,
     ) -> SensitiveContentDecision:
