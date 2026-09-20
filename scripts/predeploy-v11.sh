@@ -32,6 +32,7 @@ if [[ ! -x "$SYSTEM_PYTHON" ]]; then
 fi
 "$SYSTEM_PYTHON" -I "$ROOT/scripts/check-git-release-boundary.py" \
   --root "$ROOT"
+"$SYSTEM_PYTHON" -I "$ROOT/scripts/check-python-release-env.py"
 "$SYSTEM_PYTHON" -I "$ROOT/scripts/check-git-release-boundary.py" \
   --root "$PROD_ROOT"
 

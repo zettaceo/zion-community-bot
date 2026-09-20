@@ -111,6 +111,8 @@ Set:
 export ZION_DEPLOY_COMMIT=<40-character-approved-sha>
 ```
 
+Release-time Python is also treated as an executable boundary. Before any non-isolated candidate/runtime interpreter is used, the release scripts require a clean caller environment with no inherited `PYTHON*` variables. Environment checks themselves run with `/usr/bin/python3 -I`; Python-only host probes use isolated mode directly. This prevents `PYTHONPATH`/related process variables from importing code outside the approved SHA and locked runtime.
+
 ## First v1 → v1.1 bootstrap
 
 The current v1 production commit predates the strict v1.1 release-gate scripts. For the first upgrade, do not assume those scripts already exist in the production checkout.

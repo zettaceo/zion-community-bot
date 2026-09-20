@@ -5,7 +5,15 @@ PATH=/usr/sbin:/usr/bin:/sbin:/bin
 export PATH
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SYSTEM_PYTHON="/usr/bin/python3"
 PYTHON="${ZION_VALIDATION_PYTHON:-$ROOT/.venv/bin/python}"
+
+if [[ ! -x "$SYSTEM_PYTHON" ]]; then
+  echo "Python de sistema ausente: $SYSTEM_PYTHON" >&2
+  exit 1
+fi
+"$SYSTEM_PYTHON" -I "$ROOT/scripts/check-python-release-env.py"
+
 PYCACHE_ROOT="$(mktemp -d /tmp/zion-validation-pycache.XXXXXX)"
 chmod 700 "$PYCACHE_ROOT"
 trap 'rm -rf -- "$PYCACHE_ROOT"' EXIT

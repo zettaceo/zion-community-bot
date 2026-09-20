@@ -33,6 +33,8 @@ if [[ ! -x "$SYSTEM_PYTHON" ]]; then
   exit 2
 fi
 
+"$SYSTEM_PYTHON" -I "$ROOT/scripts/check-python-release-env.py"
+
 "$SYSTEM_PYTHON" - <<'PY'
 import sys
 if sys.version_info[:2] != (3, 12):
