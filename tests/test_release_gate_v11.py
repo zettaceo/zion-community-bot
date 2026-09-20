@@ -317,6 +317,7 @@ class V11ReleaseGateTests(unittest.TestCase):
         self.assertIn("-r \"$ROOT/requirements.lock\"", prepare)
         self.assertIn("pip --isolated install", prepare)
         self.assertIn("--no-deps", prepare)
+        self.assertIn("--require-hashes", prepare)
         self.assertIn("--only-binary=:all:", prepare)
         self.assertIn("--index-url https://pypi.org/simple", prepare)
         self.assertIn('chmod -R a-w "$TMP_RUNTIME"', prepare)
@@ -370,6 +371,7 @@ class V11ReleaseGateTests(unittest.TestCase):
 
         self.assertIn("pip --isolated install", ci)
         self.assertIn("--no-deps", ci)
+        self.assertIn("--require-hashes", ci)
         self.assertIn("--only-binary=:all:", ci)
         self.assertIn("--index-url https://pypi.org/simple", ci)
         self.assertIn("-r requirements.lock", ci)
@@ -394,6 +396,18 @@ class V11ReleaseGateTests(unittest.TestCase):
         )
         for item in expected:
             self.assertIn(item, lock)
+
+        locked_lines = [
+            line.strip()
+            for line in lock.splitlines()
+            if line.strip() and not line.lstrip().startswith("#")
+        ]
+        self.assertEqual(len(locked_lines), len(expected))
+        for line in locked_lines:
+            self.assertRegex(
+                line,
+                r"^[A-Za-z0-9_.-]+==[^ ]+ --hash=sha256:[0-9a-f]{64}$",
+            )
 
     def test_apply_uses_installed_service_layout_as_db_authority(self) -> None:
         apply = self.read("scripts/apply-zion-v1.sh")
