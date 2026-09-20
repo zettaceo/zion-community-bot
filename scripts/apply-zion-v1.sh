@@ -5,6 +5,8 @@ ROOT="/home/zetta/zion-community-bot"
 SYSTEM_PYTHON="/usr/bin/python3"
 SERVICE_SRC="$ROOT/systemd/zion.service"
 SERVICE_DST="/etc/systemd/system/zion.service"
+DASHBOARD_SRC="$ROOT/systemd/zion-dashboard.service"
+DASHBOARD_DST="/etc/systemd/system/zion-dashboard.service"
 BACKUP_DIR="/home/zetta/.local/share/zion-community-bot/deploy-backups"
 STATE_DIR="/home/zetta/.local/state/zion-community-bot"
 RUNTIME_BASE="/home/zetta/.local/share/zion-community-bot/runtimes"
@@ -39,6 +41,15 @@ if /usr/bin/systemctl is-active --quiet zion.service; then
   echo "ERRO: apply exige zion.service já parado pelo procedimento de cutover." >&2
   echo "Não use apply-zion-v1.sh como atalho de deploy." >&2
   exit 1
+fi
+
+DASHBOARD_INSTALLED=false
+if [[ -f "$DASHBOARD_DST" ]]; then
+  DASHBOARD_INSTALLED=true
+  if /usr/bin/systemctl is-active --quiet zion-dashboard.service; then
+    echo "ERRO: dashboard instalado deve estar parado no mesmo cutover." >&2
+    exit 1
+  fi
 fi
 
 echo "[1/15] Conferindo runtime candidato por SHA..."
@@ -138,6 +149,13 @@ if [[ ! -f "$SERVICE_SRC" ]]; then
   exit 1
 fi
 /usr/bin/systemd-analyze verify "$SERVICE_SRC"
+if [[ "$DASHBOARD_INSTALLED" == true ]]; then
+  if [[ ! -f "$DASHBOARD_SRC" ]]; then
+    echo "ERRO: dashboard instalado, mas unit candidata ausente." >&2
+    exit 1
+  fi
+  /usr/bin/systemd-analyze verify "$DASHBOARD_SRC"
+fi
 
 echo "[6/15] Validando configuração e conhecimento ANTES do stop..."
 "$PYTHON" "$ROOT/scripts/check-env-boundary.py" \
@@ -294,6 +312,10 @@ if [[ -f "$SERVICE_DST" ]]; then
   cp -a "$SERVICE_DST" "$DEST/zion.service.installed"
   chmod 600 "$DEST/zion.service.installed"
 fi
+if [[ "$DASHBOARD_INSTALLED" == true ]]; then
+  cp -a "$DASHBOARD_DST" "$DEST/zion-dashboard.service.installed"
+  chmod 600 "$DEST/zion-dashboard.service.installed"
+fi
 
 DEST="$DEST" "$PYTHON" - <<'PY'
 import os
@@ -340,6 +362,11 @@ PY
 echo "[9/15] Confirmando janela de cutover parada..."
 if /usr/bin/systemctl is-active --quiet zion.service; then
   echo "ERRO: zion.service voltou a ficar ativo durante o cutover." >&2
+  exit 1
+fi
+if [[ "$DASHBOARD_INSTALLED" == true ]] \
+  && /usr/bin/systemctl is-active --quiet zion-dashboard.service; then
+  echo "ERRO: zion-dashboard.service voltou a ficar ativo durante o cutover." >&2
   exit 1
 fi
 
@@ -459,8 +486,20 @@ sudo /usr/bin/install \
   "$SERVICE_SRC" \
   "$SERVICE_DST"
 
+if [[ "$DASHBOARD_INSTALLED" == true ]]; then
+  sudo /usr/bin/install \
+    -o root \
+    -g root \
+    -m 0644 \
+    "$DASHBOARD_SRC" \
+    "$DASHBOARD_DST"
+fi
+
 sudo /usr/bin/systemctl daemon-reload
 sudo /usr/bin/systemctl enable zion.service >/dev/null
+if [[ "$DASHBOARD_INSTALLED" == true ]]; then
+  sudo /usr/bin/systemctl enable zion-dashboard.service >/dev/null
+fi
 
 echo "[13/15] Iniciando ZION..."
 sudo /usr/bin/systemctl start zion.service
@@ -485,6 +524,21 @@ if ! /usr/bin/systemctl is-active --quiet zion.service; then
   echo "ERRO: zion.service não ficou ativo." >&2
   echo "Backup pré-deploy: $DEST" >&2
   exit 1
+fi
+
+if [[ "$DASHBOARD_INSTALLED" == true ]]; then
+  sudo /usr/bin/systemctl start zion-dashboard.service
+  for _ in $(seq 1 10); do
+    if /usr/bin/systemctl is-active --quiet zion-dashboard.service; then
+      break
+    fi
+    sleep 1
+  done
+  if ! /usr/bin/systemctl is-active --quiet zion-dashboard.service; then
+    echo "ERRO: zion-dashboard.service não ficou ativo." >&2
+    echo "Backup pré-deploy: $DEST" >&2
+    exit 1
+  fi
 fi
 
 echo "[15/15] Confirmando runtime e state efetivos..."
