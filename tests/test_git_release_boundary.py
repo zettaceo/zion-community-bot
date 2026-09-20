@@ -212,6 +212,71 @@ class GitReleaseBoundaryTests(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("core.sshCommand is configured", result.stderr)
 
+    def test_http_ssl_verify_false_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.make_repo(root)
+            self.git(root, "config", "http.sslVerify", "false")
+
+            result = self.run_check(root)
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn(
+                "Git HTTPS TLS verification must not be disabled",
+                result.stderr,
+            )
+
+    def test_url_scoped_http_ssl_verify_false_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.make_repo(root)
+            self.git(
+                root,
+                "config",
+                "http.https://github.com/.sslVerify",
+                "false",
+            )
+
+            result = self.run_check(root)
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn(
+                "Git HTTPS TLS verification must not be disabled",
+                result.stderr,
+            )
+
+    def test_http_ssl_ca_info_override_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.make_repo(root)
+            self.git(
+                root,
+                "config",
+                "http.sslCAInfo",
+                "/tmp/zion-custom-ca.pem",
+            )
+
+            result = self.run_check(root)
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("http.*.sslCAInfo override", result.stderr)
+
+    def test_http_ssl_ca_path_override_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.make_repo(root)
+            self.git(
+                root,
+                "config",
+                "http.sslCAPath",
+                "/tmp/zion-custom-ca",
+            )
+
+            result = self.run_check(root)
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("http.*.sslCAPath override", result.stderr)
+
     def test_assume_unchanged_index_bit_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
