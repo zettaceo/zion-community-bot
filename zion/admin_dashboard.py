@@ -47,6 +47,7 @@ def _status_payload(
         Path("/sys/class/net") / wifi_interface
     ).exists()
 
+    db_file_present = db.path.exists()
     integrity = db.verify_integrity(full=False)
     integrity_ok = bool(integrity["ok"])
     database_messages = list(
@@ -93,7 +94,8 @@ def _status_payload(
         db_read_ok = False
 
     database_ok = (
-        db.ping()
+        db_file_present
+        and db.ping()
         and integrity_ok
         and db_read_ok
         and application_id_ok
@@ -103,6 +105,7 @@ def _status_payload(
         "zion_dashboard": "online",
         "operating_state": operating_state,
         "database": "ok" if database_ok else "fail",
+        "database_file_present": db_file_present,
         "sqlite_integrity": integrity_result,
         "sqlite_foreign_keys_ok": foreign_keys_ok,
         "sqlite_foreign_key_violations": foreign_key_violations[:20],
@@ -157,6 +160,7 @@ th, td {{ text-align: left; padding: .55rem; border-bottom: 1px solid #252b36; }
 <p class="ok">Dashboard: {html.escape(str(payload["zion_dashboard"]))}</p>
 <p>State: {html.escape(str(payload["operating_state"]))}</p>
 <p>Database: {html.escape(str(payload["database"]))}</p>
+<p>Database file present: {html.escape(str(payload["database_file_present"]))}</p>
 <p>SQLite integrity: {html.escape(str(payload["sqlite_integrity"]))}</p>
 <p>SQLite FK integrity: {html.escape(str(payload["sqlite_foreign_keys_ok"]))}</p>
 <p>SQLite application_id: {html.escape(str(payload["sqlite_application_id"]))} (valid={html.escape(str(payload["sqlite_application_id_ok"]))})</p>
