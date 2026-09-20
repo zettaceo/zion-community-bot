@@ -4,6 +4,7 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
+import idna
 from dotenv import load_dotenv
 
 
@@ -54,8 +55,12 @@ def _domain_set(name: str) -> frozenset[str]:
         if not raw or any(char in raw for char in "/:@"):
             continue
         try:
-            normalized = raw.encode("idna").decode("ascii").lower()
-        except UnicodeError:
+            normalized = idna.encode(
+                raw,
+                uts46=True,
+                transitional=False,
+            ).decode("ascii").lower()
+        except idna.IDNAError:
             continue
         if normalized:
             result.add(normalized)

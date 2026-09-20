@@ -3,9 +3,11 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+import unicodedata
 from collections import defaultdict, deque
 from datetime import datetime, timedelta, timezone
 from typing import Any
+from urllib.parse import unquote
 
 from telegram import ChatPermissions, Update
 from telegram.constants import ChatMemberStatus
@@ -21,7 +23,11 @@ from telegram.ext import (
 from .ai_service import AIService
 from .config import Settings
 from .db import ZION_APPLICATION_ID, ZionDB
-from .guardian import Guardian, normalize_policy_domain
+from .guardian import (
+    Guardian,
+    normalize_link_target,
+    normalize_policy_domain,
+)
 from .health import HealthService
 from .knowledge import KnowledgeBase
 from .logging_safe import (
@@ -45,9 +51,21 @@ class AskRateLimiter:
     def __init__(self, requests_per_minute: int):
         self.limit = max(1, requests_per_minute)
         self._events: dict[int, deque[float]] = defaultdict(deque)
+        self._next_prune_at = 0.0
+
+    def _prune(self, now: float) -> None:
+        if now < self._next_prune_at:
+            return
+        for user_id, queue in list(self._events.items()):
+            while queue and now - queue[0] > 60:
+                queue.popleft()
+            if not queue:
+                self._events.pop(user_id, None)
+        self._next_prune_at = now + 60
 
     def allow(self, user_id: int) -> bool:
         now = time.monotonic()
+        self._prune(now)
         queue = self._events[user_id]
         while queue and now - queue[0] > 60:
             queue.popleft()
@@ -124,6 +142,7 @@ class Runtime:
                 tuple[int, int],
                 tuple[bool, float],
             ] = {}
+            self.admin_cache_next_prune_at = 0.0
             self.update_lags: deque[float] = deque(maxlen=100)
             self.health_alert_signature: str | None = None
             self.health_alert_last_sent_at = 0.0
@@ -151,15 +170,24 @@ def runtime(context: ContextTypes.DEFAULT_TYPE) -> Runtime:
     return value
 
 
+def safe_display_text(value: object, max_chars: int = 80) -> str:
+    raw = str(value or "")
+    without_controls = "".join(
+        " " if unicodedata.category(char).startswith("C") else char
+        for char in raw
+    )
+    return " ".join(without_controls.split())[:max_chars]
+
+
 def user_display_name(user: Any) -> str:
-    username = getattr(user, "username", None)
-    first_name = getattr(user, "first_name", None)
+    username = safe_display_text(getattr(user, "username", None), 32)
+    first_name = safe_display_text(getattr(user, "first_name", None), 80)
     user_id = getattr(user, "id", "?")
 
     if username:
         return f"@{username}"
     if first_name:
-        return str(first_name)
+        return first_name
     return f"usuário {user_id}"
 
 
@@ -176,8 +204,28 @@ def format_duration(seconds: int) -> str:
     return f"{seconds} segundos"
 
 
-def telegram_entity_domains(message: Any) -> list[str]:
-    domains: list[str] = []
+def _telegram_link_candidates(
+    message: Any,
+    *,
+    policy_limits: bool = True,
+) -> tuple[list[str], bool, bool]:
+    targets: list[str] = []
+    parse_failed = False
+    too_many = False
+
+    def add(candidate: object | None) -> None:
+        nonlocal too_many
+        if candidate is None:
+            return
+        value = str(candidate).strip()
+        if policy_limits:
+            value = value[:2048]
+        if not value or value in targets:
+            return
+        if policy_limits and len(targets) >= 20:
+            too_many = True
+            return
+        targets.append(value)
 
     entity_sets = (
         (
@@ -194,24 +242,101 @@ def telegram_entity_domains(message: Any) -> list[str]:
         for entity in entities:
             entity_type = getattr(entity, "type", "")
             entity_type = getattr(entity_type, "value", entity_type)
-
-            candidate = None
             if entity_type == "text_link":
                 candidate = getattr(entity, "url", None)
-            elif entity_type == "url" and callable(parser):
+                if not candidate:
+                    parse_failed = True
+                add(candidate)
+            elif entity_type == "url":
+                if not callable(parser):
+                    parse_failed = True
+                    continue
                 try:
                     candidate = parser(entity)
                 except Exception:
-                    candidate = None
+                    parse_failed = True
+                    continue
+                if not candidate:
+                    parse_failed = True
+                add(candidate)
 
-            if not candidate:
-                continue
+    markup = getattr(message, "reply_markup", None)
+    for row in getattr(markup, "inline_keyboard", None) or ():
+        for button in row or ():
+            add(getattr(button, "url", None))
+            login_url = getattr(button, "login_url", None)
+            add(getattr(login_url, "url", None))
+            web_app = getattr(button, "web_app", None)
+            add(getattr(web_app, "url", None))
 
-            domain = normalize_policy_domain(str(candidate))
-            if domain and domain not in domains:
-                domains.append(domain)
+    return targets, parse_failed, too_many
 
+
+def telegram_external_urls(message: Any) -> list[str]:
+    targets, _, _ = _telegram_link_candidates(message)
+    return targets
+
+
+def telegram_entity_link_evidence(
+    message: Any,
+) -> tuple[list[str], list[str]]:
+    domains: list[str] = []
+    targets, parse_failed, too_many = _telegram_link_candidates(message)
+    unsupported_schemes: list[str] = []
+
+    if parse_failed:
+        unsupported_schemes.append("unparseable-url-entity")
+    if too_many:
+        unsupported_schemes.append("too-many-link-entities")
+
+    for candidate in targets:
+        domain, unsupported_scheme = normalize_link_target(candidate)
+        if domain and domain not in domains:
+            domains.append(domain)
+        if (
+            unsupported_scheme
+            and unsupported_scheme not in unsupported_schemes
+        ):
+            unsupported_schemes.append(unsupported_scheme)
+
+    return domains, unsupported_schemes
+
+
+def telegram_entity_domains(message: Any) -> list[str]:
+    domains, _ = telegram_entity_link_evidence(message)
     return domains
+
+
+def telegram_sensitive_surface(message: Any, visible_text: str) -> str:
+    # Domain-policy limits must not hide credentials in private/admin messages.
+    # Inspect the entire supplied surface; never persist these raw values.
+    targets, _, _ = _telegram_link_candidates(message, policy_limits=False)
+    values = []
+    for value in [visible_text or "", *targets]:
+        values.append(value)
+        # Support singly/doubly encoded labels without an unbounded decode loop.
+        for _ in range(2):
+            decoded = unquote(value)
+            if decoded == value:
+                break
+            values.append(decoded)
+            value = decoded
+    return "\n".join(values)
+
+
+def link_incident_severity(
+    unauthorized_domains: list[str],
+    unsupported_schemes: list[str],
+) -> Severity:
+    if unsupported_schemes:
+        return Severity.MEDIUM
+    if any(
+        label.startswith("xn--")
+        for domain in unauthorized_domains
+        for label in domain.split(".")
+    ):
+        return Severity.MEDIUM
+    return Severity.LOW
 
 
 def parse_duration(value: str) -> int | None:
@@ -245,6 +370,9 @@ def parse_duration(value: str) -> int | None:
 async def is_admin(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
+    *,
+    use_cache: bool = True,
+    revalidate_cached_admin: bool = False,
 ) -> bool:
     if not update.effective_user or not update.effective_chat:
         return False
@@ -263,9 +391,18 @@ async def is_admin(
 
     key = (chat_id, user_id)
     now = time.monotonic()
+    if now >= rt.admin_cache_next_prune_at:
+        for cache_key, (_, expires_at) in list(rt.admin_cache.items()):
+            if expires_at <= now:
+                rt.admin_cache.pop(cache_key, None)
+        rt.admin_cache_next_prune_at = (
+            now + max(5, rt.settings.admin_cache_seconds)
+        )
+
     cached = rt.admin_cache.get(key)
-    if cached and now < cached[1]:
-        return cached[0]
+    if use_cache and cached and now < cached[1]:
+        if not (revalidate_cached_admin and cached[0]):
+            return cached[0]
 
     try:
         member = await context.bot.get_chat_member(
@@ -292,7 +429,14 @@ async def require_admin(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
 ) -> bool:
-    if await is_admin(update, context):
+    # Positive cached privilege is revalidated before granting a privileged
+    # chat-local command. Negative cache entries remain useful against API
+    # amplification from members repeatedly invoking admin commands.
+    if await is_admin(
+        update,
+        context,
+        revalidate_cached_admin=True,
+    ):
         return True
 
     if update.effective_message:
@@ -1175,7 +1319,7 @@ async def gaps_command(
     for item in gaps:
         lines.append(
             f"{item['question_hash']} | x{item['seen_count']} | "
-            f"{item['sample_text'][:220]}"
+            f"{safe_display_text(item['sample_text'], 220)}"
         )
     await update.effective_message.reply_text("\n".join(lines)[:3900])
 
@@ -1195,10 +1339,32 @@ async def resolve_gap_command(
         )
         return
 
-    success = runtime(context).db.set_knowledge_gap_status(
-        context.args[0].strip(),
-        "resolved",
-    )
+    rt = runtime(context)
+    question_hash = context.args[0].strip()
+    with rt.db.transaction():
+        success = rt.db.set_knowledge_gap_status(
+            question_hash,
+            "resolved",
+        )
+        rt.db.record_action(
+            incident_id=None,
+            chat_id=(
+                update.effective_chat.id
+                if update.effective_chat
+                else None
+            ),
+            user_id=None,
+            action_type="knowledge_gap_resolve",
+            actor_type="operator",
+            actor_id=(
+                str(update.effective_user.id)
+                if update.effective_user
+                else None
+            ),
+            reason="manual_operator_command",
+            success=success,
+            metadata={"question_hash": question_hash[:128]},
+        )
     await update.effective_message.reply_text(
         "Lacuna marcada como resolvida."
         if success
@@ -1265,7 +1431,7 @@ async def incident_command(
 
     try:
         evidence = incident.get("evidence_json") or "{}"
-        evidence_text = str(evidence)[:900]
+        evidence_text = safe_display_text(evidence, 900)
     except Exception:
         evidence_text = "{}"
 
@@ -1284,7 +1450,7 @@ async def incident_command(
         f"Chat: {incident['chat_id']}\n"
         f"User: {incident['user_id']}\n"
         f"Created: {when}\n"
-        f"Note: {incident.get('note') or '-'}\n"
+        f"Note: {safe_display_text(incident.get('note') or '-', 500)}\n"
         f"Evidence: {evidence_text}"
     )
 
@@ -1384,7 +1550,7 @@ async def strikes_command(
         )
         lines.append(
             f"{item['id'][:8]} | {item['severity']} | "
-            f"{item['reason']} | exp={expires_text}"
+            f"{safe_display_text(item['reason'], 200)} | exp={expires_text}"
         )
     await update.effective_message.reply_text("\n".join(lines)[:3900])
 
@@ -1436,7 +1602,7 @@ async def user_command(
     await update.effective_message.reply_text(
         "ZION USER\n"
         f"ID: {target_id}\n"
-        f"Username: {user.get('username') or '-'}\n"
+        f"Username: {safe_display_text(user.get('username') or '-', 80)}\n"
         f"Messages observed: {user.get('message_count', 0)}\n"
         f"Active strikes: {summary['active_strikes']}\n"
         f"Incidents: {summary['incidents']}\n"
@@ -1568,7 +1734,31 @@ async def allow_domain_command(
         )
         return
 
-    runtime(context).db.set_domain(domain, "allow", "operator")
+    rt = runtime(context)
+    with rt.db.transaction():
+        rt.db.set_domain(domain, "allow", "operator")
+        rt.db.record_action(
+            incident_id=None,
+            chat_id=(
+                update.effective_chat.id
+                if update.effective_chat
+                else None
+            ),
+            user_id=None,
+            action_type="domain_policy_change",
+            actor_type="operator",
+            actor_id=(
+                str(update.effective_user.id)
+                if update.effective_user
+                else None
+            ),
+            reason="manual_operator_command",
+            success=True,
+            metadata={
+                "domain": domain,
+                "disposition": "allow",
+            },
+        )
     await update.effective_message.reply_text(
         f"Domínio permitido: {domain}"
     )
@@ -1596,7 +1786,31 @@ async def block_domain_command(
         )
         return
 
-    runtime(context).db.set_domain(domain, "block", "operator")
+    rt = runtime(context)
+    with rt.db.transaction():
+        rt.db.set_domain(domain, "block", "operator")
+        rt.db.record_action(
+            incident_id=None,
+            chat_id=(
+                update.effective_chat.id
+                if update.effective_chat
+                else None
+            ),
+            user_id=None,
+            action_type="domain_policy_change",
+            actor_type="operator",
+            actor_id=(
+                str(update.effective_user.id)
+                if update.effective_user
+                else None
+            ),
+            reason="manual_operator_command",
+            success=True,
+            metadata={
+                "domain": domain,
+                "disposition": "block",
+            },
+        )
     await update.effective_message.reply_text(
         f"Domínio bloqueado: {domain}"
     )
@@ -1681,33 +1895,38 @@ async def mute_command(
         )
         return
 
+    rt = runtime(context)
+    # Persist intent before the irreversible Telegram side effect. If this
+    # write fails, fail closed and do not mute. The outcome is recorded after
+    # Telegram returns; the incident remains evidence if that second write fails.
+    incident_id = rt.db.create_incident(
+        chat_id=update.effective_chat.id,
+        user_id=target.id,
+        category="manual_mute",
+        severity=Severity.MEDIUM,
+        source="admin",
+        evidence={
+            "duration_seconds": seconds,
+            "requested_by_user_id": update.effective_user.id,
+        },
+    )
     success = await mute_user_safe(
         context,
         update.effective_chat.id,
         target.id,
         seconds,
     )
-    rt = runtime(context)
-    with rt.db.transaction():
-        incident_id = rt.db.create_incident(
-            chat_id=update.effective_chat.id,
-            user_id=target.id,
-            category="manual_mute",
-            severity=Severity.MEDIUM,
-            source="admin",
-            evidence={"duration_seconds": seconds},
-        )
-        rt.db.record_action(
-            incident_id=incident_id,
-            chat_id=update.effective_chat.id,
-            user_id=target.id,
-            action_type="mute",
-            actor_type="admin",
-            actor_id=str(update.effective_user.id),
-            reason="manual_admin_command",
-            success=success,
-            metadata={"duration_seconds": seconds},
-        )
+    rt.db.record_action(
+        incident_id=incident_id,
+        chat_id=update.effective_chat.id,
+        user_id=target.id,
+        action_type="mute",
+        actor_type="admin",
+        actor_id=str(update.effective_user.id),
+        reason="manual_admin_command",
+        success=success,
+        metadata={"duration_seconds": seconds},
+    )
     await update.effective_message.reply_text(
         (
             f"🔇 {user_display_name(target)} silenciado por "
@@ -1739,30 +1958,32 @@ async def ban_command(
         )
         return
 
+    rt = runtime(context)
+    incident_id = rt.db.create_incident(
+        chat_id=update.effective_chat.id,
+        user_id=target.id,
+        category="manual_ban",
+        severity=Severity.HIGH,
+        source="admin",
+        evidence={
+            "requested_by_user_id": update.effective_user.id,
+        },
+    )
     success = await ban_user_safe(
         context,
         update.effective_chat.id,
         target.id,
     )
-    rt = runtime(context)
-    with rt.db.transaction():
-        incident_id = rt.db.create_incident(
-            chat_id=update.effective_chat.id,
-            user_id=target.id,
-            category="manual_ban",
-            severity=Severity.HIGH,
-            source="admin",
-        )
-        rt.db.record_action(
-            incident_id=incident_id,
-            chat_id=update.effective_chat.id,
-            user_id=target.id,
-            action_type="ban",
-            actor_type="admin",
-            actor_id=str(update.effective_user.id),
-            reason="manual_admin_command",
-            success=success,
-        )
+    rt.db.record_action(
+        incident_id=incident_id,
+        chat_id=update.effective_chat.id,
+        user_id=target.id,
+        action_type="ban",
+        actor_type="admin",
+        actor_id=str(update.effective_user.id),
+        reason="manual_admin_command",
+        success=success,
+    )
     await update.effective_message.reply_text(
         (
             f"⛔ {user_display_name(target)} foi banido."
@@ -1799,30 +2020,32 @@ async def unban_command(
         )
         return
 
+    rt = runtime(context)
+    incident_id = rt.db.create_incident(
+        chat_id=update.effective_chat.id,
+        user_id=target_id,
+        category="manual_unban",
+        severity=Severity.INFO,
+        source="admin",
+        evidence={
+            "requested_by_user_id": update.effective_user.id,
+        },
+    )
     success = await unban_user_safe(
         context,
         update.effective_chat.id,
         target_id,
     )
-    rt = runtime(context)
-    with rt.db.transaction():
-        incident_id = rt.db.create_incident(
-            chat_id=update.effective_chat.id,
-            user_id=target_id,
-            category="manual_unban",
-            severity=Severity.INFO,
-            source="admin",
-        )
-        rt.db.record_action(
-            incident_id=incident_id,
-            chat_id=update.effective_chat.id,
-            user_id=target_id,
-            action_type="unban",
-            actor_type="admin",
-            actor_id=str(update.effective_user.id),
-            reason="manual_admin_command",
-            success=success,
-        )
+    rt.db.record_action(
+        incident_id=incident_id,
+        chat_id=update.effective_chat.id,
+        user_id=target_id,
+        action_type="unban",
+        actor_type="admin",
+        actor_id=str(update.effective_user.id),
+        reason="manual_admin_command",
+        success=success,
+    )
     await update.effective_message.reply_text(
         (
             f"✅ Usuário {target_id} desbanido."
@@ -2421,7 +2644,7 @@ async def ama_open_command(
             metadata={"ama_id": ama_id},
         )
     await update.effective_message.reply_text(
-        f"🎙️ AMA aberto: {title[:200]}\n"
+        f"🎙️ AMA aberto: {safe_display_text(title, 200)}\n"
         "Envie perguntas com /ama <pergunta>. "
         "As perguntas ficam armazenadas temporariamente para organização do AMA."
     )
@@ -2497,14 +2720,14 @@ async def ama_list_command(
 
     questions = rt.db.list_ama_questions(str(active["id"]), limit=30)
     lines = [
-        f"🎙️ AMA: {active['title']}",
+        f"🎙️ AMA: {safe_display_text(active['title'], 200)}",
         f"ID: {str(active['id'])[:8]}",
         f"Perguntas: {len(questions)}",
     ]
     for item in questions:
         lines.append(
             f"{str(item['id'])[:8]} | user={item['user_id']} | "
-            f"{str(item['question'])[:220]}"
+            f"{safe_display_text(item['question'], 220)}"
         )
     await update.effective_message.reply_text(
         "\n".join(lines)[:3900]
@@ -2546,7 +2769,7 @@ async def ama_close_command(
         return
 
     await update.effective_message.reply_text(
-        f"🎙️ AMA encerrado: {closed['title']}"
+        f"🎙️ AMA encerrado: {safe_display_text(closed['title'], 200)}"
     )
 
 
@@ -2559,8 +2782,31 @@ async def reload_knowledge_command(
     if not update.effective_message:
         return
 
-    knowledge = runtime(context).knowledge
+    rt = runtime(context)
+    knowledge = rt.knowledge
     count = knowledge.reload()
+    rt.db.record_action(
+        incident_id=None,
+        chat_id=(
+            update.effective_chat.id
+            if update.effective_chat
+            else None
+        ),
+        user_id=None,
+        action_type="knowledge_reload",
+        actor_type="operator",
+        actor_id=(
+            str(update.effective_user.id)
+            if update.effective_user
+            else None
+        ),
+        reason="manual_operator_command",
+        success=not knowledge.load_errors,
+        metadata={
+            "chunks": count,
+            "load_error_count": len(knowledge.load_errors),
+        },
+    )
     await update.effective_message.reply_text(
         f"Knowledge base recarregada: {count} blocos | "
         f"errors={len(knowledge.load_errors)}."
@@ -2577,28 +2823,118 @@ async def welcome_handler(
     rt = runtime(context)
     record_update_lag(update, context)
     chat_id = update.effective_chat.id
+    members = [
+        member
+        for member in (
+            getattr(update.effective_message, "new_chat_members", None)
+            or []
+        )
+        if not getattr(member, "is_bot", False)
+    ]
+    if not members:
+        return
 
-    for member in update.effective_message.new_chat_members:
-        if member.is_bot:
-            continue
+    now = time.time()
+    update_id = getattr(update, "update_id", None)
+    raid_triggered = False
+    joins = 0
 
+    try:
         with rt.db.transaction():
-            rt.db.upsert_user(
-                chat_id=chat_id,
-                user_id=member.id,
-                username=member.username,
-                first_name=member.first_name,
-                language_code=member.language_code,
-            )
-            rt.db.record_user_event(
-                chat_id,
-                member.id,
-                "joined",
-            )
+            if update_id is not None:
+                claimed = rt.db.claim_idempotency_key(
+                    f"telegram_welcome:{int(update_id)}",
+                    ttl_seconds=(
+                        rt.settings.idempotency_retention_days * 86400
+                    ),
+                    now=now,
+                )
+                if not claimed:
+                    logger.warning(
+                        "Welcome update duplicado suprimido | update_id=%s",
+                        update_id,
+                    )
+                    return
 
-        await update.effective_message.reply_text(
-            f"⚡ Bem-vindo(a) / Welcome, "
-            f"{member.first_name or 'novo membro'}!\n\n"
+            for member in members:
+                rt.db.upsert_user(
+                    chat_id=chat_id,
+                    user_id=member.id,
+                    username=getattr(member, "username", None),
+                    first_name=getattr(member, "first_name", None),
+                    language_code=getattr(member, "language_code", None),
+                    now=now,
+                )
+                rt.db.record_user_event(
+                    chat_id,
+                    member.id,
+                    "joined",
+                    now=now,
+                )
+
+            # Count and state transition are part of the same local transaction
+            # as the join event. A crash after commit cannot leave the raid
+            # counter updated but the corresponding local state decision absent.
+            joins = rt.db.count_user_events(
+                chat_id=chat_id,
+                event_type="joined",
+                since=now - rt.settings.raid_window_seconds,
+            )
+            if (
+                joins >= rt.settings.raid_max_joins
+                and rt.db.get_operating_state() == OperatingState.NORMAL
+            ):
+                expires_at = now + rt.settings.raid_elevated_seconds
+                rt.db.set_operating_state(OperatingState.ELEVATED)
+                rt.db.set_setting(
+                    "operating_state_expires_at",
+                    str(expires_at),
+                )
+                incident_id = rt.db.create_incident(
+                    chat_id=chat_id,
+                    user_id=None,
+                    category="mass_join_detected",
+                    severity=Severity.HIGH,
+                    source="guardian",
+                    evidence={
+                        "joins": joins,
+                        "window_seconds": rt.settings.raid_window_seconds,
+                        "temporary_state": OperatingState.ELEVATED.value,
+                        "expires_at": expires_at,
+                    },
+                )
+                rt.db.record_action(
+                    incident_id=incident_id,
+                    chat_id=chat_id,
+                    user_id=None,
+                    action_type="state_change",
+                    actor_type="guardian",
+                    actor_id=None,
+                    reason="mass_join_detected",
+                    success=True,
+                    metadata={
+                        "state": OperatingState.ELEVATED.value,
+                        "expires_at": expires_at,
+                    },
+                )
+                raid_triggered = True
+    except Exception as exc:
+        logger.error(
+            "Falha ao persistir onboarding/raid counters: %s",
+            type(exc).__name__,
+        )
+        return
+
+    if len(members) == 1:
+        name = (
+            safe_display_text(
+                getattr(members[0], "first_name", None),
+                80,
+            )
+            or "novo membro"
+        )
+        welcome_text = (
+            f"⚡ Bem-vindo(a) / Welcome, {name}!\n\n"
             "PT-BR: Você entrou na comunidade Z-SWAP. "
             "Leia /rules, consulte /help e use /report para sinalizar problemas.\n"
             "EN: Welcome to the Z-SWAP community. "
@@ -2606,63 +2942,41 @@ async def welcome_handler(
             "🔐 Nunca compartilhe / Never share seed phrase, private key, "
             "password, token or API key."
         )
-
-    now = time.time()
-    joins = rt.db.count_user_events(
-        chat_id=chat_id,
-        event_type="joined",
-        since=now - rt.settings.raid_window_seconds,
-    )
-
-    if (
-        joins >= rt.settings.raid_max_joins
-        and rt.db.get_operating_state() == OperatingState.NORMAL
-    ):
-        expires_at = now + rt.settings.raid_elevated_seconds
-        with rt.db.transaction():
-            rt.db.set_operating_state(OperatingState.ELEVATED)
-            rt.db.set_setting(
-                "operating_state_expires_at",
-                str(expires_at),
-            )
-
-            incident_id = rt.db.create_incident(
-                chat_id=chat_id,
-                user_id=None,
-                category="mass_join_detected",
-                severity=Severity.HIGH,
-                source="guardian",
-                evidence={
-                    "joins": joins,
-                    "window_seconds": rt.settings.raid_window_seconds,
-                    "temporary_state": OperatingState.ELEVATED.value,
-                    "expires_at": expires_at,
-                },
-            )
-            rt.db.record_action(
-                incident_id=incident_id,
-                chat_id=chat_id,
-                user_id=None,
-                action_type="state_change",
-                actor_type="guardian",
-                actor_id=None,
-                reason="mass_join_detected",
-                success=True,
-                metadata={
-                    "state": OperatingState.ELEVATED.value,
-                    "expires_at": expires_at,
-                },
-            )
-
-        await context.bot.send_message(
-            chat_id=chat_id,
-            text=(
-                "🛡️ ZION: volume anormal de entradas detectado.\n"
-                "Estado ELEVATED ativado temporariamente.\n"
-                "O limite de flood foi endurecido; nenhuma punição "
-                "por IA foi habilitada."
-            ),
+    else:
+        welcome_text = (
+            f"⚡ {len(members)} novos membros / new members chegaram.\n\n"
+            "PT-BR: Bem-vindos à comunidade Z-SWAP. "
+            "Leiam /rules e /help.\n"
+            "EN: Welcome to the Z-SWAP community. "
+            "Read /rules and /help.\n\n"
+            "🔐 Nunca compartilhe / Never share seed phrase, private key, "
+            "password, token or API key."
         )
+
+    try:
+        await update.effective_message.reply_text(welcome_text)
+    except Exception as exc:
+        logger.warning(
+            "Falha ao enviar onboarding: %s",
+            type(exc).__name__,
+        )
+
+    if raid_triggered:
+        try:
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=(
+                    "🛡️ ZION: volume anormal de entradas detectado.\n"
+                    "Estado ELEVATED ativado temporariamente.\n"
+                    "O limite de flood foi endurecido; nenhuma punição "
+                    "por IA foi habilitada."
+                ),
+            )
+        except Exception as exc:
+            logger.warning(
+                "Falha ao publicar alerta de mass join: %s",
+                type(exc).__name__,
+            )
 
 
 async def _observe_with_ai(
@@ -2762,27 +3076,29 @@ async def _enforce_flood(
         if await delete_message_safe(context, chat.id, message_id):
             deleted_count += 1
 
-    incident_id = rt.db.create_incident(
-        chat_id=chat.id,
-        user_id=user.id,
-        category="flood",
-        severity=(
-            Severity.HIGH
-            if flood.should_ban
-            else Severity.MEDIUM
-        ),
-        source="guardian",
-        evidence={
-            "strike_count": flood.strike_count,
-            "tracked_messages": len(flood.message_ids),
-            "deleted_messages": deleted_count,
-        },
-    )
+    incident_id = flood.incident_id
+    if not incident_id:
+        # Backward-compatible fallback for callers/tests that construct a
+        # FloodDecision directly instead of using Guardian.record_message().
+        incident_id = rt.db.create_incident(
+            chat_id=chat.id,
+            user_id=user.id,
+            category="flood",
+            severity=(
+                Severity.HIGH
+                if flood.should_ban
+                else Severity.MEDIUM
+            ),
+            source="guardian",
+            evidence={
+                "strike_count": flood.strike_count,
+                "tracked_messages": len(flood.message_ids),
+                "planned_action": "ban" if flood.should_ban else "mute",
+            },
+        )
 
     if flood.should_ban:
         success = await ban_user_safe(context, chat.id, user.id)
-        if success:
-            rt.db.clear_containment(chat.id, user.id)
         action_type = "ban"
     else:
         success = await mute_user_safe(
@@ -2805,10 +3121,14 @@ async def _enforce_flood(
         metadata={
             "strike_count": flood.strike_count,
             "duration_seconds": flood.mute_seconds,
+            "deleted_messages": deleted_count,
         },
     )
 
     if flood.should_ban and success:
+        # Outcome is durably recorded before local cleanup. A DB failure in
+        # cleanup therefore cannot erase evidence of a successful external ban.
+        rt.db.clear_containment(chat.id, user.id)
         action_text = "banido por reincidência objetiva de flood."
     elif flood.should_ban:
         # Se o ban falhar, aplicamos contenção/mute como fallback
@@ -2849,6 +3169,8 @@ async def _enforce_flood(
     else:
         action_text = (
             f"silenciado por {format_duration(flood.mute_seconds)}."
+            if success
+            else "mute falhou; contenção local mantida."
         )
 
     try:
@@ -2870,6 +3192,39 @@ async def command_idempotency_guard_handler(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
 ) -> None:
+    # Secret deletion must precede the durable command claim. Otherwise a
+    # crash after claiming but before the next handler group could suppress
+    # Telegram redelivery while leaving a credential visible.
+    message = update.effective_message
+    if message is not None:
+        visible = message.text or message.caption or ""
+        sensitive_surface = telegram_sensitive_surface(
+            message,
+            visible,
+        )
+        if await protect_credential_exposure(
+            update,
+            context,
+            sensitive_surface,
+            source="guardian_command_idempotency_preflight",
+            notice_text=(
+                "🚨 ZION bloqueou um comando que aparentava conter "
+                "uma credencial. O conteúdo não foi processado."
+            ),
+        ):
+            raise ApplicationHandlerStop
+        if await protect_wallet_secret(
+            update,
+            context,
+            sensitive_surface,
+            source="guardian_command_idempotency_preflight",
+            notice_text=(
+                "🚨 ZION bloqueou um comando que aparentava conter "
+                "segredo de carteira. O conteúdo não foi processado."
+            ),
+        ):
+            raise ApplicationHandlerStop
+
     update_id = getattr(update, "update_id", None)
     if update_id is None:
         return
@@ -2897,7 +3252,6 @@ async def command_idempotency_guard_handler(
         )
         raise ApplicationHandlerStop
 
-
 async def command_guard_handler(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
@@ -2919,10 +3273,11 @@ async def command_guard_handler(
     record_user(update, context, increment_messages=True)
 
     text = message.text or message.caption or ""
+    sensitive_surface = telegram_sensitive_surface(message, text)
     if await protect_credential_exposure(
         update,
         context,
-        text,
+        sensitive_surface,
         source="guardian_command_preflight",
         notice_text=(
             "🚨 ZION bloqueou um comando que aparentava conter "
@@ -2934,7 +3289,7 @@ async def command_guard_handler(
     if await protect_wallet_secret(
         update,
         context,
-        text,
+        sensitive_surface,
         source="guardian_command_preflight",
         notice_text=(
             "🚨 ZION bloqueou um comando que aparentava conter "
@@ -2943,7 +3298,17 @@ async def command_guard_handler(
     ):
         raise ApplicationHandlerStop
 
-    if await is_admin(update, context):
+    # Flood, containment, lockdown deletion and domain policy are community
+    # chat controls. Private support commands keep universal secret protection
+    # above, then proceed to their own command authorization/AI boundaries.
+    if chat.type == "private":
+        return
+
+    if await is_admin(
+        update,
+        context,
+        revalidate_cached_admin=True,
+    ):
         return
 
     if rt.db.get_operating_state() == OperatingState.LOCKDOWN:
@@ -2987,9 +3352,13 @@ async def command_guard_handler(
         await _enforce_flood(update, context, flood)
         raise ApplicationHandlerStop
 
+    entity_domains, unsupported_schemes = (
+        telegram_entity_link_evidence(message)
+    )
     links = rt.guardian.evaluate_links(
         text,
-        extra_domains=telegram_entity_domains(message),
+        extra_domains=entity_domains,
+        unsupported_schemes=unsupported_schemes,
     )
     if links.should_delete:
         deleted = await delete_message_safe(
@@ -3002,10 +3371,14 @@ async def command_guard_handler(
                 chat_id=chat.id,
                 user_id=user.id,
                 category="unauthorized_link",
-                severity=Severity.LOW,
+                severity=link_incident_severity(
+                    links.unauthorized_domains,
+                    links.unsupported_schemes,
+                ),
                 source="guardian_command_preflight",
                 evidence={
                     "domains": links.unauthorized_domains,
+                    "unsupported_schemes": links.unsupported_schemes,
                     "message_id": message.message_id,
                 },
             )
@@ -3018,7 +3391,10 @@ async def command_guard_handler(
                 actor_id=None,
                 reason="unauthorized_link",
                 success=deleted,
-                metadata={"domains": links.unauthorized_domains},
+                metadata={
+                    "domains": links.unauthorized_domains,
+                    "unsupported_schemes": links.unsupported_schemes,
+                },
             )
         raise ApplicationHandlerStop
 
@@ -3045,10 +3421,11 @@ async def moderation_handler(
     # Segredos são protegidos para TODOS, inclusive administradores.
     # Admin não deve perder esta camada por causa da isenção de moderação.
     text = message.text or message.caption or ""
+    sensitive_surface = telegram_sensitive_surface(message, text)
     if await protect_credential_exposure(
         update,
         context,
-        text,
+        sensitive_surface,
         source="guardian",
         notice_text=(
             f"🚨 {user_display_name(user)}: mensagem removida por "
@@ -3061,7 +3438,7 @@ async def moderation_handler(
     if await protect_wallet_secret(
         update,
         context,
-        text,
+        sensitive_surface,
         source="guardian",
         notice_text=(
             f"🚨 {user_display_name(user)}: mensagem removida por "
@@ -3070,6 +3447,34 @@ async def moderation_handler(
         ),
     ):
         return
+
+    # Ordinary private-chat messages are outside group moderation. Universal
+    # secret/credential protection still runs before this boundary.
+    if chat.type == "private":
+        return
+
+    update_id = getattr(update, "update_id", None)
+    if update_id is not None:
+        try:
+            claimed = rt.db.claim_idempotency_key(
+                f"telegram_moderation:{int(update_id)}",
+                ttl_seconds=(
+                    rt.settings.idempotency_retention_days * 86400
+                ),
+            )
+        except Exception as exc:
+            logger.error(
+                "Falha no gate de idempotência da moderação: %s",
+                type(exc).__name__,
+            )
+            return
+
+        if not claimed:
+            logger.warning(
+                "Update de moderação duplicado suprimido | update_id=%s",
+                update_id,
+            )
+            return
 
     admin = await is_admin(update, context)
 
@@ -3131,9 +3536,13 @@ async def moderation_handler(
         await _enforce_flood(update, context, flood)
         return
 
+    entity_domains, unsupported_schemes = (
+        telegram_entity_link_evidence(message)
+    )
     links = rt.guardian.evaluate_links(
         text,
-        extra_domains=telegram_entity_domains(message),
+        extra_domains=entity_domains,
+        unsupported_schemes=unsupported_schemes,
     )
     if links.should_delete:
         deleted = await delete_message_safe(
@@ -3146,10 +3555,14 @@ async def moderation_handler(
                 chat_id=chat.id,
                 user_id=user.id,
                 category="unauthorized_link",
-                severity=Severity.LOW,
+                severity=link_incident_severity(
+                    links.unauthorized_domains,
+                    links.unsupported_schemes,
+                ),
                 source="guardian",
                 evidence={
                     "domains": links.unauthorized_domains,
+                    "unsupported_schemes": links.unsupported_schemes,
                     "message_id": message.message_id,
                 },
             )
@@ -3162,7 +3575,10 @@ async def moderation_handler(
                 actor_id=None,
                 reason="unauthorized_link",
                 success=deleted,
-                metadata={"domains": links.unauthorized_domains},
+                metadata={
+                    "domains": links.unauthorized_domains,
+                    "unsupported_schemes": links.unsupported_schemes,
+                },
             )
         try:
             await context.bot.send_message(
@@ -3885,8 +4301,9 @@ def build_application(settings: Settings | None = None) -> Application:
         "reloadkb": reload_knowledge_command,
     }
 
-    # Group -2 persists Telegram update IDs before any command side effect.
-    # Re-delivered command updates are at-most-once across restarts.
+    # Group -2 protects secrets before persisting Telegram update IDs.
+    # Functional command side effects remain at-most-once across restarts;
+    # secret deletion is deliberately retriable across a pre-claim crash.
     app.add_handler(
         MessageHandler(
             filters.COMMAND,

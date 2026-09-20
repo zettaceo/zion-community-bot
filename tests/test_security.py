@@ -137,6 +137,63 @@ class SecurityTests(unittest.TestCase):
             )
         )
 
+
+    def test_private_key_block_is_high_confidence_and_redacted(self) -> None:
+        begin = "-----BEGIN " + "OPENSSH PRIVATE" + " KEY-----"
+        end = "-----END " + "OPENSSH PRIVATE" + " KEY-----"
+        value = (
+            begin + "\n"
+            "example-private-material-not-real\n"
+            + end
+        )
+        self.assertTrue(contains_high_confidence_credential(value))
+        redacted = redact_secrets(value)
+        self.assertNotIn("example-private-material-not-real", redacted)
+        self.assertIn("[REDACTED_PRIVATE_KEY]", redacted)
+
+    def test_basic_auth_url_is_detected_and_redacted(self) -> None:
+        value = "https://alice:super-secret-password@example.com/path"
+        self.assertTrue(
+            contains_high_confidence_credential(value)
+        )
+        redacted = redact_secrets(value)
+        self.assertNotIn("super-secret-password", redacted)
+        self.assertIn("alice:[REDACTED]@", redacted)
+
+    def test_zero_width_obfuscated_api_key_is_detected(self) -> None:
+        value = (
+            "api\u200b key: "
+            "example-secret-value-123456"
+        )
+        self.assertTrue(
+            contains_high_confidence_credential(value)
+        )
+        redacted = redact_secrets(value)
+        self.assertNotIn(
+            "example-secret-value-123456",
+            redacted,
+        )
+
+    def test_access_token_label_is_high_confidence(self) -> None:
+        self.assertTrue(
+            contains_high_confidence_credential(
+                "access token: example-access-token-123456"
+            )
+        )
+
+    def test_fullwidth_credential_label_is_normalized(self) -> None:
+        value = (
+            "ＡＰＩ ｋｅｙ： "
+            "example-secret-value-123456"
+        )
+        self.assertTrue(
+            contains_high_confidence_credential(value)
+        )
+        self.assertNotIn(
+            "example-secret-value-123456",
+            redact_secrets(value),
+        )
+
     def test_environment_secret_redacted(self) -> None:
         with patch.dict(
             os.environ,

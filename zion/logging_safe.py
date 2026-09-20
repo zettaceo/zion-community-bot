@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+import unicodedata
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
@@ -26,9 +27,15 @@ BEARER_REGEX = re.compile(
     r"(?i)(authorization\s*[:=]\s*bearer\s+)([^\s,;]+)"
 )
 
+BASIC_AUTH_URL_REGEX = re.compile(
+    r"(?i)([a-z][a-z0-9+.-]*://[^/\s:@]+:)([^@\s/]+)(@)"
+)
+
 LABELED_CREDENTIAL_REGEX = re.compile(
     r"(?is)\b("
-    r"api[ _-]?key|client[ _-]?secret|password|passwd|"
+    r"api[ _-]?key|client[ _-]?secret|secret[ _-]?key|"
+    r"access[ _-]?token|refresh[ _-]?token|auth[ _-]?token|"
+    r"webhook[ _-]?secret|password|passwd|"
     r"telegram[ _-]?bot[ _-]?token|bot[ _-]?token"
     r")\b\s*[:=]\s*([^\s,;]{8,})"
 )
@@ -39,6 +46,29 @@ SECRET_PARAMETER_REGEX = re.compile(
     r"access[_-]?key|client[_-]?secret)=)"
     r"([^&\s]+)"
 )
+
+PRIVATE_KEY_BLOCK_REGEX = re.compile(
+    r"(?is)-----BEGIN [A-Z0-9 -]*PRIVATE KEY-----"
+    r".*?"
+    r"-----END [A-Z0-9 -]*PRIVATE KEY-----"
+)
+
+INVISIBLE_SECURITY_CODEPOINTS = {
+    0x200B,
+    0x200C,
+    0x200D,
+    0x2060,
+    0xFEFF,
+}
+
+
+def _normalize_security_text(value: object) -> str:
+    text = unicodedata.normalize("NFKC", str(value))
+    return "".join(
+        char
+        for char in text
+        if ord(char) not in INVISIBLE_SECURITY_CODEPOINTS
+    )
 
 
 def _sensitive_values() -> list[str]:
@@ -53,18 +83,22 @@ def _sensitive_values() -> list[str]:
 
 
 def contains_high_confidence_credential(value: object) -> bool:
-    text = str(value)
+    text = _normalize_security_text(value)
     if TELEGRAM_TOKEN_REGEX.search(text):
         return True
     if BEARER_REGEX.search(text):
         return True
+    if BASIC_AUTH_URL_REGEX.search(text):
+        return True
     if LABELED_CREDENTIAL_REGEX.search(text):
+        return True
+    if PRIVATE_KEY_BLOCK_REGEX.search(text):
         return True
     return any(secret in text for secret in _sensitive_values())
 
 
 def redact_secrets(value: object) -> str:
-    text = str(value)
+    text = _normalize_security_text(value)
 
     for secret in _sensitive_values():
         text = text.replace(secret, "[REDACTED]")
@@ -74,12 +108,20 @@ def redact_secrets(value: object) -> str:
         text,
     )
     text = BEARER_REGEX.sub(r"\1[REDACTED]", text)
+    text = BASIC_AUTH_URL_REGEX.sub(
+        r"\1[REDACTED]\3",
+        text,
+    )
     text = LABELED_CREDENTIAL_REGEX.sub(
         lambda match: f"{match.group(1)}=[REDACTED]",
         text,
     )
     text = SECRET_PARAMETER_REGEX.sub(
         r"\1[REDACTED]",
+        text,
+    )
+    text = PRIVATE_KEY_BLOCK_REGEX.sub(
+        "[REDACTED_PRIVATE_KEY]",
         text,
     )
     return text
