@@ -137,16 +137,27 @@ fi
 
 echo
 echo "[4/7] ZION sshd hardening"
-if [[ ! -f "$SSHD_DROPIN" || -L "$SSHD_DROPIN" ]]; then
-  fail "$SSHD_DROPIN not installed as a regular file"
+if ! is_regular_single_link "$SSHD_DROPIN"; then
+  fail "$SSHD_DROPIN missing, symlinked or hard-linked"
 else
-  pass "ZION sshd drop-in installed"
+  dropin_mode="$(mode_of "$SSHD_DROPIN")"
+  dropin_owner="$(owner_of "$SSHD_DROPIN")"
+  [[ "$dropin_mode" == "644" ]] \
+    && pass "ZION sshd drop-in mode=644" \
+    || fail "ZION sshd drop-in mode=$dropin_mode (expected 644)"
+  [[ "$dropin_owner" == "root" ]] \
+    && pass "ZION sshd drop-in owner=root" \
+    || fail "ZION sshd drop-in owner=$dropin_owner (expected root)"
 fi
 
 if command -v sshd >/dev/null 2>&1; then
   effective="$(sshd -T 2>/dev/null || true)"
+  if [[ -z "$effective" ]] && command -v sudo >/dev/null 2>&1; then
+    effective="$(sudo -n "$(command -v sshd)" -T 2>/dev/null || true)"
+  fi
+
   if [[ -z "$effective" ]]; then
-    warn "effective sshd configuration could not be read without elevation"
+    fail "effective sshd configuration could not be proven; run sudo -v and retry"
   else
     declare -a required=(
       "passwordauthentication no"
@@ -155,12 +166,18 @@ if command -v sshd >/dev/null 2>&1; then
       "pubkeyauthentication yes"
       "authenticationmethods publickey"
       "permitemptypasswords no"
+      "strictmodes yes"
       "allowtcpforwarding no"
+      "allowstreamlocalforwarding no"
       "allowagentforwarding no"
       "x11forwarding no"
       "gatewayports no"
       "permittunnel no"
       "permituserenvironment no"
+      "maxauthtries 3"
+      "maxsessions 4"
+      "logingracetime 30"
+      "loglevel VERBOSE"
     )
     for item in "${required[@]}"; do
       if grep -Fqx "$item" <<<"$effective"; then
@@ -170,10 +187,16 @@ if command -v sshd >/dev/null 2>&1; then
       fi
     done
 
+    if grep -Eq "^authorizedkeysfile .*\.ssh/authorized_keys( |$)" <<<"$effective"; then
+      pass "sshd AuthorizedKeysFile includes .ssh/authorized_keys"
+    else
+      fail "effective sshd AuthorizedKeysFile does not include .ssh/authorized_keys"
+    fi
+
     if grep -Eq "^allowusers( .*)? $EXPECTED_USER( |$)|^allowusers $EXPECTED_USER$" <<<"$effective"; then
       pass "sshd AllowUsers includes $EXPECTED_USER"
     else
-      warn "effective AllowUsers could not be proven for $EXPECTED_USER"
+      fail "effective AllowUsers does not prove access for $EXPECTED_USER"
     fi
   fi
 fi
@@ -186,10 +209,10 @@ if [[ -r "$host_pub" ]] && command -v ssh-keygen >/dev/null 2>&1; then
   if [[ -n "$fingerprint" ]]; then
     pass "ED25519 host fingerprint available for out-of-band verification: $fingerprint"
   else
-    warn "could not calculate ED25519 host fingerprint"
+    fail "could not calculate ED25519 host fingerprint"
   fi
 else
-  warn "ED25519 host public key/fingerprint unavailable"
+  fail "ED25519 host public key/fingerprint unavailable"
 fi
 
 echo
