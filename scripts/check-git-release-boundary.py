@@ -3,7 +3,24 @@ from __future__ import annotations
 import argparse
 import os
 import subprocess
-from pathlib import Path
+from pathlib import Path, PurePosixPath
+
+
+SAFE_IGNORED_TOP_LEVEL = frozenset(
+    {
+        ".venv",
+        "venv",
+        "env",
+        "logs",
+        "backups",
+        ".pytest_cache",
+        ".mypy_cache",
+        "htmlcov",
+        ".vscode",
+        ".idea",
+    }
+)
+IMPORTABLE_CODE_SUFFIXES = (".py", ".pyc", ".pyo", ".pyd", ".so")
 
 
 def git(
@@ -46,7 +63,12 @@ def reject_git_environment() -> None:
         "GIT_NAMESPACE",
         "GIT_SSH",
         "GIT_SSH_COMMAND",
+        "GIT_ASKPASS",
+        "GIT_PROXY_COMMAND",
+        "GIT_EXEC_PATH",
         "GIT_SSL_NO_VERIFY",
+        "GIT_SSL_CAINFO",
+        "GIT_SSL_CAPATH",
     )
     present = {
         name
@@ -72,6 +94,101 @@ def reject_git_environment() -> None:
         )
 
 
+def git_path(root: Path, relative: str) -> Path:
+    path = Path(git(root, "rev-parse", "--git-path", relative))
+    if not path.is_absolute():
+        path = root / path
+    return path
+
+
+def active_metadata_rules(path: Path) -> list[str]:
+    if not path.exists():
+        return []
+    if path.is_symlink() or not path.is_file():
+        raise RuntimeError(
+            f"Git metadata path must be a regular file: {path}"
+        )
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeError) as exc:
+        raise RuntimeError(
+            f"Git metadata file could not be read safely: {path}"
+        ) from exc
+    return [
+        line
+        for line in lines
+        if line.strip() and not line.lstrip().startswith("#")
+    ]
+
+
+def reject_local_ignore_and_attribute_overrides(root: Path) -> None:
+    excludes = git_path(root, "info/exclude")
+    if active_metadata_rules(excludes):
+        raise RuntimeError(
+            "local Git exclude rules are not allowed for release"
+        )
+
+    attributes = git_path(root, "info/attributes")
+    if active_metadata_rules(attributes):
+        raise RuntimeError(
+            "local Git attribute rules are not allowed for release"
+        )
+
+    forbidden_config = (
+        ("core.excludesFile", "core.excludesFile"),
+        ("core.attributesFile", "core.attributesFile"),
+        ("core.fsmonitor", "core.fsmonitor"),
+        ("core.sshCommand", "core.sshCommand"),
+        ("core.worktree", "core.worktree"),
+    )
+    for key, label in forbidden_config:
+        configured = git(
+            root,
+            "config",
+            "--show-origin",
+            "--get-all",
+            key,
+            allow_no_match=True,
+        )
+        if configured:
+            raise RuntimeError(
+                f"{label} is configured; release requires a neutral Git boundary"
+            )
+
+
+def reject_ignored_importable_code(root: Path) -> None:
+    ignored = git(
+        root,
+        "ls-files",
+        "--others",
+        "--ignored",
+        "--exclude-standard",
+        "-z",
+        allow_no_match=True,
+    )
+    suspicious: list[str] = []
+    for raw in ignored.split("\0"):
+        if not raw:
+            continue
+        path = PurePosixPath(raw)
+        if not path.parts:
+            continue
+        if path.parts[0] in SAFE_IGNORED_TOP_LEVEL:
+            continue
+        lowered = raw.lower()
+        if lowered.endswith(IMPORTABLE_CODE_SUFFIXES):
+            suspicious.append(raw)
+
+    if suspicious:
+        preview = ",".join(sorted(suspicious)[:12])
+        if len(suspicious) > 12:
+            preview += f",...(+{len(suspicious) - 12})"
+        raise RuntimeError(
+            "ignored untracked importable code is not allowed for release: "
+            + preview
+        )
+
+
 def validate(root: Path) -> None:
     reject_git_environment()
 
@@ -94,6 +211,8 @@ def validate(root: Path) -> None:
         raise RuntimeError(
             "core.hooksPath is configured; release requires default hooks boundary"
         )
+
+    reject_local_ignore_and_attribute_overrides(root)
 
     url_rewrites = git(
         root,
@@ -121,12 +240,7 @@ def validate(root: Path) -> None:
             "remote.origin.uploadpack override is not allowed for release"
         )
 
-    default_hooks = Path(
-        git(root, "rev-parse", "--git-path", "hooks")
-    )
-    if not default_hooks.is_absolute():
-        default_hooks = root / default_hooks
-
+    default_hooks = git_path(root, "hooks")
     if default_hooks.exists():
         active = sorted(
             item.name
@@ -149,11 +263,7 @@ def validate(root: Path) -> None:
             "Git replace refs are not allowed for release"
         )
 
-    grafts = Path(
-        git(root, "rev-parse", "--git-path", "info/grafts")
-    )
-    if not grafts.is_absolute():
-        grafts = root / grafts
+    grafts = git_path(root, "info/grafts")
     if grafts.is_file() and grafts.stat().st_size > 0:
         raise RuntimeError(
             "Git grafts are not allowed for release"
@@ -165,9 +275,12 @@ def validate(root: Path) -> None:
             "production release repository must not be shallow"
         )
 
+    reject_ignored_importable_code(root)
+
     print(
         "git release boundary: OK | "
-        "hooks=none replace_refs=none grafts=none shallow=false"
+        "hooks=none replace_refs=none grafts=none shallow=false "
+        "local_ignores=none ignored_importable_code=none"
     )
 
 
