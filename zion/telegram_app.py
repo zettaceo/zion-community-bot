@@ -941,12 +941,20 @@ async def diagnostics_command(
     latency = diag["ai_latency_24h"]
     pragmas = diag["sqlite_pragmas"]
 
-    disk_state = "LOW" if diag["disk_low"] else "OK"
-    lag_state = (
-        "WARNING"
-        if p95_lag > rt.settings.update_lag_warn_seconds
-        else "OK"
-    )
+    if not diag["disk_usage_ok"]:
+        disk_state = "UNAVAILABLE"
+    else:
+        disk_state = "LOW" if diag["disk_low"] else "OK"
+
+    lag_count = len(rt.update_lags)
+    if not lag_count:
+        lag_state = "NO-SAMPLES"
+    else:
+        lag_state = (
+            "WARNING"
+            if p95_lag > rt.settings.update_lag_warn_seconds
+            else "OK"
+        )
     pragma_state = "OK" if diag["sqlite_pragmas_ok"] else "WARNING"
     pragma_issues = (
         ",".join(diag["sqlite_pragma_issues"])
@@ -978,7 +986,8 @@ async def diagnostics_command(
         f"{'OK' if diag['sqlite_integrity_ok'] else 'FAIL'}\n"
         f"Runtime lock: "
         f"{'HELD' if rt.process_lock.acquired else 'MISSING'}\n"
-        f"SQLite schema: v{diag['schema_version']}\n"
+        f"SQLite schema: v{diag['schema_version']} "
+        f"[{'OK' if diag['schema_version_read_ok'] else 'UNAVAILABLE'}]\n"
         f"SQLite PRAGMAs: {pragma_state} ({pragma_issues})\n"
         f"SQLite application_id: "
         f"{pragmas['application_id']} "
@@ -1006,11 +1015,13 @@ async def diagnostics_command(
         f"{'PRIVATE' if diag['sensitive_files_private'] else 'WARNING'}\n"
         f"Wi-Fi interface: "
         f"{'PRESENT' if diag['wifi_interface_present'] else 'MISSING'}\n"
-        f"Telegram update lag latest/p95(100): "
-        f"{latest_lag:.2f}s/{p95_lag:.2f}s [{lag_state}]\n"
+        f"Telegram update lag latest/p95/n: "
+        f"{latest_lag:.2f}s/{p95_lag:.2f}s/{lag_count} "
+        f"[{lag_state}]\n"
         f"AI latency 24h avg/p95: "
         f"{latency['avg_ms']}ms/{latency['p95_ms']}ms "
-        f"(n={latency['count']})\n"
+        f"(n={latency['count']}) "
+        f"[{'OK' if diag['ai_latency_read_ok'] else 'UNAVAILABLE'}]\n"
         f"AI enabled/provider ready: "
         f"{rt.settings.ai_enabled}/{rt.ai.enabled}\n"
         f"AI accounting: "
@@ -3765,6 +3776,8 @@ async def operational_alert_cycle(
     if not diagnostics.get("sqlite_foreign_keys_ok", False):
         issues.append("sqlite_foreign_key_violation")
 
+    if not diagnostics.get("schema_version_read_ok", False):
+        issues.append("sqlite_schema_version_unavailable")
     if not diagnostics.get("sqlite_pragma_read_ok", False):
         issues.append("sqlite_pragmas_unavailable")
     else:
@@ -3826,7 +3839,11 @@ async def operational_alert_cycle(
         issues.append("sqlite_database_large")
     if diagnostics.get("wal_large"):
         issues.append("sqlite_wal_large")
-    if snapshot.details.get("disk_low"):
+    if not diagnostics.get("ai_latency_read_ok", False):
+        issues.append("ai_latency_telemetry_unavailable")
+    if not diagnostics.get("disk_usage_ok", False):
+        issues.append("disk_usage_unavailable")
+    elif snapshot.details.get("disk_low"):
         issues.append("disk_low")
     if not snapshot.details.get("sensitive_files_private"):
         issues.append("sensitive_file_permissions")
