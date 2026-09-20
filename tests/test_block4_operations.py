@@ -495,6 +495,12 @@ class Block4OperationsTests(unittest.TestCase):
                     "sqlite_application_id_mismatch",
                     rt.delivery_health_block_reasons,
                 )
+                incidents = [
+                    item
+                    for item in rt.db.list_incidents(limit=20)
+                    if item["category"] == "operational_health_warning"
+                ]
+                self.assertEqual(incidents[0]["severity"], "HIGH")
 
                 rt.db.runtime_pragmas = original
                 asyncio.run(operational_alert_cycle(app, rt))
