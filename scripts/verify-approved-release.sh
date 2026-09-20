@@ -30,6 +30,7 @@ if [[ ! -x "$SYSTEM_PYTHON" ]]; then
 fi
 "$SYSTEM_PYTHON" -I "$SCRIPT_ROOT/scripts/check-git-release-boundary.py" \
   --root "$ROOT"
+"$SYSTEM_PYTHON" -I "$SCRIPT_ROOT/scripts/check-python-release-env.py"
 if [[ "${ZION_GITHUB_GATES_PROVEN:-}" != "YES" ]]; then
   echo "ERRO: confirme os gates GitHub antes de verificar release aprovado." >&2
   exit 2
