@@ -148,6 +148,7 @@ class Runtime:
             self.health_alert_last_sent_at = 0.0
             self.health_alert_persistence_dirty = False
             self.health_incident_signature: str | None = None
+            self.health_incident_id: str | None = None
             self.housekeeping_last_error: str | None = None
             self.wal_checkpoint_last_error: str | None = None
             self.state_maintenance_last_error: str | None = None
@@ -4037,6 +4038,60 @@ async def operational_alert_cycle(
     rt.health_alert_signature = previous
     rt.health_alert_last_sent_at = last_sent_at
 
+    incident_id: str | None = None
+    if not issues:
+        # A future recurrence after health has cleared is a new incident,
+        # regardless of whether the recovery notification is delivered.
+        rt.health_incident_signature = None
+        rt.health_incident_id = None
+    elif signature == rt.health_incident_signature:
+        incident_id = rt.health_incident_id
+    else:
+        # Incident persistence is independent from Telegram-notification
+        # deduplication. If this write fails, retry it on the next health
+        # check even when an operator already received the alert.
+        try:
+            incident_id = rt.db.create_incident(
+                chat_id=None,
+                user_id=None,
+                category="operational_health_warning",
+                severity=(
+                    Severity.HIGH
+                    if not snapshot.db_ok
+                    or "sqlite_pragmas_unavailable" in issues
+                    or "housekeeping_failed" in issues
+                    or "delivery_safety_preflight_failed" in issues
+                    else Severity.MEDIUM
+                ),
+                source="health",
+                evidence={
+                    "issues": issues,
+                    "disk_free_mb": snapshot.disk_free_mb,
+                    "telegram_update_lag_p95": round(p95_lag, 3),
+                    "repeat_interval_seconds": (
+                        rt.settings.health_alert_repeat_seconds
+                    ),
+                    "housekeeping_error_type": rt.housekeeping_last_error,
+                    "wal_checkpoint_error_type": rt.wal_checkpoint_last_error,
+                    "state_maintenance_error_type": (
+                        rt.state_maintenance_last_error
+                    ),
+                    "delivery_guard_error_type": (
+                        rt.delivery_guard_last_error
+                    ),
+                },
+                note=(
+                    "Operational alert; no automated destructive action executed."
+                ),
+            )
+            rt.health_incident_signature = signature
+            rt.health_incident_id = incident_id
+        except Exception as exc:
+            logger.warning(
+                "Falha ao persistir incidente operacional: %s",
+                type(exc).__name__,
+            )
+
     if signature == previous:
         if signature == "OK":
             return
@@ -4047,10 +4102,6 @@ async def operational_alert_cycle(
             return
 
     if not issues:
-        # A future recurrence after health has cleared is a new incident,
-        # regardless of whether the recovery notification is delivered.
-        rt.health_incident_signature = None
-
         if not previous or previous == "OK":
             return
 
@@ -4111,49 +4162,6 @@ async def operational_alert_cycle(
         rt.health_alert_signature = "OK"
         rt.health_alert_last_sent_at = 0.0
         return
-
-    incident_id: str | None = None
-    if signature != rt.health_incident_signature:
-        try:
-            incident_id = rt.db.create_incident(
-                chat_id=None,
-                user_id=None,
-                category="operational_health_warning",
-                severity=(
-                    Severity.HIGH
-                    if not snapshot.db_ok
-                    or "sqlite_pragmas_unavailable" in issues
-                    or "housekeeping_failed" in issues
-                    or "delivery_safety_preflight_failed" in issues
-                    else Severity.MEDIUM
-                ),
-                source="health",
-                evidence={
-                    "issues": issues,
-                    "disk_free_mb": snapshot.disk_free_mb,
-                    "telegram_update_lag_p95": round(p95_lag, 3),
-                    "repeat_interval_seconds": (
-                        rt.settings.health_alert_repeat_seconds
-                    ),
-                    "housekeeping_error_type": rt.housekeeping_last_error,
-                    "wal_checkpoint_error_type": rt.wal_checkpoint_last_error,
-                    "state_maintenance_error_type": (
-                        rt.state_maintenance_last_error
-                    ),
-                    "delivery_guard_error_type": (
-                        rt.delivery_guard_last_error
-                    ),
-                },
-                note=(
-                    "Operational alert; no automated destructive action executed."
-                ),
-            )
-            rt.health_incident_signature = signature
-        except Exception as exc:
-            logger.warning(
-                "Falha ao persistir incidente operacional: %s",
-                type(exc).__name__,
-            )
 
     alert_text = (
         "⚠️ ZION OPERATIONAL ALERT\n"
