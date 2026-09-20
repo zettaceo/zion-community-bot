@@ -66,6 +66,14 @@ The deployment preflight fails if it detects a conventional `actions.runner.*` s
 
 CI remains GitHub-hosted and unprivileged relative to the Acer.
 
+## Audited Python runtime
+
+`requirements.txt` documents the supported dependency ranges for development, while `requirements.lock` is the exact audited v1.1 release environment.
+
+GitHub CI installs `requirements.lock`. Host predeploy/apply run `scripts/check-runtime.py`, which requires every locked Python package to match exactly, followed by `python -m pip check`.
+
+If the Acer runtime does not match the lock, the release stops **before** production is stopped. Do not upgrade packages ad hoc during the cutover window.
+
 ## Release selection
 
 The deploy target is a full 40-character Git commit SHA.
