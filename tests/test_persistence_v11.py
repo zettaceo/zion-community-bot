@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import os
 import signal
+import selectors
 import sqlite3
 import stat
 import subprocess
@@ -409,13 +410,14 @@ class PersistenceHardeningTests(unittest.TestCase):
             )
             self.assertNotIn("attempts", columns)
 
-            row = migrated._conn.execute(
-                """
-                SELECT COALESCE(MAX(version), 0) AS version
-                FROM schema_migrations
-                """
-            ).fetchone()
-            self.assertEqual(int(row["version"]), 0)
+            self.assertEqual(migrated.schema_version(), 0)
+            # Initialization now rolls back the baseline DDL and identity too.
+            self.assertIsNone(migrated._conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE name='schema_migrations'"
+            ).fetchone())
+            self.assertEqual(migrated._conn.execute(
+                "PRAGMA application_id"
+            ).fetchone()[0], 0)
         finally:
             migrated.close()
 
@@ -477,7 +479,7 @@ class PersistenceHardeningTests(unittest.TestCase):
         repo = Path(__file__).resolve().parent.parent
         code = r'''
 import sys
-import time
+import signal
 from pathlib import Path
 from zion.db import ZionDB
 
@@ -505,7 +507,7 @@ db._conn.execute(
     """
 )
 print("READY", flush=True)
-time.sleep(30)
+signal.pause()
 '''
         env = os.environ.copy()
         env["PYTHONPATH"] = str(repo)
@@ -519,6 +521,9 @@ time.sleep(30)
             env=env,
         )
         try:
+            with selectors.DefaultSelector() as selector:
+                selector.register(child.stdout, selectors.EVENT_READ)
+                self.assertTrue(selector.select(timeout=10), "child readiness timeout")
             ready = child.stdout.readline().strip()
             self.assertEqual(ready, "READY")
             os.kill(child.pid, signal.SIGKILL)
@@ -527,6 +532,8 @@ time.sleep(30)
             if child.poll() is None:
                 child.kill()
                 child.wait(timeout=5)
+            child.stdout.close()
+            child.stderr.close()
 
         self.db = ZionDB(self.db_path)
         self.db.initialize()

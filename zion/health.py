@@ -73,6 +73,15 @@ class HealthService:
             sensitive_files_private and rotated_logs_private
         )
 
+        state_read_ok = True
+        try:
+            state = self.db.get_operating_state()
+        except Exception:
+            state = OperatingState.SAFE_MODE
+            state_read_ok = False
+            # A failed real read invalidates a previously healthy cache.
+            self._integrity_checked_at = float("-inf")
+
         integrity = self._integrity_status()
         integrity_ok = bool(integrity["ok"])
         database_messages = list(
@@ -94,14 +103,9 @@ class HealthService:
         db_file_mb = int(db_sizes["database"] / 1024 / 1024)
         wal_size_mb = int(db_sizes["wal"] / 1024 / 1024)
 
-        try:
-            state = self.db.get_operating_state()
-        except Exception:
-            state = OperatingState.SAFE_MODE
-
         return HealthSnapshot(
             state=state,
-            db_ok=self.db.ping() and integrity_ok,
+            db_ok=state_read_ok and self.db.ping() and integrity_ok,
             telegram_configured=bool(self.settings.telegram_token),
             ai_enabled=self.settings.ai_enabled,
             ai_configured=bool(self.settings.mistral_api_key),

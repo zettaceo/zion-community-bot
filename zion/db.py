@@ -329,8 +329,8 @@ class ZionDB:
                 "Cannot initialize schema through a read-only ZionDB."
             )
         with self._lock:
-            self._validate_or_adopt_application_id_locked()
-
+            if self._conn.in_transaction:
+                raise RuntimeError("Cannot initialize inside a transaction.")
             existing_version = self._existing_schema_version_locked()
             if existing_version > SUPPORTED_SCHEMA_VERSION:
                 raise RuntimeError(
@@ -339,11 +339,34 @@ class ZionDB:
                     f"supported=v{SUPPORTED_SCHEMA_VERSION}"
                 )
 
-            self._conn.executescript(SCHEMA)
-            self._apply_schema_migrations_locked()
-
-        if self.get_setting("operating_state") is None:
-            self.set_setting("operating_state", OperatingState.NORMAL.value)
+            self._validate_or_adopt_application_id_locked(adopt=False)
+            # Runtime PRAGMAs must precede BEGIN (journal_mode/synchronous).
+            # Execute schema DDL individually: executescript would commit an
+            # enclosing transaction before starting the schema changes.
+            statements = []
+            pending = ""
+            for line in SCHEMA.splitlines(keepends=True):
+                pending += line
+                if sqlite3.complete_statement(pending):
+                    statement = pending.strip()
+                    if statement.upper().startswith("PRAGMA "):
+                        self._conn.execute(statement)
+                    else:
+                        statements.append(statement)
+                    pending = ""
+            if pending.strip():
+                raise RuntimeError("Incomplete schema statement.")
+            self._conn.execute(f"PRAGMA busy_timeout={self.busy_timeout_ms}")
+            with self._transaction_locked(immediate=True):
+                self._validate_or_adopt_application_id_locked()
+                for statement in statements:
+                    self._conn.execute(statement)
+                self._apply_schema_migrations_locked()
+                self._conn.execute(
+                    "INSERT INTO settings(key, value, updated_at) VALUES (?, ?, ?) "
+                    "ON CONFLICT(key) DO NOTHING",
+                    ("operating_state", OperatingState.NORMAL.value, time.time()),
+                )
         self._secure_runtime_permissions()
 
     def _application_id_locked(self) -> int:
@@ -352,7 +375,7 @@ class ZionDB:
         ).fetchone()
         return int(row[0]) if row else 0
 
-    def _validate_or_adopt_application_id_locked(self) -> None:
+    def _validate_or_adopt_application_id_locked(self, *, adopt: bool = True) -> None:
         application_id = self._application_id_locked()
         if application_id == ZION_APPLICATION_ID:
             return
@@ -373,9 +396,8 @@ class ZionDB:
         tables = {str(row["name"]) for row in rows}
 
         if not tables:
-            self._conn.execute(
-                f"PRAGMA application_id={ZION_APPLICATION_ID}"
-            )
+            if adopt:
+                self._conn.execute(f"PRAGMA application_id={ZION_APPLICATION_ID}")
             return
 
         legacy_signatures = (
@@ -392,9 +414,8 @@ class ZionDB:
                 "SQLite database."
             )
 
-        self._conn.execute(
-            f"PRAGMA application_id={ZION_APPLICATION_ID}"
-        )
+        if adopt:
+            self._conn.execute(f"PRAGMA application_id={ZION_APPLICATION_ID}")
 
     def _existing_schema_version_locked(self) -> int:
         row = self._conn.execute(
@@ -428,11 +449,10 @@ class ZionDB:
             self._conn.execute(f"SAVEPOINT {savepoint}")
             try:
                 yield
-            except Exception:
-                self._conn.execute(
-                    f"ROLLBACK TO SAVEPOINT {savepoint}"
-                )
-                self._conn.execute(f"RELEASE SAVEPOINT {savepoint}")
+            except BaseException:
+                if self._conn.in_transaction:
+                    self._conn.execute(f"ROLLBACK TO SAVEPOINT {savepoint}")
+                    self._conn.execute(f"RELEASE SAVEPOINT {savepoint}")
                 raise
             else:
                 self._conn.execute(f"RELEASE SAVEPOINT {savepoint}")
@@ -444,10 +464,21 @@ class ZionDB:
         try:
             yield
             self._conn.commit()
-        except Exception:
+        except BaseException:
             if self._conn.in_transaction:
                 self._conn.rollback()
             raise
+
+    @contextmanager
+    def transaction(self) -> Iterator[None]:
+        """Group synchronous DB operations; never hold this across an await.
+
+        Individual writes use SQLite autocommit outside this scope. Inside,
+        they participate in one transaction (or a nested savepoint).
+        """
+        with self._lock:
+            with self._transaction_locked(immediate=True):
+                yield
 
     def _table_columns_locked(self, table: str) -> set[str]:
         rows = self._conn.execute(
@@ -521,15 +552,12 @@ class ZionDB:
             ),
         )
 
-        applied_rows = self._conn.execute(
-            "SELECT version FROM schema_migrations"
-        ).fetchall()
-        applied = {int(row["version"]) for row in applied_rows}
-
         for version, name, columns in migrations:
-            if version in applied:
-                continue
             with self._transaction_locked(immediate=True):
+                if self._conn.execute(
+                    "SELECT 1 FROM schema_migrations WHERE version=?", (version,)
+                ).fetchone():
+                    continue
                 for table, column, definition in columns:
                     self._ensure_column_locked(
                         table,
@@ -654,7 +682,7 @@ class ZionDB:
                 f"SQLite backup already exists: {destination}"
             )
 
-        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         tmp = destination.with_name(
             destination.name + ".tmp-" + uuid.uuid4().hex
         )
@@ -662,12 +690,17 @@ class ZionDB:
 
         try:
             with self._lock:
+                if self._conn.in_transaction:
+                    raise RuntimeError("Cannot back up an active transaction.")
                 source_integrity = self.verify_integrity(full=True)
                 if not source_integrity["ok"]:
                     raise RuntimeError(
                         "Source SQLite integrity verification failed."
                     )
 
+                # Keep the unpublished backup private from its creation.
+                fd = os.open(tmp, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+                os.close(fd)
                 dst = sqlite3.connect(
                     str(tmp),
                     timeout=max(1.0, self.busy_timeout_ms / 1000),
@@ -675,6 +708,8 @@ class ZionDB:
                 )
                 self._conn.backup(dst)
 
+            if dst.execute("PRAGMA quick_check").fetchall() != [("ok",)]:
+                raise RuntimeError("Backup SQLite quick_check failed.")
             row = dst.execute(
                 "PRAGMA integrity_check"
             ).fetchall()
@@ -695,6 +730,13 @@ class ZionDB:
                     "Backup SQLite foreign_key_check failed."
                 )
 
+            has_versions = dst.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' "
+                "AND name='schema_migrations'"
+            ).fetchone()
+            backup_schema_version = int(dst.execute(
+                "SELECT COALESCE(MAX(version), 0) FROM schema_migrations"
+            ).fetchone()[0]) if has_versions else 0
             dst.close()
             dst = None
 
@@ -710,32 +752,24 @@ class ZionDB:
                 ):
                     digest.update(chunk)
 
-            os.replace(tmp, destination)
-            os.chmod(destination, 0o600)
-
+            # Same-directory hard link publishes a complete inode atomically,
+            # and fails if any process has already claimed the final name.
+            os.link(tmp, destination)
+            directory_fd = os.open(
+                destination.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+            )
             try:
-                directory_fd = os.open(
-                    destination.parent,
-                    os.O_RDONLY
-                    | getattr(os, "O_DIRECTORY", 0),
-                )
-                try:
-                    os.fsync(directory_fd)
-                finally:
-                    os.close(directory_fd)
-            except OSError:
-                pass
-
-            with self._lock:
-                source_schema_version = (
-                    self._existing_schema_version_locked()
-                )
+                os.fsync(directory_fd)
+                tmp.unlink()
+                os.fsync(directory_fd)
+            finally:
+                os.close(directory_fd)
 
             return {
                 "path": str(destination),
                 "sha256": digest.hexdigest(),
                 "size_bytes": destination.stat().st_size,
-                "schema_version": source_schema_version,
+                "schema_version": backup_schema_version,
             }
         except Exception:
             if dst is not None:
@@ -1019,7 +1053,6 @@ class ZionDB:
                     increment,
                 ),
             )
-            self._conn.commit()
 
     def record_user_event(
         self,
@@ -1046,7 +1079,6 @@ class ZionDB:
                     _json(metadata),
                 ),
             )
-            self._conn.commit()
         return event_id
 
     def count_user_events(
@@ -1076,7 +1108,6 @@ class ZionDB:
                 """,
                 (before,),
             )
-            self._conn.commit()
         return int(cursor.rowcount)
 
     def add_strike(
@@ -1116,7 +1147,6 @@ class ZionDB:
                     _json(metadata),
                 ),
             )
-            self._conn.commit()
         return strike_id
 
     def count_active_strikes(
@@ -1197,7 +1227,6 @@ class ZionDB:
                 """,
                 (chat_id, user_id, blocked_until, reason, ts),
             )
-            self._conn.commit()
 
     def containment_until(
         self,
@@ -1223,7 +1252,6 @@ class ZionDB:
                     "DELETE FROM containments WHERE chat_id=? AND user_id=?",
                     (chat_id, user_id),
                 )
-                self._conn.commit()
                 return 0.0
         return blocked_until
 
@@ -1233,7 +1261,6 @@ class ZionDB:
                 "DELETE FROM containments WHERE chat_id=? AND user_id=?",
                 (chat_id, user_id),
             )
-            self._conn.commit()
 
     def record_recent_message(
         self,
@@ -1251,7 +1278,6 @@ class ZionDB:
                 """,
                 (chat_id, user_id, message_id, created_at),
             )
-            self._conn.commit()
 
     def prune_recent_messages(self, before: float) -> int:
         with self._lock:
@@ -1259,7 +1285,6 @@ class ZionDB:
                 "DELETE FROM recent_messages WHERE created_at < ?",
                 (before,),
             )
-            self._conn.commit()
             return int(cursor.rowcount)
 
     def count_recent_messages(
@@ -1322,7 +1347,6 @@ class ZionDB:
                 "DELETE FROM recent_messages WHERE chat_id=? AND user_id=?",
                 (chat_id, user_id),
             )
-            self._conn.commit()
 
     def create_incident(
         self,
@@ -1373,7 +1397,6 @@ class ZionDB:
                     safe_note,
                 ),
             )
-            self._conn.commit()
         return incident_id
 
     def redact_resolved_user_reports(self, before: float) -> int:
@@ -1394,7 +1417,6 @@ class ZionDB:
                     redacted_evidence,
                 ),
             )
-            self._conn.commit()
         return int(cursor.rowcount)
 
     def get_incident(
@@ -1453,7 +1475,6 @@ class ZionDB:
                 """,
                 (status, time.time(), incident["id"]),
             )
-            self._conn.commit()
         return cursor.rowcount > 0
 
     def record_action(
@@ -1495,7 +1516,6 @@ class ZionDB:
                     _json(metadata),
                 ),
             )
-            self._conn.commit()
         return action_id
 
     def list_incidents(self, limit: int = 10) -> list[dict[str, Any]]:
@@ -1551,7 +1571,6 @@ class ZionDB:
                 """,
                 (key, value, time.time()),
             )
-            self._conn.commit()
 
     def get_setting(self, key: str) -> str | None:
         with self._lock:
@@ -1587,7 +1606,6 @@ class ZionDB:
                 """,
                 (value[:200], ts, expires_at, ts),
             )
-            self._conn.commit()
 
         return cursor.rowcount == 1
 
@@ -1604,7 +1622,6 @@ class ZionDB:
                 """,
                 (cutoff,),
             )
-            self._conn.commit()
         return int(cursor.rowcount)
 
     def get_operating_state(self) -> OperatingState:
@@ -1637,7 +1654,6 @@ class ZionDB:
                 """,
                 (normalized, disposition, source, time.time()),
             )
-            self._conn.commit()
 
     def domain_disposition(self, domain: str) -> str | None:
         normalized = domain.lower().strip().strip(".")
@@ -1679,7 +1695,6 @@ class ZionDB:
                     now,
                 ),
             )
-            self._conn.commit()
 
     def prune_knowledge_gaps(self, before: float) -> int:
         with self._lock:
@@ -1690,7 +1705,6 @@ class ZionDB:
                 """,
                 (before,),
             )
-            self._conn.commit()
         return int(cursor.rowcount)
 
     def list_knowledge_gaps(
@@ -1728,7 +1742,6 @@ class ZionDB:
                 """,
                 (status, time.time(), question_hash),
             )
-            self._conn.commit()
         return cursor.rowcount > 0
 
     def schedule_message(
@@ -1758,7 +1771,6 @@ class ZionDB:
                     time.time(),
                 ),
             )
-            self._conn.commit()
         return schedule_id
 
     def due_scheduled_messages(
@@ -1789,7 +1801,7 @@ class ZionDB:
         now: float | None = None,
     ) -> int | None:
         ts = time.time() if now is None else now
-        with self._lock:
+        with self.transaction():
             cursor = self._conn.execute(
                 """
                 UPDATE scheduled_messages
@@ -1804,7 +1816,6 @@ class ZionDB:
                 (ts, schedule_id, ts),
             )
             if cursor.rowcount != 1:
-                self._conn.commit()
                 return None
 
             row = self._conn.execute(
@@ -1815,7 +1826,6 @@ class ZionDB:
                 """,
                 (schedule_id,),
             ).fetchone()
-            self._conn.commit()
 
         return int(row["attempts"]) if row else None
 
@@ -1833,7 +1843,7 @@ class ZionDB:
         safe_max_attempts = max(1, int(max_attempts))
         safe_retry_seconds = max(10, int(retry_seconds))
 
-        with self._lock:
+        with self.transaction():
             row = self._conn.execute(
                 """
                 SELECT attempts, status
@@ -1886,7 +1896,6 @@ class ZionDB:
                     schedule_id,
                 ),
             )
-            self._conn.commit()
         return status
 
     def cancel_scheduled_message(
@@ -1900,7 +1909,7 @@ class ZionDB:
             return False
 
         chat_clause = "" if chat_id is None else " AND chat_id=?"
-        with self._lock:
+        with self.transaction():
             params: list[Any] = [value, value + "%"]
             if chat_id is not None:
                 params.append(chat_id)
@@ -1939,7 +1948,6 @@ class ZionDB:
                 + update_clause,
                 tuple(update_params),
             )
-            self._conn.commit()
         return cursor.rowcount > 0
 
     def retry_scheduled_message(
@@ -1952,7 +1960,7 @@ class ZionDB:
             return False
         ts = time.time() if now is None else now
 
-        with self._lock:
+        with self.transaction():
             rows = self._conn.execute(
                 """
                 SELECT id
@@ -1978,7 +1986,6 @@ class ZionDB:
                 """,
                 (ts, unique_ids[0]),
             )
-            self._conn.commit()
         return cursor.rowcount > 0
 
     def quarantine_stale_delivery_claims(
@@ -2082,7 +2089,6 @@ class ZionDB:
                     time.time(),
                 ),
             )
-            self._conn.commit()
         return schedule_id
 
     def due_recurring_messages(
@@ -2126,7 +2132,6 @@ class ZionDB:
                 """,
                 (ts, schedule_id, ts),
             )
-            self._conn.commit()
         return cursor.rowcount == 1
 
     def advance_recurring_message(
@@ -2143,7 +2148,7 @@ class ZionDB:
         safe_max_failures = max(1, int(max_failures))
         safe_retry_seconds = max(10, int(retry_seconds))
 
-        with self._lock:
+        with self.transaction():
             row = self._conn.execute(
                 """
                 SELECT interval_seconds, next_send_at,
@@ -2197,7 +2202,6 @@ class ZionDB:
                     schedule_id,
                 ),
             )
-            self._conn.commit()
         return status
 
     def resume_recurring_message(
@@ -2210,7 +2214,7 @@ class ZionDB:
             return False
         ts = time.time() if now is None else now
 
-        with self._lock:
+        with self.transaction():
             rows = self._conn.execute(
                 """
                 SELECT id, interval_seconds, next_send_at, last_error_type
@@ -2251,7 +2255,6 @@ class ZionDB:
                 """,
                 (next_at, resolved_id),
             )
-            self._conn.commit()
         return cursor.rowcount > 0
 
     def list_recurring_messages(
@@ -2284,7 +2287,7 @@ class ZionDB:
             return False
 
         chat_clause = "" if chat_id is None else " AND chat_id=?"
-        with self._lock:
+        with self.transaction():
             exact_params: list[Any] = [value]
             if chat_id is not None:
                 exact_params.append(chat_id)
@@ -2337,7 +2340,6 @@ class ZionDB:
                 + update_clause,
                 tuple(update_params),
             )
-            self._conn.commit()
         return cursor.rowcount > 0
 
     def create_ama(
@@ -2423,7 +2425,6 @@ class ZionDB:
                     time.time(),
                 ),
             )
-            self._conn.commit()
         return question_id
 
     def list_ama_questions(
@@ -2495,7 +2496,6 @@ class ZionDB:
                 """,
                 (before,),
             )
-            self._conn.commit()
         return int(cursor.rowcount)
 
     def prune_ai_events(self, before: float) -> int:
@@ -2652,7 +2652,6 @@ class ZionDB:
                     _json(metadata),
                 ),
             )
-            self._conn.commit()
         return event_id
 
     def operational_stats_since(

@@ -163,89 +163,90 @@ class Guardian:
         message_id: int,
         now: float | None = None,
     ) -> FloodDecision:
-        ts = time.time() if now is None else now
-        self.db.prune_recent_messages(
-            ts - self.settings.flood_purge_window_seconds
-        )
-        self.db.record_recent_message(
-            chat_id,
-            user_id,
-            message_id,
-            ts,
-        )
-
-        count = self.db.count_recent_messages(
-            chat_id,
-            user_id,
-            ts - self.settings.flood_window_seconds,
-        )
-
-        state = self.db.get_operating_state()
-        threshold = self.settings.flood_max_messages
-        if state == OperatingState.ELEVATED:
-            threshold = max(3, threshold - 2)
-        elif state == OperatingState.ATTACK:
-            threshold = max(2, threshold // 2)
-
-        if count < threshold:
-            return FloodDecision()
-
-        message_ids = self.db.recent_message_ids(
-            chat_id,
-            user_id,
-            ts - self.settings.flood_purge_window_seconds,
-        )
-        self.db.clear_recent_messages(chat_id, user_id)
-
-        self.db.add_strike(
-            chat_id=chat_id,
-            user_id=user_id,
-            reason="flood",
-            severity=Severity.MEDIUM,
-            source="guardian",
-            ttl_seconds=self.settings.flood_strike_reset_seconds,
-            metadata={
-                "messages_in_window": count,
-                "threshold": threshold,
-                "operating_state": state.value,
-            },
-            now=ts,
-        )
-
-        strike_count = self.db.count_active_strikes(
-            chat_id,
-            user_id,
-            ts,
-            reasons=("flood", "legacy_flood"),
-        )
-
-        level_index = min(
-            max(0, strike_count - 1),
-            len(self.settings.flood_mute_levels) - 1,
-        )
-        mute_seconds = self.settings.flood_mute_levels[level_index]
-
-        should_ban = (
-            self.settings.flood_ban_after_strikes > 0
-            and strike_count >= self.settings.flood_ban_after_strikes
-        )
-
-        if not should_ban:
-            self.db.set_containment(
+        with self.db.transaction():
+            ts = time.time() if now is None else now
+            self.db.prune_recent_messages(
+                ts - self.settings.flood_purge_window_seconds
+            )
+            self.db.record_recent_message(
                 chat_id,
                 user_id,
-                ts + mute_seconds,
-                "flood",
+                message_id,
                 ts,
             )
 
-        return FloodDecision(
-            triggered=True,
-            strike_count=strike_count,
-            mute_seconds=mute_seconds,
-            should_ban=should_ban,
-            message_ids=message_ids,
-        )
+            count = self.db.count_recent_messages(
+                chat_id,
+                user_id,
+                ts - self.settings.flood_window_seconds,
+            )
+
+            state = self.db.get_operating_state()
+            threshold = self.settings.flood_max_messages
+            if state == OperatingState.ELEVATED:
+                threshold = max(3, threshold - 2)
+            elif state == OperatingState.ATTACK:
+                threshold = max(2, threshold // 2)
+
+            if count < threshold:
+                return FloodDecision()
+
+            message_ids = self.db.recent_message_ids(
+                chat_id,
+                user_id,
+                ts - self.settings.flood_purge_window_seconds,
+            )
+            self.db.clear_recent_messages(chat_id, user_id)
+
+            self.db.add_strike(
+                chat_id=chat_id,
+                user_id=user_id,
+                reason="flood",
+                severity=Severity.MEDIUM,
+                source="guardian",
+                ttl_seconds=self.settings.flood_strike_reset_seconds,
+                metadata={
+                    "messages_in_window": count,
+                    "threshold": threshold,
+                    "operating_state": state.value,
+                },
+                now=ts,
+            )
+
+            strike_count = self.db.count_active_strikes(
+                chat_id,
+                user_id,
+                ts,
+                reasons=("flood", "legacy_flood"),
+            )
+
+            level_index = min(
+                max(0, strike_count - 1),
+                len(self.settings.flood_mute_levels) - 1,
+            )
+            mute_seconds = self.settings.flood_mute_levels[level_index]
+
+            should_ban = (
+                self.settings.flood_ban_after_strikes > 0
+                and strike_count >= self.settings.flood_ban_after_strikes
+            )
+
+            if not should_ban:
+                self.db.set_containment(
+                    chat_id,
+                    user_id,
+                    ts + mute_seconds,
+                    "flood",
+                    ts,
+                )
+
+            return FloodDecision(
+                triggered=True,
+                strike_count=strike_count,
+                mute_seconds=mute_seconds,
+                should_ban=should_ban,
+                message_ids=message_ids,
+            )
 
     def evaluate_chat_burst(
         self,
@@ -253,82 +254,83 @@ class Guardian:
         user_id: int | None = None,
         now: float | None = None,
     ) -> ChatBurstDecision:
-        ts = time.time() if now is None else now
-        since = ts - self.settings.chat_burst_window_seconds
-        messages, users = self.db.chat_recent_activity(
-            chat_id,
-            since,
-        )
-
-        # Callers evaluate immediately before recording the current message.
-        # Project it into the window without writing twice.
-        if user_id is not None:
-            messages += 1
-            if self.db.count_recent_messages(
+        with self.db.transaction():
+            ts = time.time() if now is None else now
+            since = ts - self.settings.chat_burst_window_seconds
+            messages, users = self.db.chat_recent_activity(
                 chat_id,
-                user_id,
                 since,
-            ) == 0:
-                users += 1
+            )
 
-        decision = ChatBurstDecision(
-            message_count=messages,
-            unique_users=users,
-            window_seconds=self.settings.chat_burst_window_seconds,
-            elevated_seconds=self.settings.chat_burst_elevated_seconds,
-        )
+            # Callers evaluate immediately before recording the current message.
+            # Project it into the window without writing twice.
+            if user_id is not None:
+                messages += 1
+                if self.db.count_recent_messages(
+                    chat_id,
+                    user_id,
+                    since,
+                ) == 0:
+                    users += 1
 
-        if self.db.get_operating_state() != OperatingState.NORMAL:
+            decision = ChatBurstDecision(
+                message_count=messages,
+                unique_users=users,
+                window_seconds=self.settings.chat_burst_window_seconds,
+                elevated_seconds=self.settings.chat_burst_elevated_seconds,
+            )
+
+            if self.db.get_operating_state() != OperatingState.NORMAL:
+                return decision
+
+            if (
+                messages < self.settings.chat_burst_max_messages
+                or users < self.settings.chat_burst_min_users
+            ):
+                return decision
+
+            expires_at = ts + self.settings.chat_burst_elevated_seconds
+            self.db.set_operating_state(OperatingState.ELEVATED)
+            self.db.set_setting(
+                "operating_state_expires_at",
+                str(expires_at),
+            )
+            incident_id = self.db.create_incident(
+                chat_id=chat_id,
+                user_id=None,
+                category="distributed_chat_burst",
+                severity=Severity.MEDIUM,
+                source="guardian",
+                evidence={
+                    "messages": messages,
+                    "unique_users": users,
+                    "window_seconds": self.settings.chat_burst_window_seconds,
+                    "temporary_state": OperatingState.ELEVATED.value,
+                    "expires_at": expires_at,
+                },
+                note=(
+                    "Distributed burst only changes temporary operating state; "
+                    "it does not punish individual users."
+                ),
+                now=ts,
+            )
+            self.db.record_action(
+                incident_id=incident_id,
+                chat_id=chat_id,
+                user_id=None,
+                action_type="state_change",
+                actor_type="guardian",
+                actor_id=None,
+                reason="distributed_chat_burst",
+                success=True,
+                metadata={
+                    "state": OperatingState.ELEVATED.value,
+                    "expires_at": expires_at,
+                },
+                now=ts,
+            )
+            decision.triggered = True
             return decision
-
-        if (
-            messages < self.settings.chat_burst_max_messages
-            or users < self.settings.chat_burst_min_users
-        ):
-            return decision
-
-        expires_at = ts + self.settings.chat_burst_elevated_seconds
-        self.db.set_operating_state(OperatingState.ELEVATED)
-        self.db.set_setting(
-            "operating_state_expires_at",
-            str(expires_at),
-        )
-        incident_id = self.db.create_incident(
-            chat_id=chat_id,
-            user_id=None,
-            category="distributed_chat_burst",
-            severity=Severity.MEDIUM,
-            source="guardian",
-            evidence={
-                "messages": messages,
-                "unique_users": users,
-                "window_seconds": self.settings.chat_burst_window_seconds,
-                "temporary_state": OperatingState.ELEVATED.value,
-                "expires_at": expires_at,
-            },
-            note=(
-                "Distributed burst only changes temporary operating state; "
-                "it does not punish individual users."
-            ),
-            now=ts,
-        )
-        self.db.record_action(
-            incident_id=incident_id,
-            chat_id=chat_id,
-            user_id=None,
-            action_type="state_change",
-            actor_type="guardian",
-            actor_id=None,
-            reason="distributed_chat_burst",
-            success=True,
-            metadata={
-                "state": OperatingState.ELEVATED.value,
-                "expires_at": expires_at,
-            },
-            now=ts,
-        )
-        decision.triggered = True
-        return decision
 
     def evaluate_links(
         self,
