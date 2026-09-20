@@ -140,11 +140,31 @@ def _normalize_domain(raw_url: str) -> str | None:
         host = host[4:]
     if not host:
         return None
+    unicode_labels = host.split(".")
     try:
-        host = host.encode("idna").decode("ascii").lower()
+        ascii_host = host.encode("idna").decode("ascii").lower()
     except (UnicodeError, ValueError):
         return None
-    return host or None
+
+    ascii_labels = ascii_host.split(".")
+    if len(unicode_labels) != len(ascii_labels):
+        return None
+
+    # Python's built-in IDNA codec applies transitional mappings such as
+    # "ß" -> "ss". Never let such a mapping collapse a Unicode lookalike
+    # directly onto an ASCII allowlisted hostname.
+    for unicode_label, ascii_label in zip(
+        unicode_labels,
+        ascii_labels,
+        strict=True,
+    ):
+        if (
+            any(ord(char) > 127 for char in unicode_label)
+            and not ascii_label.startswith("xn--")
+        ):
+            return None
+
+    return ascii_host or None
 
 
 def normalize_policy_domain(value: str) -> str | None:
