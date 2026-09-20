@@ -455,6 +455,35 @@ class Block4OperationsTests(unittest.TestCase):
             finally:
                 rt.close()
 
+    def test_dashboard_rejects_wrong_application_id(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = root / "zion.db"
+            db = ZionDB(path)
+            db.initialize()
+            db.close()
+
+            raw = sqlite3.connect(path)
+            try:
+                raw.execute("PRAGMA application_id=1234")
+                raw.commit()
+            finally:
+                raw.close()
+
+            readonly = ZionDB(path, readonly=True)
+            try:
+                payload = _status_payload(
+                    readonly,
+                    root_dir=root,
+                    wifi_interface="lo",
+                    started_monotonic=time.monotonic(),
+                )
+                self.assertEqual(payload["database"], "fail")
+                self.assertFalse(payload["sqlite_application_id_ok"])
+                self.assertEqual(payload["sqlite_application_id"], 1234)
+            finally:
+                readonly.close()
+
     def test_dashboard_fails_health_on_foreign_key_corruption(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
