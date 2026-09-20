@@ -243,6 +243,7 @@ class ModerationPipelineTests(unittest.TestCase):
         )
         incidents = self.runtime.db.list_incidents()
         self.assertEqual(incidents[0]["category"], "unauthorized_link")
+        self.assertEqual(incidents[0]["severity"], "medium")
 
     def test_caption_hidden_link_is_checked(self) -> None:
         hidden_entity = SimpleNamespace(
@@ -375,6 +376,19 @@ class ModerationPipelineTests(unittest.TestCase):
             if item["category"] == "unauthorized_link"
         ]
         self.assertEqual(len(incidents), 1)
+
+    def test_unicode_lookalike_link_is_medium_severity_incident(self) -> None:
+        update = fake_update(
+            user_id=2,
+            text="https://еxample.com/login",
+            message_id=84,
+            update_id=5084,
+        )
+        asyncio.run(moderation_handler(update, self.context))
+
+        incidents = self.runtime.db.list_incidents(limit=10)
+        self.assertEqual(incidents[0]["category"], "unauthorized_link")
+        self.assertEqual(incidents[0]["severity"], "medium")
 
     def test_member_unauthorized_link_is_deleted(self) -> None:
         update = fake_update(
