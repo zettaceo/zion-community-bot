@@ -3182,6 +3182,39 @@ async def command_idempotency_guard_handler(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
 ) -> None:
+    # Secret deletion must precede the durable command claim. Otherwise a
+    # crash after claiming but before the next handler group could suppress
+    # Telegram redelivery while leaving a credential visible.
+    message = update.effective_message
+    if message is not None:
+        visible = message.text or message.caption or ""
+        sensitive_surface = telegram_sensitive_surface(
+            message,
+            visible,
+        )
+        if await protect_credential_exposure(
+            update,
+            context,
+            sensitive_surface,
+            source="guardian_command_idempotency_preflight",
+            notice_text=(
+                "🚨 ZION bloqueou um comando que aparentava conter "
+                "uma credencial. O conteúdo não foi processado."
+            ),
+        ):
+            raise ApplicationHandlerStop
+        if await protect_wallet_secret(
+            update,
+            context,
+            sensitive_surface,
+            source="guardian_command_idempotency_preflight",
+            notice_text=(
+                "🚨 ZION bloqueou um comando que aparentava conter "
+                "segredo de carteira. O conteúdo não foi processado."
+            ),
+        ):
+            raise ApplicationHandlerStop
+
     update_id = getattr(update, "update_id", None)
     if update_id is None:
         return
@@ -3200,49 +3233,6 @@ async def command_idempotency_guard_handler(
             "Falha no gate de idempotência do comando: %s",
             type(exc).__name__,
         )
-
-        # Idempotency storage failure must not let a command carrying a
-        # credential bypass the universal secret-protection layer that would
-        # normally run in the next handler group.
-        message = update.effective_message
-        if message is not None:
-            visible = message.text or message.caption or ""
-            sensitive_surface = telegram_sensitive_surface(
-                message,
-                visible,
-            )
-            try:
-                if await protect_credential_exposure(
-                    update,
-                    context,
-                    sensitive_surface,
-                    source="guardian_command_idempotency_failure",
-                    notice_text=(
-                        "🚨 ZION bloqueou um comando que aparentava conter "
-                        "uma credencial. O conteúdo não foi processado."
-                    ),
-                ):
-                    raise ApplicationHandlerStop from exc
-                if await protect_wallet_secret(
-                    update,
-                    context,
-                    sensitive_surface,
-                    source="guardian_command_idempotency_failure",
-                    notice_text=(
-                        "🚨 ZION bloqueou um comando que aparentava conter "
-                        "segredo de carteira. O conteúdo não foi processado."
-                    ),
-                ):
-                    raise ApplicationHandlerStop from exc
-            except ApplicationHandlerStop:
-                raise
-            except Exception as protection_exc:
-                logger.error(
-                    "Falha adicional na proteção de segredo após erro "
-                    "de idempotência: %s",
-                    type(protection_exc).__name__,
-                )
-
         raise ApplicationHandlerStop from exc
 
     if not claimed:
@@ -4301,8 +4291,9 @@ def build_application(settings: Settings | None = None) -> Application:
         "reloadkb": reload_knowledge_command,
     }
 
-    # Group -2 persists Telegram update IDs before any command side effect.
-    # Re-delivered command updates are at-most-once across restarts.
+    # Group -2 protects secrets before persisting Telegram update IDs.
+    # Functional command side effects remain at-most-once across restarts;
+    # secret deletion is deliberately retriable across a pre-claim crash.
     app.add_handler(
         MessageHandler(
             filters.COMMAND,
