@@ -17,6 +17,7 @@ CURRENT_LINK="$RUNTIME_BASE/current"
 LEGACY_RUNTIME="$PROD_ROOT/.venv"
 INSTALLED_SERVICE="/etc/systemd/system/zion.service"
 STATE_DB="/home/zetta/.local/state/zion-community-bot/zion.db"
+LOCK_SHA="$(sha256sum "$ROOT/requirements.lock" | awk '{print $1}')"
 
 if [[ "$(id -un)" != "$EXPECTED_USER" ]]; then
   echo "ERRO: execute como $EXPECTED_USER." >&2
@@ -153,8 +154,11 @@ if [[ -e "$RUNTIME_DIR" || -L "$RUNTIME_DIR" ]]; then
     echo "ERRO: runtime candidato existente não possui Python." >&2
     exit 2
   fi
-  if [[ ! -f "$RUNTIME_DIR/release-sha.txt" ]]     || [[ "$(cat "$RUNTIME_DIR/release-sha.txt")" != "$EXPECTED" ]]; then
-    echo "ERRO: runtime candidato existente possui identidade inválida." >&2
+  if [[ ! -f "$RUNTIME_DIR/release-sha.txt" ]] \
+    || [[ "$(cat "$RUNTIME_DIR/release-sha.txt")" != "$EXPECTED" ]] \
+    || [[ ! -f "$RUNTIME_DIR/requirements-lock.sha256" ]] \
+    || [[ "$(cat "$RUNTIME_DIR/requirements-lock.sha256")" != "$LOCK_SHA" ]]; then
+    echo "ERRO: runtime candidato existente possui identidade/lock inválido." >&2
     exit 2
   fi
   validate_runtime "$RUNTIME_DIR/bin/python"
@@ -182,6 +186,7 @@ trap cleanup EXIT
   --disable-pip-version-check \
   --no-input \
   --no-deps \
+  --require-hashes \
   --only-binary=:all: \
   --index-url https://pypi.org/simple \
   -r "$ROOT/requirements.lock"
@@ -189,8 +194,7 @@ trap cleanup EXIT
 validate_runtime "$TMP_RUNTIME/bin/python"
 
 printf '%s\n' "$EXPECTED" > "$TMP_RUNTIME/release-sha.txt"
-sha256sum "$ROOT/requirements.lock" \
-  | awk '{print $1}' > "$TMP_RUNTIME/requirements-lock.sha256"
+printf '%s\n' "$LOCK_SHA" > "$TMP_RUNTIME/requirements-lock.sha256"
 chmod 0444 \
   "$TMP_RUNTIME/release-sha.txt" \
   "$TMP_RUNTIME/requirements-lock.sha256"

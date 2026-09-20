@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import sqlite3
 import sys
 from importlib.metadata import PackageNotFoundError, distributions, version
@@ -44,27 +45,40 @@ def require(
         raise RuntimeError(message)
 
 
+LOCK_ENTRY_RE = re.compile(
+    r"^(?P<name>[A-Za-z0-9][A-Za-z0-9._-]*)"
+    r"==(?P<version>[A-Za-z0-9][A-Za-z0-9._+!-]*)"
+    r" --hash=sha256:(?P<digest>[0-9a-f]{64})$"
+)
+
+
 def runtime_lock() -> dict[str, str]:
     lock_path = Path(__file__).resolve().parent.parent / "requirements.lock"
     if not lock_path.is_file() or lock_path.is_symlink():
         raise RuntimeError("requirements.lock missing or symlinked")
 
     locked: dict[str, str] = {}
+    canonical_names: set[str] = set()
     for raw_line in lock_path.read_text(encoding="utf-8").splitlines():
         line = raw_line.strip()
         if not line or line.startswith("#"):
             continue
-        if "==" not in line:
+
+        match = LOCK_ENTRY_RE.fullmatch(line)
+        if match is None:
             raise RuntimeError(
-                f"invalid requirements.lock entry: {line}"
+                "invalid requirements.lock entry; exact version and "
+                f"sha256 wheel hash required: {line}"
             )
-        name, expected = line.split("==", 1)
-        name = name.strip()
-        expected = expected.strip()
-        if not name or not expected or name in locked:
+
+        name = match.group("name")
+        expected = match.group("version")
+        canonical = canonical_distribution_name(name)
+        if canonical in canonical_names:
             raise RuntimeError(
-                f"invalid requirements.lock entry: {line}"
+                f"duplicate requirements.lock distribution: {name}"
             )
+        canonical_names.add(canonical)
         locked[name] = expected
 
     if not locked:

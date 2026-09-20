@@ -68,7 +68,7 @@ CI remains GitHub-hosted and unprivileged relative to the Acer.
 
 ## Audited Python runtime
 
-`requirements.txt` documents the supported dependency ranges for development, while `requirements.lock` is the exact audited v1.1 release environment.
+`requirements.txt` documents the supported dependency ranges for development, while `requirements.lock` is the exact audited v1.1 release environment. Every allowed universal wheel is pinned by SHA-256, and both CI and runtime preparation install with pip `--require-hashes`, `--no-deps` and `--only-binary=:all:`. A matching version from a different artifact is therefore not accepted.
 
 GitHub CI installs `requirements.lock`. Production releases do **not** mutate the venv used by the currently running bot.
 
@@ -78,7 +78,7 @@ Before cutover, `scripts/prepare-release-runtime.sh` creates/verifies a runtime 
 /home/zetta/.local/share/zion-community-bot/runtimes/<sha>/
 ```
 
-`scripts/check-runtime.py` requires Python 3.12.x, every locked distribution at the exact version, no unexpected distributions other than venv bootstrap tooling, and `pip check` consistency.
+`scripts/check-runtime.py` requires Python 3.12.x, a syntactically valid exact-version + SHA-256 lock entry for every distribution, every installed distribution at the exact version, no unexpected distributions other than venv bootstrap tooling, and `pip check` consistency. A pre-existing candidate runtime is reused only when its recorded `requirements-lock.sha256` matches the lock file from that exact candidate SHA.
 
 The active service uses only:
 

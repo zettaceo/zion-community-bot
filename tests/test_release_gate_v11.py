@@ -358,6 +358,7 @@ class V11ReleaseGateTests(unittest.TestCase):
         self.assertIn("-r \"$ROOT/requirements.lock\"", prepare)
         self.assertIn("pip --isolated install", prepare)
         self.assertIn("--no-deps", prepare)
+        self.assertIn("--require-hashes", prepare)
         self.assertIn("--only-binary=:all:", prepare)
         self.assertIn("--index-url https://pypi.org/simple", prepare)
         self.assertIn('chmod -R a-w "$TMP_RUNTIME"', prepare)
@@ -407,10 +408,12 @@ class V11ReleaseGateTests(unittest.TestCase):
     def test_ci_and_runtime_use_audited_dependency_lock(self) -> None:
         ci = self.read(".github/workflows/ci.yml")
         runtime = self.read("scripts/check-runtime.py")
+        prepare = self.read("scripts/prepare-release-runtime.sh")
         lock = self.read("requirements.lock")
 
         self.assertIn("pip --isolated install", ci)
         self.assertIn("--no-deps", ci)
+        self.assertIn("--require-hashes", ci)
         self.assertIn("--only-binary=:all:", ci)
         self.assertIn("--index-url https://pypi.org/simple", ci)
         self.assertIn("-r requirements.lock", ci)
@@ -435,6 +438,29 @@ class V11ReleaseGateTests(unittest.TestCase):
         )
         for item in expected:
             self.assertIn(item, lock)
+
+        import re
+
+        entries = [
+            line.strip()
+            for line in lock.splitlines()
+            if line.strip() and not line.lstrip().startswith("#")
+        ]
+        self.assertEqual(len(entries), len(expected))
+        for entry in entries:
+            self.assertRegex(
+                entry,
+                re.compile(
+                    r"^[A-Za-z0-9][A-Za-z0-9._-]*"
+                    r"==[A-Za-z0-9][A-Za-z0-9._+!-]*"
+                    r" --hash=sha256:[0-9a-f]{64}$"
+                ),
+            )
+
+        self.assertIn("LOCK_ENTRY_RE", runtime)
+        self.assertIn("sha256 wheel hash required", runtime)
+        self.assertIn("requirements-lock.sha256", prepare)
+        self.assertIn('"$LOCK_SHA"', prepare)
 
     def test_apply_uses_installed_service_layout_as_db_authority(self) -> None:
         apply = self.read("scripts/apply-zion-v1.sh")
