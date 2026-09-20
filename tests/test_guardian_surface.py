@@ -9,6 +9,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from tests.helpers import make_settings
+import zion.telegram_app as telegram_app
 from zion.db import ZionDB
 from zion.guardian import Guardian, normalize_policy_domain
 from zion.logging_safe import contains_high_confidence_credential
@@ -931,6 +932,128 @@ class OperatorDisplayIntegrityTests(unittest.TestCase):
         self.assertNotIn("\nSeverity: CRITICAL", rendered)
         stored = self.runtime.db.get_incident(incident_id)
         self.assertIn("\nStatus: resolved", stored["note"])
+
+
+class CommandAuthorizationContractTests(unittest.TestCase):
+    OPERATOR_ONLY = (
+        "health_command",
+        "diagnostics_command",
+        "ai_status_command",
+        "guardian_command",
+        "stats_command",
+        "gaps_command",
+        "resolve_gap_command",
+        "incidents_command",
+        "incident_command",
+        "resolve_incident_command",
+        "state_command",
+        "lockdown_command",
+        "unlock_command",
+        "allow_domain_command",
+        "block_domain_command",
+        "brief_command",
+        "jobs_command",
+        "retry_scheduled_command",
+        "resume_recurring_command",
+        "reload_knowledge_command",
+    )
+    CHAT_ADMIN = (
+        "strikes_command",
+        "user_command",
+        "warn_command",
+        "mute_command",
+        "ban_command",
+        "unban_command",
+        "announce_command",
+        "poll_command",
+        "schedule_command",
+        "cancel_scheduled_command",
+        "recurring_command",
+        "cancel_recurring_command",
+        "ama_open_command",
+        "ama_list_command",
+        "ama_close_command",
+    )
+
+    def setUp(self) -> None:
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        root = Path(self.temp.name)
+        (root / "knowledge").mkdir()
+        self.runtime = Runtime(make_settings(root))
+        self.addCleanup(self.runtime.close)
+
+    def test_sensitive_commands_reject_ordinary_member_before_side_effects(self) -> None:
+        for index, name in enumerate(
+            self.OPERATOR_ONLY + self.CHAT_ADMIN,
+            start=200,
+        ):
+            with self.subTest(command=name):
+                bot = FakeBot(ChatMemberStatus.MEMBER)
+                context = FakeContext(self.runtime, bot)
+                update = make_update(
+                    user_id=2,
+                    chat_type="supergroup",
+                    text="/" + name.removesuffix("_command"),
+                    message_id=index,
+                )
+
+                asyncio.run(getattr(telegram_app, name)(update, context))
+
+                self.assertTrue(update.effective_message.replies)
+                self.assertIn(
+                    "restrito",
+                    update.effective_message.replies[0].lower(),
+                )
+                self.assertEqual(bot.deleted, [])
+                self.assertEqual(bot.restricted, [])
+                self.assertEqual(bot.banned, [])
+                self.assertEqual(bot.unbanned, [])
+                self.assertEqual(bot.sent, [])
+
+    def test_group_admin_cannot_change_global_operating_state(self) -> None:
+        bot = FakeBot(ChatMemberStatus.ADMINISTRATOR)
+        context = FakeContext(self.runtime, bot)
+        context.args = ["LOCKDOWN"]
+        update = make_update(
+            user_id=2,
+            chat_type="supergroup",
+            text="/state LOCKDOWN",
+            message_id=250,
+        )
+
+        asyncio.run(telegram_app.state_command(update, context))
+
+        self.assertEqual(
+            self.runtime.db.get_operating_state(),
+            OperatingState.NORMAL,
+        )
+        self.assertTrue(update.effective_message.replies)
+        self.assertIn(
+            "operadores explícitos",
+            update.effective_message.replies[0],
+        )
+        self.assertEqual(bot.member_calls, 0)
+
+    def test_group_admin_retains_chat_local_authority(self) -> None:
+        bot = FakeBot(ChatMemberStatus.ADMINISTRATOR)
+        context = FakeContext(self.runtime, bot)
+        update = make_update(
+            user_id=2,
+            chat_type="supergroup",
+            text="/strikes 99",
+            message_id=251,
+        )
+        context.args = ["99"]
+
+        asyncio.run(telegram_app.strikes_command(update, context))
+
+        self.assertEqual(bot.member_calls, 1)
+        self.assertTrue(update.effective_message.replies)
+        self.assertIn(
+            "nenhum strike ativo",
+            update.effective_message.replies[0],
+        )
 
 
 if __name__ == "__main__":
