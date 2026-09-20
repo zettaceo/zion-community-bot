@@ -15,6 +15,10 @@ if [[ "${ZION_REMOTE_ACCESS_PROVEN:-}" != "YES" ]]; then
   echo "ERRO: defina ZION_REMOTE_ACCESS_PROVEN=YES somente após login por chave validado." >&2
   exit 2
 fi
+if [[ "${ZION_HOSTKEY_PROVEN:-}" != "YES" ]]; then
+  echo "ERRO: defina ZION_HOSTKEY_PROVEN=YES somente após comparar o fingerprint ED25519 fora de banda." >&2
+  exit 2
+fi
 
 if [[ "$(id -un)" != "$EXPECTED_USER" ]]; then
   echo "ERRO: execute como $EXPECTED_USER, não como root." >&2
@@ -120,7 +124,7 @@ rollback() {
 trap rollback ERR
 
 if [[ -f "$DST" ]]; then
-  backup="$BACKUP_DIR/99-zion-remote.$stamp.conf"
+  backup="$BACKUP_DIR/99-zion-remote.$stamp.$.conf"
   sudo /usr/bin/install     -o "$EXPECTED_USER"     -g "$EXPECTED_GROUP"     -m 0600     "$DST"     "$backup"
 fi
 
@@ -144,12 +148,18 @@ declare -a required=(
   "pubkeyauthentication yes"
   "authenticationmethods publickey"
   "permitemptypasswords no"
+  "strictmodes yes"
   "allowagentforwarding no"
   "allowtcpforwarding no"
+  "allowstreamlocalforwarding no"
   "x11forwarding no"
   "gatewayports no"
   "permittunnel no"
   "permituserenvironment no"
+  "maxauthtries 3"
+  "maxsessions 4"
+  "logingracetime 30"
+  "loglevel VERBOSE"
 )
 for item in "${required[@]}"; do
   if ! grep -Fqx "$item" <<<"$effective"; then
@@ -157,6 +167,15 @@ for item in "${required[@]}"; do
     exit 1
   fi
 done
+
+if ! grep -Eq '^authorizedkeysfile .*\.ssh/authorized_keys( |$)' <<<"$effective"; then
+  echo "ERRO: AuthorizedKeysFile efetivo não inclui .ssh/authorized_keys." >&2
+  exit 1
+fi
+if ! grep -Eq "^allowusers( .*)? $EXPECTED_USER( |$)|^allowusers $EXPECTED_USER$" <<<"$effective"; then
+  echo "ERRO: AllowUsers efetivo não inclui $EXPECTED_USER." >&2
+  exit 1
+fi
 
 trap - ERR
 mutated=false
