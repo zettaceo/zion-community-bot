@@ -69,6 +69,17 @@ class GuardianTests(unittest.TestCase):
         self.assertTrue(decision.should_delete)
         self.assertEqual(decision.unsupported_schemes, ["tg"])
 
+    def test_malformed_http_target_fails_closed(self) -> None:
+        domain, scheme = normalize_link_target("https://")
+        self.assertIsNone(domain)
+        self.assertEqual(scheme, "invalid-https")
+
+        decision = self.guardian.evaluate_links(
+            "",
+            unsupported_schemes=[scheme],
+        )
+        self.assertTrue(decision.should_delete)
+
     def test_visible_non_http_scheme_is_blocked(self) -> None:
         decision = self.guardian.evaluate_links(
             "abra tg://resolve?domain=example"
