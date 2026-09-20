@@ -226,6 +226,23 @@ ZION_GITHUB_GATES_PROVEN=YES \
 
 If `apply-zion-v1.sh` fails **before** it stops `zion.service`, production runtime state has not been cut over; restore the local worktree to `PREVIOUS_HEAD` only if necessary and keep/restart the old service. If it fails after the stop/migration phase may have begun, do not guess: use the verified backup + recorded rollback SHA and follow the rollback procedure below.
 
+## First dashboard bootstrap
+
+The dashboard is not an alternate deployment path. Its one-time installer may be used only **after** the v1.1 bot release is already running from the approved production SHA.
+
+`scripts/apply-dashboard.sh` therefore requires:
+
+- `ZION_DEPLOY_COMMIT` as the full approved 40-character SHA;
+- `ZION_GITHUB_GATES_PROVEN=YES`;
+- local branch exactly `zion-v1-prod`;
+- clean local Git boundary and clean non-ignored worktree;
+- local `origin/zion-v1` and the live GitHub `zion-v1` head both equal to the approved SHA;
+- `runtime/current` resolves to the per-SHA runtime for that same commit;
+- the installed `zion.service` already uses the v1.1 state/runtime layout and is active;
+- the dashboard unit is not already installed.
+
+The script revalidates HEAD, worktree and runtime immediately before the first `sudo`. If a dashboard unit is already installed, **do not** use the bootstrap script to update it; later dashboard changes participate in the ordinary controlled release through `apply-zion-v1.sh`.
+
 ## Post-deploy acceptance
 
 Do not call deployment successful until all of these are checked:
