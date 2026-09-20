@@ -87,6 +87,16 @@ Set:
 export ZION_DEPLOY_COMMIT=<40-character-approved-sha>
 ```
 
+## First v1 → v1.1 bootstrap
+
+The current v1 production commit predates the strict v1.1 release-gate scripts. For the first upgrade, do not assume those scripts already exist in the production checkout.
+
+Use the exact candidate SHA in a detached temporary worktree and follow:
+
+`docs/V1.1-FIRST-UPGRADE.md`
+
+The candidate preflight binds its own worktree HEAD to the approved SHA while inspecting the unchanged production root.
+
 ## Remote/network gate
 
 Remote deployment is allowed only after the Tailscale/OpenSSH ceremony in `docs/REMOTE-ACCESS.md` is complete.
@@ -121,7 +131,7 @@ This proves, among other things:
 - exact local `origin/zion-v1` SHA match;
 - a read-only `git ls-remote` check that the live GitHub `zion-v1` head equals the approved SHA;
 - local production branch identity;
-- clean tracked worktree;
+- clean worktree including non-ignored untracked files;
 - fast-forward relationship from current production;
 - private `.env` ownership/mode;
 - no detected self-hosted Actions runner;
@@ -209,6 +219,14 @@ Also inspect the deployment backup directory printed by `apply-zion-v1.sh`.
 ## Rollback model
 
 Rollback is a manual incident procedure, not an automatic GitHub action.
+
+Verified deployment backups are stored outside the bot-writable repository:
+
+```text
+/home/zetta/.local/share/zion-community-bot/deploy-backups/
+```
+
+The bot service's systemd writable paths do not include that directory.
 
 The pre-deploy backup contains:
 
