@@ -42,13 +42,13 @@ That means repository policy itself did not prevent direct writes/force-history 
 
 `apply-zion-v1.sh` previously enforced `ZION_EXPECTED_COMMIT` only when supplied. An operator could therefore run a deploy from the wrong local HEAD.
 
-**Remediation:** expected commit is mandatory, full-length, must equal current HEAD and the approved production ref. Deployment preflight/release verification also validate the expected GitHub origin and the live remote `zion-v1` SHA without mutating production. Previous commit can be recorded in backup metadata for rollback.
+**Remediation:** expected commit is mandatory and full-length. Pre-cutover gates require exact equality with the approved production ref and live GitHub `zion-v1` head. The apply phase requires the candidate HEAD to equal that immutable SHA and verifies it remains in the approved production history. The previous commit is mandatory and recorded for rollback.
 
 ### MEDIUM — predeploy candidate identity was not bound to production ref
 
 `predeploy-v11.sh` displayed the candidate SHA but did not require an exact approved SHA/ref relationship.
 
-**Remediation:** candidate verification now requires full `ZION_EXPECTED_COMMIT` and exact equality with `origin/zion-v1` (or an explicitly supplied approved ref).
+**Remediation:** candidate verification now requires full `ZION_EXPECTED_COMMIT` and exact equality with the fixed `origin/zion-v1` production ref.
 
 ### MEDIUM — remote-access preflight was informational only
 
@@ -67,6 +67,50 @@ Automatically accepting the first observed host key does not independently authe
 A late `99-` drop-in could lose to an earlier distro/cloud drop-in because OpenSSH commonly keeps the first value obtained for a keyword.
 
 **Remediation:** `ops/sshd/00-zion-remote.conf` is now the repository-authoritative high-precedence drop-in. A guarded installer requires proven key access and host identity, validates with `sshd -t`, reloads instead of restarting, verifies effective key/forwarding/session policy and rolls back the drop-in on failure. The strict preflight treats inability to prove effective sshd policy as a failure rather than a warning.
+
+## Independent adversarial review findings
+
+### HIGH — global `sshd -T` did not prove the real `Match` policy
+
+A global configuration dump can miss user/address-specific `Match` behavior. ZION could therefore appear hardened while the effective policy for the actual `zetta` Tailscale session differed.
+
+**Remediation:** installer and strict preflight now evaluate `sshd -T -C` with the real operator user, Tailscale client address, Tailscale local address and SSH port. Strict mode fails if that context cannot be proven.
+
+### HIGH — strict SSH preflight inherited path/user overrides
+
+Environment overrides intended for CI/reporting could redirect strict checks to alternate `.ssh`, `authorized_keys` or sshd drop-in paths.
+
+**Remediation:** strict mode fixes the operational identity to `zetta`, `/home/zetta/.ssh/authorized_keys` and `/etc/ssh/sshd_config.d/00-zion-remote.conf`. Overrides remain available only for `--report-only` test/inventory mode. The installer uses fixed sensitive paths and its template relative to its own reviewed worktree.
+
+### MEDIUM — SSH backup filename could collide
+
+A malformed shell interpolation produced a literal `.$.conf` suffix rather than a per-process identifier.
+
+**Remediation:** backups now include `$BASHPID` in addition to the UTC timestamp.
+
+### MEDIUM — rollback identity was optional
+
+A deployment could proceed without recording the prior production commit.
+
+**Remediation:** `ZION_PREVIOUS_COMMIT` is now mandatory, must be a full SHA, must exist, must differ from the candidate and must be an ancestor of it.
+
+### MEDIUM — live remote equality check created a cutover race
+
+After the operator had already selected/verified an immutable SHA, a later advance of `zion-v1` could make `apply-zion-v1.sh` refuse solely because the branch head changed, potentially after the service had already been stopped.
+
+**Remediation:** exact live-remote equality remains a **pre-cutover** gate in deployment preflight and approved-release verification. The apply phase verifies that the selected immutable SHA still belongs to the locally approved `origin/zion-v1` history, avoiding an unnecessary availability race while preserving the reviewed release identity.
+
+### MEDIUM — direct dependency gate omitted `idna`
+
+`idna` became a direct runtime dependency but `check-runtime.py` validated only the earlier three direct packages.
+
+**Remediation:** runtime compatibility now checks `idna>=3,<4`, and both predeploy/apply run `python -m pip check` before any production stop.
+
+### MEDIUM — low-priority sshd drop-in could lose precedence
+
+A `99-` drop-in may be too late on systems where earlier included files already set a keyword and OpenSSH keeps the first value.
+
+**Remediation:** the authoritative file moved to `00-zion-remote.conf`. Effective policy is still verified after installation. Alternate key/certificate sources are disabled with `AuthorizedKeysCommand none`, `TrustedUserCAKeys none` and `AuthorizedPrincipalsFile none`.
 
 ## Security invariants
 
