@@ -137,6 +137,40 @@ class SecurityTests(unittest.TestCase):
             )
         )
 
+    def test_zero_width_obfuscated_api_key_is_detected(self) -> None:
+        value = (
+            "api\u200b key: "
+            "example-secret-value-123456"
+        )
+        self.assertTrue(
+            contains_high_confidence_credential(value)
+        )
+        redacted = redact_secrets(value)
+        self.assertNotIn(
+            "example-secret-value-123456",
+            redacted,
+        )
+
+    def test_access_token_label_is_high_confidence(self) -> None:
+        self.assertTrue(
+            contains_high_confidence_credential(
+                "access token: example-access-token-123456"
+            )
+        )
+
+    def test_fullwidth_credential_label_is_normalized(self) -> None:
+        value = (
+            "ＡＰＩ ｋｅｙ： "
+            "example-secret-value-123456"
+        )
+        self.assertTrue(
+            contains_high_confidence_credential(value)
+        )
+        self.assertNotIn(
+            "example-secret-value-123456",
+            redact_secrets(value),
+        )
+
     def test_environment_secret_redacted(self) -> None:
         with patch.dict(
             os.environ,
