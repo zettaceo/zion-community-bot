@@ -150,6 +150,7 @@ class Runtime:
             self.health_alert_persistence_dirty = False
             self.health_incident_signature: str | None = None
             self.health_incident_id: str | None = None
+            self.health_incident_hydrated = False
             self.housekeeping_last_error: str | None = None
             self.wal_checkpoint_last_error: str | None = None
             self.state_maintenance_last_error: str | None = None
@@ -3929,6 +3930,163 @@ def housekeeping_cycle(
 
     return results, failures
 
+def hydrate_operational_health_incident(rt: Runtime) -> None:
+    if rt.health_incident_hydrated:
+        return
+
+    try:
+        signature = (
+            rt.db.get_setting("health_incident_signature")
+            or ""
+        ).strip()
+        incident_id = (
+            rt.db.get_setting("health_incident_id")
+            or ""
+        ).strip()
+
+        if signature and incident_id:
+            incident = rt.db.get_incident(incident_id)
+            if (
+                incident
+                and incident.get("status") == "open"
+                and incident.get("category")
+                == "operational_health_warning"
+            ):
+                rt.health_incident_signature = signature
+                rt.health_incident_id = incident_id
+            else:
+                with rt.db.transaction():
+                    rt.db.set_setting(
+                        "health_incident_signature",
+                        "",
+                    )
+                    rt.db.set_setting(
+                        "health_incident_id",
+                        "",
+                    )
+
+        rt.health_incident_hydrated = True
+    except Exception as exc:
+        logger.warning(
+            "Falha ao hidratar incidente operacional: %s",
+            type(exc).__name__,
+        )
+
+
+def transition_operational_health_incident(
+    rt: Runtime,
+    *,
+    signature: str,
+    issues: list[str],
+    snapshot,
+    p95_lag: float,
+) -> tuple[str | None, str | None]:
+    hydrate_operational_health_incident(rt)
+
+    previous_incident_id = rt.health_incident_id
+
+    if not issues:
+        if previous_incident_id:
+            try:
+                with rt.db.transaction():
+                    if not rt.db.set_incident_status(
+                        previous_incident_id,
+                        "resolved",
+                    ):
+                        raise RuntimeError(
+                            "operational incident not found"
+                        )
+                    rt.db.set_setting(
+                        "health_incident_signature",
+                        "",
+                    )
+                    rt.db.set_setting(
+                        "health_incident_id",
+                        "",
+                    )
+                rt.health_incident_signature = None
+                rt.health_incident_id = None
+            except Exception as exc:
+                logger.warning(
+                    "Falha ao resolver incidente operacional: %s",
+                    type(exc).__name__,
+                )
+        return None, previous_incident_id
+
+    if (
+        signature == rt.health_incident_signature
+        and rt.health_incident_id
+    ):
+        return rt.health_incident_id, None
+
+    try:
+        new_incident_id: str
+        with rt.db.transaction():
+            if previous_incident_id:
+                if not rt.db.set_incident_status(
+                    previous_incident_id,
+                    "resolved",
+                ):
+                    raise RuntimeError(
+                        "previous operational incident not found"
+                    )
+
+            new_incident_id = rt.db.create_incident(
+                chat_id=None,
+                user_id=None,
+                category="operational_health_warning",
+                severity=(
+                    Severity.HIGH
+                    if rt.delivery_health_blocked
+                    or "housekeeping_failed" in issues
+                    or "delivery_safety_preflight_failed" in issues
+                    else Severity.MEDIUM
+                ),
+                source="health",
+                evidence={
+                    "issues": issues,
+                    "disk_free_mb": snapshot.disk_free_mb,
+                    "telegram_update_lag_p95": round(p95_lag, 3),
+                    "repeat_interval_seconds": (
+                        rt.settings.health_alert_repeat_seconds
+                    ),
+                    "housekeeping_error_type": (
+                        rt.housekeeping_last_error
+                    ),
+                    "wal_checkpoint_error_type": (
+                        rt.wal_checkpoint_last_error
+                    ),
+                    "state_maintenance_error_type": (
+                        rt.state_maintenance_last_error
+                    ),
+                    "delivery_guard_error_type": (
+                        rt.delivery_guard_last_error
+                    ),
+                },
+                note=(
+                    "Operational alert; no automated destructive action executed."
+                ),
+            )
+            rt.db.set_setting(
+                "health_incident_signature",
+                signature,
+            )
+            rt.db.set_setting(
+                "health_incident_id",
+                new_incident_id,
+            )
+
+        rt.health_incident_signature = signature
+        rt.health_incident_id = new_incident_id
+        return new_incident_id, previous_incident_id
+    except Exception as exc:
+        logger.warning(
+            "Falha ao transicionar incidente operacional: %s",
+            type(exc).__name__,
+        )
+        return None, None
+
+
 async def operational_alert_cycle(
     application: Application,
     rt: Runtime,
@@ -4138,58 +4296,15 @@ async def operational_alert_cycle(
     rt.health_alert_signature = previous
     rt.health_alert_last_sent_at = last_sent_at
 
-    incident_id: str | None = None
-    if not issues:
-        # A future recurrence after health has cleared is a new incident,
-        # regardless of whether the recovery notification is delivered.
-        rt.health_incident_signature = None
-        rt.health_incident_id = None
-    elif signature == rt.health_incident_signature:
-        incident_id = rt.health_incident_id
-    else:
-        # Incident persistence is independent from Telegram-notification
-        # deduplication. If this write fails, retry it on the next health
-        # check even when an operator already received the alert.
-        try:
-            incident_id = rt.db.create_incident(
-                chat_id=None,
-                user_id=None,
-                category="operational_health_warning",
-                severity=(
-                    Severity.HIGH
-                    if rt.delivery_health_blocked
-                    or "housekeeping_failed" in issues
-                    or "delivery_safety_preflight_failed" in issues
-                    else Severity.MEDIUM
-                ),
-                source="health",
-                evidence={
-                    "issues": issues,
-                    "disk_free_mb": snapshot.disk_free_mb,
-                    "telegram_update_lag_p95": round(p95_lag, 3),
-                    "repeat_interval_seconds": (
-                        rt.settings.health_alert_repeat_seconds
-                    ),
-                    "housekeeping_error_type": rt.housekeeping_last_error,
-                    "wal_checkpoint_error_type": rt.wal_checkpoint_last_error,
-                    "state_maintenance_error_type": (
-                        rt.state_maintenance_last_error
-                    ),
-                    "delivery_guard_error_type": (
-                        rt.delivery_guard_last_error
-                    ),
-                },
-                note=(
-                    "Operational alert; no automated destructive action executed."
-                ),
-            )
-            rt.health_incident_signature = signature
-            rt.health_incident_id = incident_id
-        except Exception as exc:
-            logger.warning(
-                "Falha ao persistir incidente operacional: %s",
-                type(exc).__name__,
-            )
+    incident_id, recovered_incident_id = (
+        transition_operational_health_incident(
+            rt,
+            signature=signature,
+            issues=issues,
+            snapshot=snapshot,
+            p95_lag=p95_lag,
+        )
+    )
 
     if signature == previous:
         if signature == "OK":
@@ -4228,7 +4343,7 @@ async def operational_alert_cycle(
 
             try:
                 rt.db.record_action(
-                    incident_id=None,
+                    incident_id=recovered_incident_id,
                     chat_id=operator_id,
                     user_id=None,
                     action_type="operator_recovery",
