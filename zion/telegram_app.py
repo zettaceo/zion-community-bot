@@ -2644,7 +2644,7 @@ async def ama_open_command(
             metadata={"ama_id": ama_id},
         )
     await update.effective_message.reply_text(
-        f"🎙️ AMA aberto: {title[:200]}\n"
+        f"🎙️ AMA aberto: {safe_display_text(title, 200)}\n"
         "Envie perguntas com /ama <pergunta>. "
         "As perguntas ficam armazenadas temporariamente para organização do AMA."
     )
@@ -3169,6 +3169,8 @@ async def _enforce_flood(
     else:
         action_text = (
             f"silenciado por {format_duration(flood.mute_seconds)}."
+            if success
+            else "mute falhou; contenção local mantida."
         )
 
     try:
