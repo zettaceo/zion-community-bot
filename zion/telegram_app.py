@@ -2978,6 +2978,48 @@ async def command_idempotency_guard_handler(
             "Falha no gate de idempotência do comando: %s",
             type(exc).__name__,
         )
+
+        # A falha do ledger de idempotência não pode fazer um comando
+        # contendo segredo escapar da camada universal de proteção.
+        message = update.effective_message
+        if message is not None:
+            text = message.text or message.caption or ""
+            sensitive_surface = "\n".join(
+                [text] + telegram_entity_targets(message)
+            )
+            try:
+                if await protect_credential_exposure(
+                    update,
+                    context,
+                    sensitive_surface,
+                    source="guardian_command_idempotency_failure",
+                    notice_text=(
+                        "🚨 ZION bloqueou um comando que aparentava conter "
+                        "uma credencial. O conteúdo não foi processado."
+                    ),
+                ):
+                    raise ApplicationHandlerStop from exc
+
+                if await protect_wallet_secret(
+                    update,
+                    context,
+                    sensitive_surface,
+                    source="guardian_command_idempotency_failure",
+                    notice_text=(
+                        "🚨 ZION bloqueou um comando que aparentava conter "
+                        "segredo de carteira. O conteúdo não foi processado."
+                    ),
+                ):
+                    raise ApplicationHandlerStop from exc
+            except ApplicationHandlerStop:
+                raise
+            except Exception as protection_exc:
+                logger.error(
+                    "Falha adicional na proteção de segredo após erro "
+                    "de idempotência: %s",
+                    type(protection_exc).__name__,
+                )
+
         raise ApplicationHandlerStop from exc
 
     if not claimed:
