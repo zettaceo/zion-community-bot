@@ -4154,8 +4154,7 @@ async def operational_alert_cycle(
                 category="operational_health_warning",
                 severity=(
                     Severity.HIGH
-                    if not snapshot.db_ok
-                    or "sqlite_pragmas_unavailable" in issues
+                    if rt.delivery_health_blocked
                     or "housekeeping_failed" in issues
                     or "delivery_safety_preflight_failed" in issues
                     else Severity.MEDIUM
