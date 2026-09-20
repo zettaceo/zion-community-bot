@@ -40,6 +40,12 @@ SECRET_PARAMETER_REGEX = re.compile(
     r"([^&\s]+)"
 )
 
+PRIVATE_KEY_BLOCK_REGEX = re.compile(
+    r"(?is)-----BEGIN [A-Z0-9 -]*PRIVATE KEY-----"
+    r".*?"
+    r"-----END [A-Z0-9 -]*PRIVATE KEY-----"
+)
+
 
 def _sensitive_values() -> list[str]:
     values = {
@@ -59,6 +65,8 @@ def contains_high_confidence_credential(value: object) -> bool:
     if BEARER_REGEX.search(text):
         return True
     if LABELED_CREDENTIAL_REGEX.search(text):
+        return True
+    if PRIVATE_KEY_BLOCK_REGEX.search(text):
         return True
     return any(secret in text for secret in _sensitive_values())
 
@@ -80,6 +88,10 @@ def redact_secrets(value: object) -> str:
     )
     text = SECRET_PARAMETER_REGEX.sub(
         r"\1[REDACTED]",
+        text,
+    )
+    text = PRIVATE_KEY_BLOCK_REGEX.sub(
+        "[REDACTED_PRIVATE_KEY]",
         text,
     )
     return text

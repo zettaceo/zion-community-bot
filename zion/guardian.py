@@ -152,6 +152,40 @@ def detect_sensitive_content(text: str) -> SensitiveContentDecision:
             ),
         )
 
+    # Solana and other ecosystems may serialize private keys as Base58 rather
+    # than hexadecimal. The sensitive label above is mandatory, which keeps
+    # ordinary addresses/transaction identifiers out of this rule.
+    if re.search(r"(?<![1-9A-HJ-NP-Za-km-z])[1-9A-HJ-NP-Za-km-z]{48,128}(?![1-9A-HJ-NP-Za-km-z])", tail):
+        return SensitiveContentDecision(
+            detected=True,
+            kind="possible_private_key",
+            reason=(
+                "possível chave privada Base58 identificada "
+                "junto a um rótulo sensível"
+            ),
+        )
+
+    # Solana secret-key exports are also commonly represented as a JSON-like
+    # array of 64 byte values. Validate both count and byte range.
+    array_match = re.search(
+        r"\[((?:\s*\d{1,3}\s*,){31,63}\s*\d{1,3}\s*)\]",
+        tail,
+    )
+    if array_match:
+        values = [
+            int(value)
+            for value in re.findall(r"\d{1,3}", array_match.group(1))
+        ]
+        if len(values) in {32, 64} and all(0 <= value <= 255 for value in values):
+            return SensitiveContentDecision(
+                detected=True,
+                kind="possible_private_key",
+                reason=(
+                    "possível chave privada em array de bytes identificada "
+                    "junto a um rótulo sensível"
+                ),
+            )
+
     return SensitiveContentDecision()
 
 

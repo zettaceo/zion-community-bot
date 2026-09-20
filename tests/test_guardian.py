@@ -87,6 +87,28 @@ class GuardianTests(unittest.TestCase):
             detect_sensitive_content(text).detected
         )
 
+
+    def test_labeled_base58_private_key_is_detected(self) -> None:
+        # Synthetic Base58-shaped material; not a real key.
+        value = "1" * 88
+        decision = detect_sensitive_content(
+            f"private key: {value}"
+        )
+        self.assertTrue(decision.detected)
+        self.assertEqual(decision.kind, "possible_private_key")
+
+    def test_labeled_byte_array_private_key_is_detected(self) -> None:
+        values = ",".join(str(index % 256) for index in range(64))
+        decision = detect_sensitive_content(
+            f"private key: [{values}]"
+        )
+        self.assertTrue(decision.detected)
+        self.assertEqual(decision.kind, "possible_private_key")
+
+    def test_unlabeled_base58_material_is_not_deleted(self) -> None:
+        value = "1" * 88
+        self.assertFalse(detect_sensitive_content(value).detected)
+
     def test_elevated_state_tightens_flood_threshold(self) -> None:
         self.db.set_operating_state(OperatingState.ELEVATED)
         now = 2000.0

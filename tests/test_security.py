@@ -137,6 +137,18 @@ class SecurityTests(unittest.TestCase):
             )
         )
 
+
+    def test_private_key_block_is_high_confidence_and_redacted(self) -> None:
+        value = (
+            "-----BEGIN OPENSSH PRIVATE KEY-----\n"
+            "example-private-material-not-real\n"
+            "-----END OPENSSH PRIVATE KEY-----"
+        )
+        self.assertTrue(contains_high_confidence_credential(value))
+        redacted = redact_secrets(value)
+        self.assertNotIn("example-private-material-not-real", redacted)
+        self.assertIn("[REDACTED_PRIVATE_KEY]", redacted)
+
     def test_environment_secret_redacted(self) -> None:
         with patch.dict(
             os.environ,
