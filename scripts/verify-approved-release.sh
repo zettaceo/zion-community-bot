@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ROOT="/home/zetta/zion-community-bot"
+SYSTEM_PYTHON="/usr/bin/python3"
 EXPECTED="${ZION_DEPLOY_COMMIT:-}"
 REMOTE_BRANCH="zion-v1"
 APPROVED_REF="origin/zion-v1"
@@ -19,6 +21,12 @@ if [[ "$(id -un)" != "$EXPECTED_USER" ]]; then
   echo "ERRO: execute como $EXPECTED_USER." >&2
   exit 2
 fi
+if [[ ! -x "$SYSTEM_PYTHON" ]]; then
+  echo "ERRO: $SYSTEM_PYTHON ausente." >&2
+  exit 2
+fi
+"$SYSTEM_PYTHON" -I "$SCRIPT_ROOT/scripts/check-git-release-boundary.py" \
+  --root "$ROOT"
 if [[ "${ZION_GITHUB_GATES_PROVEN:-}" != "YES" ]]; then
   echo "ERRO: confirme os gates GitHub antes de verificar release aprovado." >&2
   exit 2
