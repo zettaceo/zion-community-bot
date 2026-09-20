@@ -11,6 +11,8 @@ from unittest.mock import patch
 from tests.helpers import make_settings
 from zion.telegram_app import (
     Runtime,
+    allow_domain_command,
+    block_domain_command,
     ama_open_command,
     ama_question_command,
     report_command,
@@ -106,6 +108,53 @@ class CommunityCommandRateLimitTests(unittest.TestCase):
         self.assertEqual(len(update.effective_message.replies), 1)
         self.assertIn("ZION STATS\n", update.effective_message.replies[0])
         self.assertIn("Pending scheduled: 0", update.effective_message.replies[0])
+
+    def test_domain_policy_changes_are_audited(self) -> None:
+        allow_update = make_update(
+            user_id=1,
+            message_id=5,
+        )
+        asyncio.run(
+            allow_domain_command(
+                allow_update,
+                FakeContext(
+                    self.runtime,
+                    ["trusted.example"],
+                ),
+            )
+        )
+
+        self.assertEqual(
+            self.runtime.db.domain_disposition("trusted.example"),
+            "allow",
+        )
+        self.assertEqual(
+            self.runtime.db.stats()["actions"],
+            1,
+        )
+
+        block_update = make_update(
+            user_id=1,
+            message_id=6,
+        )
+        asyncio.run(
+            block_domain_command(
+                block_update,
+                FakeContext(
+                    self.runtime,
+                    ["trusted.example"],
+                ),
+            )
+        )
+
+        self.assertEqual(
+            self.runtime.db.domain_disposition("trusted.example"),
+            "block",
+        )
+        self.assertEqual(
+            self.runtime.db.stats()["actions"],
+            2,
+        )
 
     def test_report_rate_limit_prevents_incident_spam(self) -> None:
         target = SimpleNamespace(
