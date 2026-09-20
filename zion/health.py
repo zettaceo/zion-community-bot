@@ -24,6 +24,13 @@ class HealthService:
         self.db = db
         self._started_monotonic = time.monotonic()
         self._integrity_checked_at = float("-inf")
+        self._integrity_cache_seconds = max(
+            1,
+            min(
+                300,
+                int(settings.health_check_interval_seconds),
+            ),
+        )
         self._integrity_cache: dict[str, object] = {
             "ok": True,
             "database_ok": True,
@@ -34,7 +41,10 @@ class HealthService:
 
     def _integrity_status(self) -> dict[str, object]:
         now = time.monotonic()
-        if now - self._integrity_checked_at >= 300:
+        if (
+            now - self._integrity_checked_at
+            >= self._integrity_cache_seconds
+        ):
             try:
                 self._integrity_cache = self.db.verify_integrity(
                     full=False
