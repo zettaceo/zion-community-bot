@@ -62,13 +62,11 @@ class PythonReleaseEnvironmentTests(unittest.TestCase):
                 f"Path({str(marker)!r}).write_text('executed', encoding='utf-8')\n",
                 encoding="utf-8",
             )
-            probe = attack / "probe.py"
-            probe.write_text("import sqlite3\n", encoding="utf-8")
-
             env = self.clean_env()
             env["PYTHONPATH"] = str(attack)
             plain = subprocess.run(
-                [sys.executable, str(probe)],
+                [sys.executable, "-c", "import sqlite3"],
+                cwd=ROOT,
                 env=env,
                 text=True,
                 capture_output=True,
