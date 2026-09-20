@@ -6,7 +6,8 @@ EXPECTED="${ZION_DEPLOY_COMMIT:-}"
 REMOTE_BRANCH="zion-v1"
 APPROVED_REF="origin/zion-v1"
 EXPECTED_REPO="zettaceo/zion-community-bot"
-PYTHON="${ZION_RUNTIME_PYTHON:-$ROOT/.venv/bin/python}"
+RUNTIME_BASE="/home/zetta/.local/share/zion-community-bot/runtimes"
+PYTHON="$RUNTIME_BASE/$EXPECTED/bin/python"
 EXPECTED_USER="zetta"
 
 if [[ ! "$EXPECTED" =~ ^[0-9a-fA-F]{40}$ ]]; then
@@ -23,8 +24,10 @@ if [[ "${ZION_GITHUB_GATES_PROVEN:-}" != "YES" ]]; then
   exit 2
 fi
 
-if [[ ! -x "$PYTHON" ]]; then
-  echo "ERRO: runtime Python ausente: $PYTHON" >&2
+if [[ ! -x "$PYTHON" ]] \
+  || [[ ! -f "$RUNTIME_BASE/$EXPECTED/release-sha.txt" ]] \
+  || [[ "$(cat "$RUNTIME_BASE/$EXPECTED/release-sha.txt" 2>/dev/null || true)" != "$EXPECTED" ]]; then
+  echo "ERRO: runtime candidato por SHA ausente ou inválido." >&2
   exit 2
 fi
 
@@ -83,7 +86,6 @@ echo "Approved release candidate: $EXPECTED"
 echo "Temporary candidate worktree: created"
 echo "Production service remains running during verification."
 
-ZION_RUNTIME_PYTHON="$PYTHON" \
 ZION_EXPECTED_COMMIT="$EXPECTED" \
 ZION_GITHUB_GATES_PROVEN=YES \
   bash "$candidate/scripts/predeploy-v11.sh"
