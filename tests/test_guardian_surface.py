@@ -115,10 +115,8 @@ class TelegramLinkSurfaceTests(unittest.TestCase):
             extra_urls=["tg://resolve?domain=untrusted"],
         )
         self.assertTrue(decision.should_delete)
-        self.assertIn(
-            "<invalid-or-unsupported-url>",
-            decision.unauthorized_domains,
-        )
+        self.assertEqual(decision.unauthorized_domains, [])
+        self.assertIn("tg", decision.unsupported_schemes)
 
     def test_display_text_strips_control_and_bidi_formatting(self) -> None:
         value = "Alice\n\u202eADMIN\tSupport"
