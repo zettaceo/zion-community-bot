@@ -144,6 +144,7 @@ class Runtime:
             ] = {}
             self.admin_cache_next_prune_at = 0.0
             self.update_lags: deque[float] = deque(maxlen=100)
+            self.update_lag_last_sample_monotonic = 0.0
             self.health_alert_signature: str | None = None
             self.health_alert_last_sent_at = 0.0
             self.health_alert_persistence_dirty = False
@@ -519,7 +520,9 @@ def record_update_lag(
         )
     except Exception:
         return
-    runtime(context).update_lags.append(lag)
+    rt = runtime(context)
+    rt.update_lags.append(lag)
+    rt.update_lag_last_sample_monotonic = time.monotonic()
 
 
 def update_lag_stats(rt: Runtime) -> tuple[float, float]:
@@ -952,8 +955,27 @@ async def diagnostics_command(
         disk_state = "LOW" if diag["disk_low"] else "OK"
 
     lag_count = len(rt.update_lags)
+    lag_sample_max_age = max(
+        120,
+        rt.settings.health_check_interval_seconds * 2,
+    )
+    lag_sample_age = (
+        max(
+            0.0,
+            time.monotonic()
+            - rt.update_lag_last_sample_monotonic,
+        )
+        if rt.update_lag_last_sample_monotonic > 0
+        else None
+    )
+    lag_sample_fresh = (
+        lag_sample_age is not None
+        and lag_sample_age <= lag_sample_max_age
+    )
     if not lag_count:
         lag_state = "NO-SAMPLES"
+    elif not lag_sample_fresh:
+        lag_state = "STALE"
     else:
         lag_state = (
             "WARNING"
@@ -1057,7 +1079,8 @@ async def diagnostics_command(
         f"{'PRESENT' if diag['wifi_interface_present'] else 'MISSING'}\n"
         f"Telegram update lag latest/p95/n: "
         f"{latest_lag:.2f}s/{p95_lag:.2f}s/{lag_count} "
-        f"[{lag_state}]\n"
+        f"[{lag_state}; age="
+        f"{'n/a' if lag_sample_age is None else f'{lag_sample_age:.0f}s'}]\n"
         f"AI latency 24h avg/p95: "
         f"{latency['avg_ms']}ms/{latency['p95_ms']}ms "
         f"(n={latency['count']}) "
@@ -3992,8 +4015,21 @@ async def operational_alert_cycle(
         issues.append("sensitive_file_permissions")
     if not snapshot.wifi_interface_present:
         issues.append("wifi_interface_missing")
+    lag_sample_max_age = max(
+        120,
+        rt.settings.health_check_interval_seconds * 2,
+    )
+    lag_sample_fresh = (
+        rt.update_lag_last_sample_monotonic > 0
+        and (
+            time.monotonic()
+            - rt.update_lag_last_sample_monotonic
+        )
+        <= lag_sample_max_age
+    )
     if (
         rt.update_lags
+        and lag_sample_fresh
         and p95_lag > rt.settings.update_lag_warn_seconds
     ):
         issues.append("telegram_update_lag")
