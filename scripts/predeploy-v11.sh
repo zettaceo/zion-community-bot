@@ -64,8 +64,11 @@ echo "[4/8] Candidate systemd unit..."
 echo "systemd_unit=OK"
 
 echo
-echo "[5/8] Production config readiness (read-only)..."
-PROD_ENV="$PROD_ENV" "$PYTHON" - <<'PY'
+echo "[5/8] Production config + candidate knowledge readiness (read-only)..."
+PROD_ENV="$PROD_ENV" \
+PROD_ROOT="$PROD_ROOT" \
+CANDIDATE_ROOT="$ROOT" \
+"$PYTHON" - <<'PY'
 import os
 import stat
 from pathlib import Path
@@ -73,10 +76,14 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 env_path = Path(os.environ["PROD_ENV"])
+prod_root = Path(os.environ["PROD_ROOT"]).resolve()
+candidate_root = Path(os.environ["CANDIDATE_ROOT"]).resolve()
+
 if not env_path.is_file() or env_path.is_symlink():
     raise RuntimeError("production .env absent or symlinked")
 
-mode = stat.S_IMODE(env_path.stat().st_mode)
+info = env_path.stat()
+mode = stat.S_IMODE(info.st_mode)
 if mode & 0o077:
     raise RuntimeError(
         f"production .env permissions too broad: {oct(mode)}"
@@ -85,8 +92,23 @@ if env_path.owner() != "zetta":
     raise RuntimeError(
         f"production .env owner must be zetta: {env_path.owner()}"
     )
+if info.st_nlink != 1:
+    raise RuntimeError("production .env must not have hard links")
 
 load_dotenv(env_path, override=True)
+
+# Settings is imported from the detached candidate worktree, but
+# root-relative runtime defaults must model the real production root.
+os.environ.setdefault("ZION_DB_PATH", str(prod_root / "zion.db"))
+os.environ.setdefault(
+    "ZION_STATE_FILE",
+    str(prod_root / "zion_state.json"),
+)
+os.environ.setdefault(
+    "ZION_KNOWLEDGE_DIR",
+    str(prod_root / "knowledge"),
+)
+os.environ.setdefault("ZION_LOG_PATH", str(prod_root / "zion.log"))
 
 from zion.config import Settings
 from zion.knowledge import KnowledgeBase
@@ -104,12 +126,19 @@ if settings.ai_enabled and not MistralClient(settings).configured:
         "AI enabled without complete official Mistral configuration"
     )
 
-knowledge = KnowledgeBase(settings.knowledge_dir)
+configured_knowledge = settings.knowledge_dir.resolve(strict=False)
+default_prod_knowledge = (prod_root / "knowledge").resolve(strict=False)
+if configured_knowledge == default_prod_knowledge:
+    knowledge_path = candidate_root / "knowledge"
+else:
+    knowledge_path = configured_knowledge
+
+knowledge = KnowledgeBase(knowledge_path)
 if not knowledge.chunks:
-    raise RuntimeError("candidate knowledge base empty")
+    raise RuntimeError("candidate/effective knowledge base empty")
 if knowledge.load_errors:
     raise RuntimeError(
-        "candidate knowledge errors: "
+        "candidate/effective knowledge errors: "
         + ",".join(knowledge.load_errors)
     )
 
@@ -117,12 +146,18 @@ print(
     "production config: OK | "
     f"operators={len(settings.admin_user_ids)} | "
     f"ai_enabled={settings.ai_enabled} | "
-    f"candidate_knowledge_chunks={len(knowledge.chunks)}"
+    f"db_path={settings.db_path} | "
+    f"knowledge_source={knowledge_path} | "
+    f"knowledge_chunks={len(knowledge.chunks)}"
 )
 PY
 
 echo
-echo "[6/8] Current production service (no change)..."
+echo "[6/8] Current production service + dashboard alignment (no change)..."
+if ! /usr/bin/systemctl is-active --quiet "$SERVICE"; then
+  echo "ERRO: produção atual não está ativa; trate como incidente antes do release." >&2
+  exit 1
+fi
 /usr/bin/systemctl show "$SERVICE" \
   -p ActiveState \
   -p SubState \
@@ -130,12 +165,61 @@ echo "[6/8] Current production service (no change)..."
   -p NRestarts \
   -p ExecMainStartTimestamp
 
+PROD_DB_PATH="$(
+  PROD_ENV="$PROD_ENV" PROD_ROOT="$PROD_ROOT" "$PYTHON" - <<'PY'
+import os
+from pathlib import Path
+from dotenv import load_dotenv
+
+env_path = Path(os.environ["PROD_ENV"])
+prod_root = Path(os.environ["PROD_ROOT"]).resolve()
+load_dotenv(env_path, override=True)
+os.environ.setdefault("ZION_DB_PATH", str(prod_root / "zion.db"))
+
+from zion.config import Settings
+print(Settings.from_env().db_path.expanduser().resolve(strict=False))
+PY
+)"
+
+DASHBOARD_LOAD_STATE="$(
+  /usr/bin/systemctl show zion-dashboard.service \
+    -p LoadState --value 2>/dev/null || true
+)"
+if [[ -n "$DASHBOARD_LOAD_STATE" && "$DASHBOARD_LOAD_STATE" != "not-found" ]]; then
+  DASHBOARD_ENV="$(
+    /usr/bin/systemctl show zion-dashboard.service \
+      -p Environment --value 2>/dev/null || true
+  )"
+  DASHBOARD_DB_PATH="$(
+    printf '%s\n' "$DASHBOARD_ENV" \
+      | tr ' ' '\n' \
+      | sed -n 's/^ZION_DASHBOARD_DB_PATH=//p' \
+      | head -n1
+  )"
+  if [[ -z "$DASHBOARD_DB_PATH" ]]; then
+    echo "ERRO: dashboard instalado sem ZION_DASHBOARD_DB_PATH explícito." >&2
+    exit 1
+  fi
+  DASHBOARD_DB_PATH="$(
+    "$PYTHON" -c 'import os, pathlib; print(pathlib.Path(os.environ["P"]).expanduser().resolve(strict=False))' \
+      P="$DASHBOARD_DB_PATH"
+  )"
+  if [[ "$DASHBOARD_DB_PATH" != "$PROD_DB_PATH" ]]; then
+    echo "ERRO: dashboard aponta para DB diferente do bot." >&2
+    echo "bot_db=$PROD_DB_PATH" >&2
+    echo "dashboard_db=$DASHBOARD_DB_PATH" >&2
+    exit 1
+  fi
+  echo "dashboard_db_alignment=OK | db=$PROD_DB_PATH"
+fi
+
 echo
 echo "[7/8] Production SQLite backup to disposable /tmp copy..."
 COPY_DB="$TMP_ROOT/zion-copy.db"
 COPY_LEGACY="$TMP_ROOT/zion_state.json"
 
 PROD_ENV="$PROD_ENV" \
+PROD_ROOT="$PROD_ROOT" \
 COPY_DB="$COPY_DB" \
 COPY_LEGACY="$COPY_LEGACY" \
 "$PYTHON" - <<'PY'
@@ -146,7 +230,13 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 env_path = Path(os.environ["PROD_ENV"])
+prod_root = Path(os.environ["PROD_ROOT"]).resolve()
 load_dotenv(env_path, override=True)
+os.environ.setdefault("ZION_DB_PATH", str(prod_root / "zion.db"))
+os.environ.setdefault(
+    "ZION_STATE_FILE",
+    str(prod_root / "zion_state.json"),
+)
 
 from zion.config import Settings
 from zion.db import ZION_APPLICATION_ID, ZionDB
