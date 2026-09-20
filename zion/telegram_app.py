@@ -176,8 +176,15 @@ def format_duration(seconds: int) -> str:
     return f"{seconds} segundos"
 
 
-def telegram_entity_domains(message: Any) -> list[str]:
-    domains: list[str] = []
+def telegram_external_urls(message: Any) -> list[str]:
+    urls: list[str] = []
+
+    def add(candidate: object | None) -> None:
+        if candidate is None:
+            return
+        value = str(candidate).strip()
+        if value and value not in urls:
+            urls.append(value)
 
     entity_sets = (
         (
@@ -195,24 +202,35 @@ def telegram_entity_domains(message: Any) -> list[str]:
             entity_type = getattr(entity, "type", "")
             entity_type = getattr(entity_type, "value", entity_type)
 
-            candidate = None
             if entity_type == "text_link":
-                candidate = getattr(entity, "url", None)
+                add(getattr(entity, "url", None))
             elif entity_type == "url" and callable(parser):
                 try:
-                    candidate = parser(entity)
+                    add(parser(entity))
                 except Exception:
-                    candidate = None
+                    continue
 
-            if not candidate:
-                continue
+    markup = getattr(message, "reply_markup", None)
+    for row in getattr(markup, "inline_keyboard", None) or ():
+        for button in row or ():
+            add(getattr(button, "url", None))
+            login_url = getattr(button, "login_url", None)
+            add(getattr(login_url, "url", None))
+            web_app = getattr(button, "web_app", None)
+            add(getattr(web_app, "url", None))
 
-            domain = normalize_policy_domain(str(candidate))
-            if domain and domain not in domains:
-                domains.append(domain)
+    return urls
+
+
+def telegram_entity_domains(message: Any) -> list[str]:
+    domains: list[str] = []
+
+    for candidate in telegram_external_urls(message):
+        domain = normalize_policy_domain(candidate)
+        if domain and domain not in domains:
+            domains.append(domain)
 
     return domains
-
 
 def parse_duration(value: str) -> int | None:
     raw = (value or "").strip().lower()
@@ -2919,10 +2937,12 @@ async def command_guard_handler(
     record_user(update, context, increment_messages=True)
 
     text = message.text or message.caption or ""
+    external_urls = telegram_external_urls(message)
+    sensitive_surface = "\n".join((text, *external_urls))
     if await protect_credential_exposure(
         update,
         context,
-        text,
+        sensitive_surface,
         source="guardian_command_preflight",
         notice_text=(
             "🚨 ZION bloqueou um comando que aparentava conter "
@@ -2934,7 +2954,7 @@ async def command_guard_handler(
     if await protect_wallet_secret(
         update,
         context,
-        text,
+        sensitive_surface,
         source="guardian_command_preflight",
         notice_text=(
             "🚨 ZION bloqueou um comando que aparentava conter "
@@ -3045,10 +3065,12 @@ async def moderation_handler(
     # Segredos são protegidos para TODOS, inclusive administradores.
     # Admin não deve perder esta camada por causa da isenção de moderação.
     text = message.text or message.caption or ""
+    external_urls = telegram_external_urls(message)
+    sensitive_surface = "\n".join((text, *external_urls))
     if await protect_credential_exposure(
         update,
         context,
-        text,
+        sensitive_surface,
         source="guardian",
         notice_text=(
             f"🚨 {user_display_name(user)}: mensagem removida por "
@@ -3061,7 +3083,7 @@ async def moderation_handler(
     if await protect_wallet_secret(
         update,
         context,
-        text,
+        sensitive_surface,
         source="guardian",
         notice_text=(
             f"🚨 {user_display_name(user)}: mensagem removida por "

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import re
 import time
+
+import idna
 from urllib.parse import urlparse
 
 from .config import Settings
@@ -69,8 +71,12 @@ def _normalize_domain(raw_url: str) -> str | None:
     if not host:
         return None
     try:
-        host = host.encode("idna").decode("ascii").lower()
-    except (UnicodeError, ValueError):
+        host = idna.encode(
+            host,
+            uts46=True,
+            transitional=False,
+        ).decode("ascii").lower()
+    except (idna.IDNAError, UnicodeError, ValueError):
         return None
     return host or None
 
