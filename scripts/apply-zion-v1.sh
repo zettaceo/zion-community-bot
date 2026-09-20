@@ -35,6 +35,12 @@ fi
 
 cd "$ROOT"
 
+if /usr/bin/systemctl is-active --quiet zion.service; then
+  echo "ERRO: apply exige zion.service já parado pelo procedimento de cutover." >&2
+  echo "Não use apply-zion-v1.sh como atalho de deploy." >&2
+  exit 1
+fi
+
 echo "[1/15] Conferindo runtime candidato por SHA..."
 if [[ ! -d "$RUNTIME_DIR" || -L "$RUNTIME_DIR" || ! -x "$PYTHON" ]]; then
   echo "ERRO: runtime candidato inválido: $RUNTIME_DIR" >&2
@@ -331,11 +337,9 @@ else:
     print("sqlite backup: source database not present yet")
 PY
 
-echo "[9/15] Parando ZION somente após todos os gates e backup..."
-sudo /usr/bin/systemctl stop zion.service
-
+echo "[9/15] Confirmando janela de cutover parada..."
 if /usr/bin/systemctl is-active --quiet zion.service; then
-  echo "ERRO: zion.service permaneceu ativo após stop." >&2
+  echo "ERRO: zion.service voltou a ficar ativo durante o cutover." >&2
   exit 1
 fi
 
