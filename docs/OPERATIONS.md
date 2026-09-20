@@ -1,20 +1,23 @@
 # ZION Operations Runbook
 
-## Normal update flow
+## Controlled update flow
 
 Do not run a manual second polling process while systemd is running.
 
-Recommended deployment flow:
+Do **not** use `git pull && restart` as a production deployment procedure.
 
-```bash
-sudo systemctl stop zion.service
-git pull
-bash scripts/validate.sh
-sudo systemctl start zion.service
-systemctl status zion.service --no-pager --full
-```
+Remote production updates are commit-pinned and follow `docs/DEPLOYMENT-MODEL.md`:
 
-For the v1 modular migration, use `scripts/apply-zion-v1.sh` after review.
+1. merge an explicitly reviewed production PR into `zion-v1`;
+2. fetch `origin/zion-v1` without changing the running worktree;
+3. record the exact 40-character production SHA;
+4. run `scripts/deployment-preflight.sh`;
+5. run `scripts/verify-approved-release.sh` while the current bot remains online;
+6. only then stop the service and fast-forward local `zion-v1-prod`;
+7. run `scripts/apply-zion-v1.sh` with `ZION_EXPECTED_COMMIT` and the previous commit recorded for rollback;
+8. complete host + Telegram acceptance.
+
+`scripts/apply-zion-v1.sh` refuses an unpinned or non-production-ref commit.
 
 ## Health checks
 
@@ -195,9 +198,33 @@ ZION_AMA_RETENTION_DAYS=30
 
 ## Private remote operations
 
-Use `scripts/remote-access-preflight.sh` for a read-only host check after physical access is available.
+Bootstrap inventory:
 
-Follow `docs/REMOTE-ACCESS.md` for Tailscale + SSH setup and `docs/DEPLOYMENT-MODEL.md` for the deployment trust boundary.
+```bash
+bash scripts/remote-access-preflight.sh --report-only
+```
+
+Strict access gate:
+
+```bash
+bash scripts/remote-access-preflight.sh
+```
+
+SSH hardening is applied only after a real public-key login is proven:
+
+```bash
+ZION_REMOTE_ACCESS_PROVEN=YES bash scripts/apply-ssh-hardening.sh
+```
+
+The installer reloads sshd after `sshd -t`; it does not restart the bot, change Tailscale or change firewall/router policy.
+
+Before a remote deploy, the operator must separately verify GitHub branch protection and router/Tailnet exposure controls and explicitly attest them to `scripts/deployment-preflight.sh`.
+
+Follow:
+
+- `docs/REMOTE-ACCESS.md`
+- `docs/GITHUB-DEPLOY-GATES.md`
+- `docs/DEPLOYMENT-MODEL.md`
 
 
 ## Operational alert cadence
