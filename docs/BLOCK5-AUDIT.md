@@ -62,9 +62,11 @@ Automatically accepting the first observed host key does not independently authe
 
 **Remediation:** the runbook now requires out-of-band ED25519 host-key fingerprint comparison before storing the key; normal client config uses `StrictHostKeyChecking yes`, and the hardening installer requires a separate `ZION_HOSTKEY_PROVEN=YES` attestation.
 
-### MEDIUM — sshd hardening had no authoritative reviewed template
+### MEDIUM — sshd hardening had no authoritative reviewed template or precedence guarantee
 
-**Remediation:** `ops/sshd/99-zion-remote.conf` is now the repository-authoritative drop-in. A guarded installer requires proven key access and host identity, validates with `sshd -t`, reloads instead of restarting, verifies effective key/forwarding/session policy and rolls back the drop-in on failure. The strict preflight treats inability to prove effective sshd policy as a failure rather than a warning.
+A late `99-` drop-in could lose to an earlier distro/cloud drop-in because OpenSSH commonly keeps the first value obtained for a keyword.
+
+**Remediation:** `ops/sshd/00-zion-remote.conf` is now the repository-authoritative high-precedence drop-in. A guarded installer requires proven key access and host identity, validates with `sshd -t`, reloads instead of restarting, verifies effective key/forwarding/session policy and rolls back the drop-in on failure. The strict preflight treats inability to prove effective sshd policy as a failure rather than a warning.
 
 ## Security invariants
 
@@ -93,7 +95,7 @@ Primary Block 5 surfaces:
 - `scripts/verify-approved-release.sh`
 - `scripts/predeploy-v11.sh`
 - `scripts/apply-zion-v1.sh`
-- `ops/sshd/99-zion-remote.conf`
+- `ops/sshd/00-zion-remote.conf`
 
 ## Residual host/control-plane gates
 
