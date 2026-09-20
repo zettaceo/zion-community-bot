@@ -223,6 +223,17 @@ class GuardianTests(unittest.TestCase):
             detect_sensitive_content(text).detected
         )
 
+    def test_unicode_mnemonic_words_are_detected(self) -> None:
+        text = (
+            "mnemonic: "
+            "あいこくしん あいさつ あいだ あおぞら あかちゃん "
+            "あきる あけがた あける あこがれる あさい あさひ "
+            "あしあと"
+        )
+        decision = detect_sensitive_content(text)
+        self.assertTrue(decision.detected)
+        self.assertEqual(decision.kind, "possible_wallet_secret")
+
     def test_labeled_base58_private_key_is_detected(self) -> None:
         text = "private key: " + ("1" * 64)
         decision = detect_sensitive_content(text)
