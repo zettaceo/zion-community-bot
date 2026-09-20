@@ -54,6 +54,12 @@ else
   fail "candidate gate worktree contains tracked/untracked changes"
 fi
 
+if [[ -e "$SCRIPT_ROOT/.env" || -L "$SCRIPT_ROOT/.env" ]]; then
+  fail "candidate worktree must not contain an ignored .env"
+else
+  pass "candidate worktree has no local .env"
+fi
+
 if [[ ! -d "$ROOT/.git" && ! -f "$ROOT/.git" ]]; then
   fail "production Git worktree not found at $ROOT"
 else
@@ -115,15 +121,17 @@ else
   fail "operator user must be $EXPECTED_USER"
 fi
 
-if [[ -f "$ENV_FILE" && ! -L "$ENV_FILE" ]]; then
-  env_mode="$(stat -c '%a' "$ENV_FILE" 2>/dev/null || true)"
-  env_owner="$(stat -c '%U' "$ENV_FILE" 2>/dev/null || true)"
-  env_links="$(stat -c '%h' "$ENV_FILE" 2>/dev/null || true)"
-  [[ "$env_mode" == "600" ]] && pass ".env mode=600" || fail ".env mode=$env_mode"
-  [[ "$env_owner" == "$EXPECTED_USER" ]] && pass ".env owner=$EXPECTED_USER" || fail ".env owner=$env_owner"
-  [[ "$env_links" == "1" ]] && pass ".env single-link boundary" || fail ".env hard-link count=$env_links"
+if [[ -x "$ROOT/.venv/bin/python" ]]; then
+  if "$ROOT/.venv/bin/python" "$SCRIPT_ROOT/scripts/check-env-boundary.py" \
+    --env "$ENV_FILE" \
+    --allowlist "$SCRIPT_ROOT/.env.example" \
+    --owner "$EXPECTED_USER" >/dev/null; then
+    pass "production .env metadata and key allowlist are valid"
+  else
+    fail "production .env boundary validation failed"
+  fi
 else
-  fail ".env missing or symlinked"
+  fail "production virtualenv Python missing"
 fi
 
 if command -v systemctl >/dev/null 2>&1; then
