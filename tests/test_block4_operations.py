@@ -238,6 +238,7 @@ class Block4OperationsTests(unittest.TestCase):
             rt = Runtime(self._settings(root))
             rt.ai._circuit_failures = 99
             rt.ai._circuit_open_until = time.time() + 3600
+            rt.ai._accounting_healthy = False
             app = FakeApplication(rt)
 
             try:
