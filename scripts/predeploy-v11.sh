@@ -52,6 +52,7 @@ if [[ ! -x "$PYTHON" ]]; then
   exit 1
 fi
 "$PYTHON" "$ROOT/scripts/check-runtime.py"
+"$PYTHON" -m pip check
 
 echo
 echo "[3/8] Full repository validation..."
