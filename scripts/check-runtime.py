@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import sqlite3
 import sys
-from importlib.metadata import PackageNotFoundError, version
+from importlib.metadata import PackageNotFoundError, distributions, version
 from pathlib import Path
 
 
@@ -26,6 +26,14 @@ def package_version(name: str) -> str:
         return version(name)
     except PackageNotFoundError as exc:
         raise RuntimeError(f"missing package: {name}") from exc
+
+
+def canonical_distribution_name(value: str) -> str:
+    return "-".join(
+        chunk
+        for chunk in value.lower().replace("_", "-").replace(".", "-").split("-")
+        if chunk
+    )
 
 
 def require(
@@ -66,6 +74,11 @@ def runtime_lock() -> dict[str, str]:
 
 def verify_runtime_lock() -> dict[str, str]:
     locked = runtime_lock()
+    locked_names = {
+        canonical_distribution_name(name)
+        for name in locked
+    }
+
     for name, expected in locked.items():
         actual = package_version(name)
         require(
@@ -75,6 +88,27 @@ def verify_runtime_lock() -> dict[str, str]:
                 f"{name} expected={expected} actual={actual}"
             ),
         )
+
+    bootstrap_allowed = {"pip", "setuptools", "wheel"}
+    installed: set[str] = set()
+    for dist in distributions():
+        raw_name = str(dist.metadata.get("Name") or "").strip()
+        if not raw_name:
+            raise RuntimeError(
+                "installed distribution without a canonical name"
+            )
+        installed.add(canonical_distribution_name(raw_name))
+
+    unexpected = sorted(
+        installed - locked_names - bootstrap_allowed
+    )
+    require(
+        not unexpected,
+        (
+            "runtime contains distributions outside audited lock: "
+            + ",".join(unexpected)
+        ),
+    )
     return locked
 
 
