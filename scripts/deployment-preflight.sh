@@ -47,6 +47,12 @@ if [[ -n "$EXPECTED" && "$candidate_head" == "$EXPECTED" ]]; then
 else
   fail "preflight script worktree HEAD does not equal ZION_DEPLOY_COMMIT"
 fi
+candidate_status="$(git -C "$SCRIPT_ROOT" status --porcelain --untracked-files=all 2>/dev/null || true)"
+if [[ -z "$candidate_status" ]]; then
+  pass "candidate gate worktree is clean including non-ignored untracked files"
+else
+  fail "candidate gate worktree contains tracked/untracked changes"
+fi
 
 if [[ ! -d "$ROOT/.git" && ! -f "$ROOT/.git" ]]; then
   fail "production Git worktree not found at $ROOT"
@@ -89,10 +95,11 @@ else
     fail "current branch=$current_branch (expected $LOCAL_PROD_BRANCH)"
   fi
 
-  if git -C "$ROOT" diff --quiet     && git -C "$ROOT" diff --cached --quiet; then
-    pass "tracked production worktree is clean"
+  production_status="$(git -C "$ROOT" status --porcelain --untracked-files=all 2>/dev/null || true)"
+  if [[ -z "$production_status" ]]; then
+    pass "production worktree is clean including non-ignored untracked files"
   else
-    fail "tracked production worktree has local changes"
+    fail "production worktree has tracked/untracked changes"
   fi
 
   if [[ -n "$EXPECTED" && -n "$current_head" ]]     && git -C "$ROOT" merge-base --is-ancestor "$current_head" "$EXPECTED" 2>/dev/null; then
