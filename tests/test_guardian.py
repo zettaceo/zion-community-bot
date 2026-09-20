@@ -59,6 +59,11 @@ class GuardianTests(unittest.TestCase):
             decision.unsupported_schemes,
         )
 
+    def test_transitional_idna_mapping_cannot_alias_ascii_allowlist(self) -> None:
+        self.assertIsNone(
+            normalize_policy_domain("faß.de")
+        )
+
     def test_unicode_lookalike_remains_distinct_punycode(self) -> None:
         domain = normalize_policy_domain("еxample.com")
         self.assertIsNotNone(domain)
