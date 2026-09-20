@@ -288,6 +288,90 @@ class GuardianTests(unittest.TestCase):
         self.assertTrue(second.triggered)
         self.assertFalse(third.triggered)
 
+    def test_repeated_objective_flood_reaches_ban_threshold(self) -> None:
+        settings = replace(
+            self.settings,
+            flood_max_messages=2,
+            flood_mute_levels=(1, 2),
+            flood_ban_after_strikes=2,
+            flood_strike_reset_seconds=3600,
+        )
+        guardian = Guardian(settings, self.db)
+
+        first_cycle_1 = guardian.record_message(
+            chat_id=10,
+            user_id=60,
+            message_id=1,
+            now=1000.0,
+        )
+        first_cycle_2 = guardian.record_message(
+            chat_id=10,
+            user_id=60,
+            message_id=2,
+            now=1001.0,
+        )
+        self.assertFalse(first_cycle_1.triggered)
+        self.assertTrue(first_cycle_2.triggered)
+        self.assertEqual(first_cycle_2.strike_count, 1)
+        self.assertFalse(first_cycle_2.should_ban)
+
+        second_cycle_1 = guardian.record_message(
+            chat_id=10,
+            user_id=60,
+            message_id=3,
+            now=1010.0,
+        )
+        second_cycle_2 = guardian.record_message(
+            chat_id=10,
+            user_id=60,
+            message_id=4,
+            now=1011.0,
+        )
+        self.assertFalse(second_cycle_1.triggered)
+        self.assertTrue(second_cycle_2.triggered)
+        self.assertEqual(second_cycle_2.strike_count, 2)
+        self.assertTrue(second_cycle_2.should_ban)
+
+    def test_expired_flood_strike_does_not_drive_later_ban(self) -> None:
+        settings = replace(
+            self.settings,
+            flood_max_messages=2,
+            flood_mute_levels=(1,),
+            flood_ban_after_strikes=2,
+            flood_strike_reset_seconds=60,
+        )
+        guardian = Guardian(settings, self.db)
+
+        guardian.record_message(
+            chat_id=11,
+            user_id=61,
+            message_id=1,
+            now=2000.0,
+        )
+        first = guardian.record_message(
+            chat_id=11,
+            user_id=61,
+            message_id=2,
+            now=2001.0,
+        )
+        self.assertEqual(first.strike_count, 1)
+
+        guardian.record_message(
+            chat_id=11,
+            user_id=61,
+            message_id=3,
+            now=2100.0,
+        )
+        later = guardian.record_message(
+            chat_id=11,
+            user_id=61,
+            message_id=4,
+            now=2101.0,
+        )
+        self.assertTrue(later.triggered)
+        self.assertEqual(later.strike_count, 1)
+        self.assertFalse(later.should_ban)
+
     def test_manual_warning_does_not_advance_flood_ban_counter(self) -> None:
         now = 3000.0
         self.db.add_strike(
