@@ -132,6 +132,7 @@ class BackupPublicationTests(unittest.TestCase):
         script = (Path(__file__).resolve().parents[1] /
                   'scripts/apply-zion-v1.sh').read_text()
         self.assertIn('sha256sum "$ROOT/.env"', script)
+        self.assertIn('sha256sum -c "$DEST/env.sha256"', script)
         self.assertIn('stat -c', script)
         self.assertIn('A .env NÃO foi duplicada', script)
         self.assertNotRegex(script, r'(?:cp|install|copy2)\s+[^\n]*["/]\.env')
