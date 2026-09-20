@@ -14,7 +14,7 @@ EnvironmentFile=/home/zetta/zion-community-bot/.env
 # evitando ciclos de crash/restart durante o boot.
 ExecStartPre=/bin/sh -c 'until /usr/bin/getent hosts api.telegram.org >/dev/null 2>&1; do echo "ZION aguardando rede/DNS para api.telegram.org..."; sleep 5; done'
 
-ExecStart=/home/zetta/zion-community-bot/.venv/bin/python /home/zetta/zion-community-bot/bot.py
+ExecStart=/usr/bin/env ZION_DB_PATH=/home/zetta/.local/state/zion-community-bot/zion.db ZION_STATE_FILE=/home/zetta/.local/state/zion-community-bot/zion_state.json ZION_LOG_PATH=/home/zetta/.local/state/zion-community-bot/zion.log ZION_RUNTIME_LOCK_PATH=/home/zetta/.local/state/zion-community-bot/runtime.lock /home/zetta/.local/share/zion-community-bot/runtimes/current/bin/python /home/zetta/zion-community-bot/bot.py
 
 Restart=always
 RestartSec=10
@@ -26,8 +26,8 @@ TimeoutStopSec=20
 UMask=0077
 NoNewPrivileges=true
 
-# Sandbox de processo. O bot só precisa escrever no runtime local
-# e no diretório compartilhado de lock entre worktrees.
+# Sandbox de processo. Código, .env e runtime Python permanecem
+# somente leitura; somente o state dir contém estado mutável do bot.
 PrivateTmp=true
 PrivateDevices=true
 ProtectSystem=strict
@@ -41,7 +41,9 @@ RestrictSUIDSGID=true
 LockPersonality=true
 RestrictRealtime=true
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
-ReadWritePaths=/home/zetta/zion-community-bot
+ReadOnlyPaths=/home/zetta/zion-community-bot
+ReadOnlyPaths=/home/zetta/.local/share/zion-community-bot/runtimes
+InaccessiblePaths=/home/zetta/.local/share/zion-community-bot/deploy-backups
 ReadWritePaths=/home/zetta/.local/state/zion-community-bot
 
 [Install]

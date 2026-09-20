@@ -66,6 +66,30 @@ The deployment preflight fails if it detects a conventional `actions.runner.*` s
 
 CI remains GitHub-hosted and unprivileged relative to the Acer.
 
+## Audited Python runtime
+
+`requirements.txt` documents the supported dependency ranges for development, while `requirements.lock` is the exact audited v1.1 release environment.
+
+GitHub CI installs `requirements.lock`. Production releases do **not** mutate the venv used by the currently running bot.
+
+Before cutover, `scripts/prepare-release-runtime.sh` creates/verifies a runtime keyed by the approved release SHA under:
+
+```text
+/home/zetta/.local/share/zion-community-bot/runtimes/<sha>/
+```
+
+`scripts/check-runtime.py` requires Python 3.12.x, every locked distribution at the exact version, no unexpected distributions other than venv bootstrap tooling, and `pip check` consistency.
+
+The active service uses only:
+
+```text
+/home/zetta/.local/share/zion-community-bot/runtimes/current/bin/python
+```
+
+The `current` pointer is switched to the candidate only after the old service has stopped. Rollback records and restores the previous runtime target.
+
+Do not install/upgrade packages ad hoc during the cutover window.
+
 ## Release selection
 
 The deploy target is a full 40-character Git commit SHA.
@@ -86,6 +110,16 @@ Set:
 ```bash
 export ZION_DEPLOY_COMMIT=<40-character-approved-sha>
 ```
+
+## First v1 → v1.1 bootstrap
+
+The current v1 production commit predates the strict v1.1 release-gate scripts. For the first upgrade, do not assume those scripts already exist in the production checkout.
+
+Use the exact candidate SHA in a detached temporary worktree and follow:
+
+`docs/V1.1-FIRST-UPGRADE.md`
+
+The candidate preflight binds its own worktree HEAD to the approved SHA while inspecting the unchanged production root.
 
 ## Remote/network gate
 
@@ -121,7 +155,7 @@ This proves, among other things:
 - exact local `origin/zion-v1` SHA match;
 - a read-only `git ls-remote` check that the live GitHub `zion-v1` head equals the approved SHA;
 - local production branch identity;
-- clean tracked worktree;
+- clean worktree including non-ignored untracked files;
 - fast-forward relationship from current production;
 - private `.env` ownership/mode;
 - no detected self-hosted Actions runner;
@@ -164,9 +198,17 @@ PREVIOUS_HEAD="$(git rev-parse HEAD)"
 test "$(git branch --show-current)" = "zion-v1-prod"
 test "$(git rev-parse origin/zion-v1)" = "$ZION_DEPLOY_COMMIT"
 
+DASHBOARD_LOAD_STATE="$(
+  systemctl show zion-dashboard.service -p LoadState --value 2>/dev/null || true
+)"
+if [[ -n "$DASHBOARD_LOAD_STATE" && "$DASHBOARD_LOAD_STATE" != "not-found" ]]; then
+  sudo systemctl stop zion-dashboard.service
+fi
 sudo systemctl stop zion.service
 
-git merge --ff-only "$ZION_DEPLOY_COMMIT"
+GIT_NO_REPLACE_OBJECTS=1 \
+git -c core.hooksPath=/dev/null \
+  merge --ff-only "$ZION_DEPLOY_COMMIT"
 ```
 
 If the fast-forward fails, do **not** improvise with reset/rebase/force. The worktree is still on the previous release; restart the old service and investigate.
@@ -210,6 +252,14 @@ Also inspect the deployment backup directory printed by `apply-zion-v1.sh`.
 
 Rollback is a manual incident procedure, not an automatic GitHub action.
 
+Verified deployment backups are stored outside the bot-writable repository:
+
+```text
+/home/zetta/.local/share/zion-community-bot/deploy-backups/
+```
+
+The bot service's systemd writable paths do not include that directory.
+
 The pre-deploy backup contains:
 
 - deployed candidate SHA;
@@ -233,6 +283,22 @@ If post-deploy acceptance fails:
 10. open a forward-fix PR. Do not force-push the remote production branch backward.
 
 A host rollback can temporarily leave local `zion-v1-prod` behind `origin/zion-v1`. That is an emergency state, not a branch rewrite.
+
+## Immutable code / mutable state boundary
+
+The production service must not have write access to its code, `.env` or Python runtime.
+
+The reviewed v1.1 systemd contract forces mutable state to:
+
+```text
+/home/zetta/.local/state/zion-community-bot/
+```
+
+and marks the repository/runtime tree read-only.
+
+The main mutable artifacts are SQLite (including WAL/SHM), logs, legacy migration state when retained and the shared runtime lock. This prevents a compromised bot process from persisting by modifying repository code, release scripts, `.env` or its own Python environment.
+
+The currently installed root-owned `zion.service` is also the authority for where current production state lives: first-upgrade releases can read the legacy repository DB, while later v1.1 releases recognize the state-dir layout forced by the installed unit. This prevents future predeploy/backup logic from silently inspecting a stale legacy DB.
 
 ## Separation of duties
 

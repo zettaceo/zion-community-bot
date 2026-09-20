@@ -1,12 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ROOT="/home/zetta/zion-community-bot"
+SYSTEM_PYTHON="/usr/bin/python3"
 EXPECTED="${ZION_DEPLOY_COMMIT:-}"
 REMOTE_BRANCH="zion-v1"
 APPROVED_REF="origin/zion-v1"
 EXPECTED_REPO="zettaceo/zion-community-bot"
-PYTHON="${ZION_RUNTIME_PYTHON:-$ROOT/.venv/bin/python}"
+RUNTIME_BASE="/home/zetta/.local/share/zion-community-bot/runtimes"
+PYTHON="$RUNTIME_BASE/$EXPECTED/bin/python"
 EXPECTED_USER="zetta"
 
 if [[ ! "$EXPECTED" =~ ^[0-9a-fA-F]{40}$ ]]; then
@@ -18,13 +21,21 @@ if [[ "$(id -un)" != "$EXPECTED_USER" ]]; then
   echo "ERRO: execute como $EXPECTED_USER." >&2
   exit 2
 fi
+if [[ ! -x "$SYSTEM_PYTHON" ]]; then
+  echo "ERRO: $SYSTEM_PYTHON ausente." >&2
+  exit 2
+fi
+"$SYSTEM_PYTHON" -I "$SCRIPT_ROOT/scripts/check-git-release-boundary.py" \
+  --root "$ROOT"
 if [[ "${ZION_GITHUB_GATES_PROVEN:-}" != "YES" ]]; then
   echo "ERRO: confirme os gates GitHub antes de verificar release aprovado." >&2
   exit 2
 fi
 
-if [[ ! -x "$PYTHON" ]]; then
-  echo "ERRO: runtime Python ausente: $PYTHON" >&2
+if [[ ! -x "$PYTHON" ]] \
+  || [[ ! -f "$RUNTIME_BASE/$EXPECTED/release-sha.txt" ]] \
+  || [[ "$(cat "$RUNTIME_BASE/$EXPECTED/release-sha.txt" 2>/dev/null || true)" != "$EXPECTED" ]]; then
+  echo "ERRO: runtime candidato por SHA ausente ou inválido." >&2
   exit 2
 fi
 
@@ -74,14 +85,15 @@ cleanup() {
 }
 trap cleanup EXIT
 
-git -C "$ROOT" worktree add --detach "$candidate" "$EXPECTED" >/dev/null
+GIT_NO_REPLACE_OBJECTS=1 \
+git -c core.hooksPath=/dev/null -C "$ROOT" \
+  worktree add --detach "$candidate" "$EXPECTED" >/dev/null
 worktree_added=true
 
 echo "Approved release candidate: $EXPECTED"
 echo "Temporary candidate worktree: created"
 echo "Production service remains running during verification."
 
-ZION_RUNTIME_PYTHON="$PYTHON" \
 ZION_EXPECTED_COMMIT="$EXPECTED" \
 ZION_GITHUB_GATES_PROVEN=YES \
   bash "$candidate/scripts/predeploy-v11.sh"

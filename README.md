@@ -60,13 +60,18 @@ Keep `ZION_AI_OBSERVE=false` for the first AI support test.
 bash scripts/validate.sh
 ```
 
-## Deploy modular v1 after review
+## Production release
 
-```bash
-bash scripts/apply-zion-v1.sh
-```
+Do **not** run `scripts/apply-zion-v1.sh` as a standalone deployment shortcut.
 
-The script validates first and only then restarts systemd.
+The first production transition from the current v1 line to v1.1 must follow:
+
+- `docs/V1.1-FIRST-UPGRADE.md`
+- `docs/V1.1-RELEASE-AUDIT.md`
+- `docs/DEPLOYMENT-MODEL.md`
+- `docs/GITHUB-DEPLOY-GATES.md`
+
+Release selection is bound to one approved 40-character production SHA, with pre-cutover verification and rollback evidence. Repository CI does not substitute for real Acer/control-plane gates.
 
 ## Commands
 

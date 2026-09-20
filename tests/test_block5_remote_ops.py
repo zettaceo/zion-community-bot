@@ -222,7 +222,8 @@ class Block5RemoteOperationsTests(unittest.TestCase):
             "worktree remove --force",
             "predeploy-v11.sh",
             "ZION_EXPECTED_COMMIT",
-            "ZION_RUNTIME_PYTHON",
+            "runtimes",
+            "release-sha.txt",
             "No production service was stopped/restarted.",
         )
         for value in required:
@@ -322,7 +323,9 @@ class Block5RemoteOperationsTests(unittest.TestCase):
 
         self.assertIn("full 40-character Git commit SHA", text)
         self.assertIn("origin/zion-v1", text)
-        self.assertIn("git merge --ff-only", text)
+        self.assertIn("merge --ff-only", text)
+        self.assertIn("GIT_NO_REPLACE_OBJECTS=1", text)
+        self.assertIn("core.hooksPath=/dev/null", text)
         self.assertIn("Do not install a GitHub Actions self-hosted runner", text)
         self.assertIn("ZION_GITHUB_GATES_PROVEN=YES", text)
         self.assertIn("ZION_REMOTE_NETWORK_PROVEN=YES", text)

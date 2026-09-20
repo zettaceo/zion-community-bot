@@ -1,5 +1,24 @@
 # ZION Operations Runbook
 
+## Production filesystem boundary
+
+The v1.1 production service treats these areas differently:
+
+```text
+/home/zetta/zion-community-bot/                         code + .env, read-only to service
+/home/zetta/.local/share/zion-community-bot/runtimes/  versioned Python runtimes, read-only to service
+/home/zetta/.local/state/zion-community-bot/           mutable DB/log/lock/state, writable
+/home/zetta/.local/share/zion-community-bot/deploy-backups/ verified rollback evidence, not writable by service
+```
+
+The service must not need write permission to its code, release scripts, `.env` or Python environment.
+
+## Audited runtime dependencies
+
+Production release validation uses the exact package set in `requirements.lock`. A runtime that merely falls inside the broader `requirements.txt` ranges is not sufficient for the audited v1.1 release.
+
+`scripts/prepare-release-runtime.sh` builds/verifies the approved SHA runtime before downtime. `scripts/check-runtime.py` verifies the lock, rejects unexpected distributions and `python -m pip check` verifies dependency consistency. Package changes require a reviewed lock update and a new CI pass; do not mutate the runtime used by the currently running service.
+
 ## Controlled update flow
 
 Do not run a manual second polling process while systemd is running.
@@ -18,6 +37,8 @@ Remote production updates are commit-pinned and follow `docs/DEPLOYMENT-MODEL.md
 8. complete host + Telegram acceptance.
 
 `scripts/apply-zion-v1.sh` refuses an unpinned or non-production-ref commit.
+
+For the first production transition from the current v1 commit to v1.1, the strict gate scripts are not yet present in the old production checkout. Use the detached-candidate bootstrap in `docs/V1.1-FIRST-UPGRADE.md`; do not skip the gates or fast-forward production merely to obtain the scripts.
 
 ## Health checks
 
@@ -85,6 +106,8 @@ The old `zion_state.json` is imported once into SQLite when modular v1 first sta
 ## Backup
 
 A future remote backup target can be added after deciding retention/privacy policy. Until then, do not upload the SQLite file to public storage.
+
+Verified deployment rollback backups are written to `/home/zetta/.local/share/zion-community-bot/deploy-backups/`, outside the bot service's writable repository/state paths.
 
 ## AI budget
 
