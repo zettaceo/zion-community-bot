@@ -6,7 +6,11 @@ import subprocess
 from pathlib import Path
 
 
-def git(root: Path, *args: str) -> str:
+def git(
+    root: Path,
+    *args: str,
+    allow_no_match: bool = False,
+) -> str:
     env = os.environ.copy()
     env["GIT_NO_REPLACE_OBJECTS"] = "1"
     result = subprocess.run(
@@ -16,7 +20,8 @@ def git(root: Path, *args: str) -> str:
         env=env,
         check=False,
     )
-    if result.returncode != 0:
+    allowed_codes = {0, 1} if allow_no_match else {0}
+    if result.returncode not in allowed_codes:
         raise RuntimeError(
             "git boundary command failed: "
             + " ".join(args[:2])
@@ -67,6 +72,7 @@ def validate(root: Path) -> None:
         "--show-origin",
         "--get-all",
         "core.hooksPath",
+        allow_no_match=True,
     )
     if hooks_path:
         raise RuntimeError(
