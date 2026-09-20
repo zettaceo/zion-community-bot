@@ -85,6 +85,7 @@ fi
 
 echo "[3/13] Conferindo compatibilidade do runtime..."
 "$PYTHON" "$ROOT/scripts/check-runtime.py"
+"$PYTHON" -m pip check
 
 echo "[4/13] Validando código, testes, shell e segredos..."
 bash "$ROOT/scripts/validate.sh"
