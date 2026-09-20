@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+import stat
 import unicodedata
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
@@ -132,15 +133,42 @@ class PrivateRotatingFileHandler(RotatingFileHandler):
         base = Path(self.baseFilename)
         for candidate in base.parent.glob(base.name + "*"):
             try:
-                if candidate.is_symlink():
+                info = candidate.lstat()
+                if not stat.S_ISREG(info.st_mode):
                     continue
-                if candidate.is_file():
-                    os.chmod(candidate, 0o600)
+                if info.st_nlink != 1:
+                    continue
+                os.chmod(candidate, 0o600)
             except OSError:
                 pass
 
     def _open(self):
-        stream = super()._open()
+        flags = os.O_CREAT | os.O_WRONLY | os.O_APPEND
+        if hasattr(os, "O_NOFOLLOW"):
+            flags |= os.O_NOFOLLOW
+        if hasattr(os, "O_CLOEXEC"):
+            flags |= os.O_CLOEXEC
+
+        fd = os.open(self.baseFilename, flags, 0o600)
+        try:
+            info = os.fstat(fd)
+            if not stat.S_ISREG(info.st_mode):
+                raise RuntimeError("ZION log target must be a regular file.")
+            if info.st_nlink != 1:
+                raise RuntimeError("ZION log target must not have hard links.")
+            os.fchmod(fd, 0o600)
+            stream = open(
+                fd,
+                mode=self.mode,
+                encoding=self.encoding,
+                errors=self.errors,
+                closefd=True,
+            )
+            fd = -1
+        finally:
+            if fd >= 0:
+                os.close(fd)
+
         self._secure_files()
         return stream
 
@@ -162,8 +190,17 @@ def configure_logging(
     backup_count: int = 5,
 ) -> logging.Logger:
     log_path.parent.mkdir(parents=True, exist_ok=True)
-    if log_path.is_symlink():
-        raise RuntimeError("ZION log path must not be a symlink.")
+    if log_path.parent.is_symlink():
+        raise RuntimeError("ZION log directory must not be a symlink.")
+    try:
+        info = log_path.lstat()
+    except FileNotFoundError:
+        info = None
+    if info is not None:
+        if not stat.S_ISREG(info.st_mode):
+            raise RuntimeError("ZION log target must be a regular file.")
+        if info.st_nlink != 1:
+            raise RuntimeError("ZION log target must not have hard links.")
 
     formatter = SecretSafeFormatter(
         "%(asctime)s | %(levelname)s | %(name)s | %(message)s"
