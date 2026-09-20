@@ -156,7 +156,9 @@ class Block4OperationsTests(unittest.TestCase):
             finally:
                 rt.close()
 
-    def test_delivered_alert_with_failed_dedup_write_does_not_spam(self) -> None:
+    def test_failed_dedup_write_is_reported_once_without_alert_storm(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             rt = Runtime(self._settings(root))
@@ -176,10 +178,51 @@ class Block4OperationsTests(unittest.TestCase):
                 self.assertTrue(rt.health_alert_persistence_dirty)
 
                 asyncio.run(operational_alert_cycle(app, rt))
+                self.assertEqual(app.bot.attempts, 2)
+                self.assertIn(
+                    "health_alert_persistence_unavailable",
+                    app.bot.sent[1][1],
+                )
+
+                asyncio.run(operational_alert_cycle(app, rt))
                 self.assertEqual(
                     app.bot.attempts,
-                    1,
-                    "live dedup state must suppress premature duplicate alerts",
+                    2,
+                    "unchanged persistence failure must remain deduplicated",
+                )
+            finally:
+                rt.close()
+
+    def test_dirty_dedup_state_repairs_without_duplicate_when_storage_recovers(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            rt = Runtime(self._settings(root))
+            rt.housekeeping_last_error = "RuntimeError"
+            app = FakeApplication(rt)
+            original_set_setting = rt.db.set_setting
+            failed_once = False
+
+            def fail_once(key: str, value: str) -> None:
+                nonlocal failed_once
+                if key.startswith("health_alert_") and not failed_once:
+                    failed_once = True
+                    raise RuntimeError("synthetic one-shot dedup failure")
+                original_set_setting(key, value)
+
+            rt.db.set_setting = fail_once
+            try:
+                asyncio.run(operational_alert_cycle(app, rt))
+                self.assertEqual(app.bot.attempts, 1)
+                self.assertTrue(rt.health_alert_persistence_dirty)
+
+                asyncio.run(operational_alert_cycle(app, rt))
+                self.assertEqual(app.bot.attempts, 1)
+                self.assertFalse(rt.health_alert_persistence_dirty)
+                self.assertEqual(
+                    rt.db.get_setting("health_alert_signature"),
+                    "housekeeping_failed",
                 )
             finally:
                 rt.close()
