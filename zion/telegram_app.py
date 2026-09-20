@@ -263,6 +263,8 @@ def parse_duration(value: str) -> int | None:
 async def is_admin(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
+    *,
+    use_cache: bool = True,
 ) -> bool:
     if not update.effective_user or not update.effective_chat:
         return False
@@ -282,7 +284,7 @@ async def is_admin(
     key = (chat_id, user_id)
     now = time.monotonic()
     cached = rt.admin_cache.get(key)
-    if cached and now < cached[1]:
+    if use_cache and cached and now < cached[1]:
         return cached[0]
 
     try:
@@ -310,7 +312,10 @@ async def require_admin(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
 ) -> bool:
-    if await is_admin(update, context):
+    # Privileged chat-local commands revalidate Telegram role instead of
+    # trusting the short moderation cache. A recently demoted administrator
+    # must not keep command authority until ADMIN_CACHE_SECONDS expires.
+    if await is_admin(update, context, use_cache=False):
         return True
 
     if update.effective_message:
@@ -2963,6 +2968,12 @@ async def command_guard_handler(
     ):
         raise ApplicationHandlerStop
 
+    # Flood, containment, lockdown deletion and domain policy are community
+    # chat controls. Private support commands keep universal secret protection
+    # above, then proceed to their own command authorization/AI boundaries.
+    if chat.type == "private":
+        return
+
     if await is_admin(update, context):
         return
 
@@ -3091,6 +3102,11 @@ async def moderation_handler(
             "Nunca publique seed phrase ou chave privada."
         ),
     ):
+        return
+
+    # Ordinary private-chat messages are outside group moderation. Universal
+    # secret/credential protection still runs before this boundary.
+    if chat.type == "private":
         return
 
     admin = await is_admin(update, context)
