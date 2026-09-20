@@ -96,12 +96,21 @@ Do not install/upgrade packages ad hoc during the cutover window.
 
 The deploy target is a full 40-character Git commit SHA.
 
-After a production PR is merged:
+After a production PR is merged, remote Git traffic must use the same transport boundary as the automated release gates. For the first v1 → v1.1 upgrade, follow the expanded bootstrap precheck in `docs/V1.1-FIRST-UPGRADE.md` before this fetch.
 
 ```bash
 cd /home/zetta/zion-community-bot
-git fetch --prune origin zion-v1
+
+SAFE_GIT_SSH_COMMAND="/usr/bin/ssh -F /dev/null -o BatchMode=yes -o StrictHostKeyChecking=yes -o ProxyCommand=none -o ProxyJump=none -o PermitLocalCommand=no"
+
+GIT_TERMINAL_PROMPT=0 \
+/usr/bin/git \
+  -c "core.sshCommand=$SAFE_GIT_SSH_COMMAND" \
+  -c ssh.variant=ssh \
+  fetch --prune origin zion-v1
 ```
+
+For SSH origins, `-F /dev/null` prevents user/system SSH configuration from injecting `ProxyCommand`, `Match exec`, `KnownHostsCommand` or related command-bearing directives into release traffic. Strict host-key checking remains enabled. For HTTPS origins, `scripts/check-git-release-boundary.py` rejects disabled TLS verification and custom CA overrides before remote proof.
 
 Read the exact new `origin/zion-v1` SHA and compare it with the reviewed GitHub merge result.
 
@@ -159,7 +168,7 @@ This proves, among other things:
 
 - expected GitHub `origin` repository identity;
 - exact local `origin/zion-v1` SHA match;
-- a read-only `git ls-remote` check that the live GitHub `zion-v1` head equals the approved SHA;
+- a read-only `git ls-remote` check that the live GitHub `zion-v1` head equals the approved SHA, with user/system SSH configuration neutralized for SSH origins and strict host-key checking enabled;
 - local production branch identity;
 - clean worktree including non-ignored untracked files;
 - fast-forward relationship from current production;
