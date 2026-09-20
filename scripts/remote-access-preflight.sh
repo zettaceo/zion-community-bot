@@ -13,12 +13,12 @@ if [[ "$REPORT_ONLY" == true ]]; then
   EXPECTED_USER="${ZION_REMOTE_USER:-zetta}"
   SSH_DIR="${ZION_SSH_DIR:-$HOME/.ssh}"
   AUTHORIZED_KEYS="${ZION_AUTHORIZED_KEYS:-$SSH_DIR/authorized_keys}"
-  SSHD_DROPIN="${ZION_SSHD_DROPIN:-/etc/ssh/sshd_config.d/99-zion-remote.conf}"
+  SSHD_DROPIN="${ZION_SSHD_DROPIN:-/etc/ssh/sshd_config.d/00-zion-remote.conf}"
 else
   EXPECTED_USER="zetta"
   SSH_DIR="/home/zetta/.ssh"
   AUTHORIZED_KEYS="/home/zetta/.ssh/authorized_keys"
-  SSHD_DROPIN="/etc/ssh/sshd_config.d/99-zion-remote.conf"
+  SSHD_DROPIN="/etc/ssh/sshd_config.d/00-zion-remote.conf"
 fi
 
 failures=0
