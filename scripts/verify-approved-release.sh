@@ -84,7 +84,6 @@ echo "Production service remains running during verification."
 ZION_RUNTIME_PYTHON="$PYTHON" \
 ZION_PROD_ROOT="$ROOT" \
 ZION_EXPECTED_COMMIT="$EXPECTED" \
-ZION_APPROVED_REF="$APPROVED_REF" \
 ZION_GITHUB_GATES_PROVEN=YES \
   bash "$candidate/scripts/predeploy-v11.sh"
 
