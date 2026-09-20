@@ -104,6 +104,11 @@ fi
 /usr/bin/systemd-analyze verify "$SERVICE_SRC"
 
 echo "[6/13] Validando configuração e conhecimento ANTES do stop..."
+"$PYTHON" "$ROOT/scripts/check-env-boundary.py" \
+  --env "$ROOT/.env" \
+  --allowlist "$ROOT/.env.example" \
+  --owner zetta
+
 "$PYTHON" - <<'PY'
 import stat
 from pathlib import Path
