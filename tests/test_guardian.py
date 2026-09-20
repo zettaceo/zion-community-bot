@@ -11,6 +11,7 @@ from zion.guardian import (
     Guardian,
     detect_sensitive_content,
     extract_domains,
+    normalize_link_target,
     normalize_policy_domain,
 )
 
@@ -40,6 +41,32 @@ class GuardianTests(unittest.TestCase):
         self.assertIsNone(
             normalize_policy_domain("not a domain"),
         )
+
+    def test_fullwidth_and_zero_width_link_is_normalized(self) -> None:
+        domains = extract_domains(
+            "Veja ｈｔｔｐｓ：／／exa\u200bmple.com/path"
+        )
+        self.assertEqual(domains, ["example.com"])
+
+    def test_unicode_lookalike_remains_distinct_punycode(self) -> None:
+        domain = normalize_policy_domain("еxample.com")
+        self.assertIsNotNone(domain)
+        self.assertNotEqual(domain, "example.com")
+        self.assertTrue(domain.startswith("xn--"))
+
+    def test_unsupported_clickable_scheme_is_classified(self) -> None:
+        domain, scheme = normalize_link_target(
+            "tg://resolve?domain=example"
+        )
+        self.assertIsNone(domain)
+        self.assertEqual(scheme, "tg")
+
+        decision = self.guardian.evaluate_links(
+            "",
+            unsupported_schemes=["tg"],
+        )
+        self.assertTrue(decision.should_delete)
+        self.assertEqual(decision.unsupported_schemes, ["tg"])
 
     def test_extract_domains(self) -> None:
         domains = extract_domains(
@@ -81,6 +108,35 @@ class GuardianTests(unittest.TestCase):
     def test_seed_phrase_like_content_detected(self) -> None:
         text = (
             "seed phrase: alpha beta gamma delta epsilon zeta "
+            "eta theta iota kappa lambda mu"
+        )
+        self.assertTrue(
+            detect_sensitive_content(text).detected
+        )
+
+    def test_multiline_seed_phrase_is_detected(self) -> None:
+        text = (
+            "seed phrase:\n"
+            "alpha beta gamma delta epsilon zeta\n"
+            "eta theta iota kappa lambda mu"
+        )
+        self.assertTrue(
+            detect_sensitive_content(text).detected
+        )
+
+    def test_seed_phrase_with_trailing_comment_is_detected(self) -> None:
+        text = (
+            "seed phrase: alpha beta gamma delta epsilon zeta "
+            "eta theta iota kappa lambda mu "
+            "please help me recover this wallet"
+        )
+        self.assertTrue(
+            detect_sensitive_content(text).detected
+        )
+
+    def test_zero_width_obfuscated_seed_label_is_detected(self) -> None:
+        text = (
+            "seed\u200b phrase: alpha beta gamma delta epsilon zeta "
             "eta theta iota kappa lambda mu"
         )
         self.assertTrue(
