@@ -611,7 +611,7 @@ Before any release rehearsal:
 
 The audit identified a genuine MEDIUM release-procedure contradiction: repository handoff policy required the real candidate/DB rehearsal before production merge, but the verifier was hard-bound to `origin/zion-v1`, making that rehearsal possible only after merge.
 
-The release flow is being corrected so that:
+The release flow was corrected in development:
 
 - `ZION_RELEASE_SOURCE=candidate` binds only to `origin/zion-v1.1-dev` for the pre-merge rehearsal;
 - `ZION_RELEASE_SOURCE=production` binds only to `origin/zion-v1` after explicit merge authorization;
@@ -619,7 +619,9 @@ The release flow is being corrected so that:
 - the exact pre-merge candidate must pass disposable-copy DB rehearsal before PR #2 may merge;
 - the actual resulting production SHA must then be staged and verified again before downtime.
 
-This repository correction must pass CI before it supersedes the previous candidate evidence.
+Implementation/security HEAD after this correction: `70c269f6b1a983ec197a958e5727fca117a514a1`.
+
+GitHub Actions **ZION CI #1152** passed on that exact SHA with Python 3.12.14, the 9-package SHA-256-pinned runtime, **444/444 tests**, imports, shell validation, secret scan and **ZION VALIDATION: OK**.
 
 ### Safety state
 
