@@ -8,8 +8,21 @@ SCRIPT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ROOT="/home/zetta/zion-community-bot"
 SYSTEM_PYTHON="/usr/bin/python3"
 EXPECTED="${ZION_DEPLOY_COMMIT:-}"
-REMOTE_BRANCH="zion-v1"
-APPROVED_REF="origin/zion-v1"
+RELEASE_SOURCE="${ZION_RELEASE_SOURCE:-production}"
+case "$RELEASE_SOURCE" in
+  candidate)
+    REMOTE_BRANCH="zion-v1.1-dev"
+    APPROVED_REF="origin/zion-v1.1-dev"
+    ;;
+  production)
+    REMOTE_BRANCH="zion-v1"
+    APPROVED_REF="origin/zion-v1"
+    ;;
+  *)
+    echo "ERRO: ZION_RELEASE_SOURCE deve ser candidate ou production." >&2
+    exit 64
+    ;;
+esac
 EXPECTED_REPO="zettaceo/zion-community-bot"
 RUNTIME_BASE="/home/zetta/.local/share/zion-community-bot/runtimes"
 PYTHON="$RUNTIME_BASE/$EXPECTED/bin/python"
@@ -95,11 +108,13 @@ GIT_NO_REPLACE_OBJECTS=1 \
   worktree add --detach "$candidate" "$EXPECTED" >/dev/null
 worktree_added=true
 
+echo "Approved release source: $RELEASE_SOURCE"
 echo "Approved release candidate: $EXPECTED"
 echo "Temporary candidate worktree: created"
 echo "Production service remains running during verification."
 
 ZION_EXPECTED_COMMIT="$EXPECTED" \
+ZION_RELEASE_SOURCE="$RELEASE_SOURCE" \
 ZION_GITHUB_GATES_PROVEN=YES \
   bash "$candidate/scripts/predeploy-v11.sh"
 
