@@ -94,9 +94,16 @@ Do not install/upgrade packages ad hoc during the cutover window.
 
 ## Release selection
 
-The deploy target is a full 40-character Git commit SHA.
+The deploy target is always a full 40-character Git commit SHA.
 
-After a production PR is merged, remote Git traffic must use the same transport boundary as the automated release gates. For the first v1 → v1.1 upgrade, follow the expanded bootstrap precheck in `docs/V1.1-FIRST-UPGRADE.md` before this fetch.
+For the first v1 → v1.1 upgrade there are two distinct immutable identities:
+
+1. **pre-merge candidate** — the exact reviewed `zion-v1.1-dev` HEAD, used for host readiness and disposable-copy DB rehearsal while PR #2 is still unmerged;
+2. **production release** — the exact new `zion-v1` SHA created by the explicitly authorized merge, verified again before any downtime.
+
+Release scripts accept only `ZION_RELEASE_SOURCE=candidate` or `ZION_RELEASE_SOURCE=production`. Those values map internally to `origin/zion-v1.1-dev` and `origin/zion-v1`; arbitrary refs are not accepted.
+
+For the first upgrade, follow the expanded bootstrap precheck in `docs/V1.1-FIRST-UPGRADE.md`.
 
 ```bash
 cd /home/zetta/zion-community-bot
@@ -181,26 +188,40 @@ It does not stop/restart ZION or change production files.
 
 ## Isolated approved-release verification
 
-Before cutover, validate the approved release in a detached temporary worktree:
+The first upgrade performs this verification twice.
+
+### Pre-merge candidate rehearsal
+
+While PR #2 is still unmerged:
 
 ```bash
+ZION_RELEASE_SOURCE=candidate \
 ZION_DEPLOY_COMMIT="$ZION_DEPLOY_COMMIT" \
 ZION_GITHUB_GATES_PROVEN=YES \
   bash scripts/verify-approved-release.sh
 ```
 
-The verifier refuses to run candidate code unless the candidate SHA equals `origin/zion-v1`.
+The verifier requires the exact candidate SHA to equal both the local and live `zion-v1.1-dev` ref.
 
-It creates a temporary detached worktree, uses the installed production Python runtime, and runs `predeploy-v11.sh`. Production remains online while:
+### Post-merge production-SHA verification
+
+After explicit authorization and the GitHub merge, record the actual new `zion-v1` SHA and repeat:
+
+```bash
+ZION_RELEASE_SOURCE=production \
+ZION_DEPLOY_COMMIT="$ZION_DEPLOY_COMMIT" \
+ZION_GITHUB_GATES_PROVEN=YES \
+  bash scripts/verify-approved-release.sh
+```
+
+In both modes the verifier creates a detached worktree and uses the **per-SHA staged candidate runtime**, not the legacy production runtime. Production remains online while:
 
 - code/tests/secret scan run;
 - production config readiness is inspected;
 - production SQLite is verified through a disposable backup;
 - candidate migrations are applied only to the disposable copy.
 
-The temporary worktree is removed afterward.
-
-This is the last code gate before stopping the service.
+The pre-merge rehearsal is a prerequisite to merging PR #2. The post-merge verification binds the final release evidence to the actual production SHA and is the last code gate before stopping the service.
 
 ## Disabled legacy mutation paths
 

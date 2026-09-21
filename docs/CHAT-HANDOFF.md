@@ -574,3 +574,54 @@ The repository is not production-authorized. The following remain external evide
 Repository/GitHub development hardening should not be extended by inventing a new feature block. The next phase is **local Acer evidence gathering**, preferably with Codex used first as a **review-only local inspector**. It must not mutate systemd, SSH, Tailscale, Wi-Fi, router/firewall, production `.env`, production SQLite, or deploy anything until the corresponding evidence has been reviewed and explicit authorization is given.
 
 Any documentation-only descendant created after `bae040899c9294ab912d349eb1cca58f2cedaf13` must pass ZION CI before becoming the current release-candidate head.
+
+
+---
+
+## 2026-09-21 — ACER READ-ONLY AUDIT RECONCILIATION
+
+A read-only Codex audit of the real Acer completed without host mutation.
+
+### Confirmed legacy production facts
+
+- local production branch: `zion-v1-prod`;
+- local/remote production SHA at audit: `f8c704f16d05c5fba3b55957721b025c9abbaa23`;
+- audited candidate at that moment: `ef815e685725000fc4203c80ab2df8c45a2a9e65`;
+- `zion.service`: active/running, zero observed restarts;
+- live DB: `/home/zetta/zion-community-bot/zion.db`;
+- legacy runtime: repository-local `.venv`;
+- Tailscale absent;
+- OpenSSH Server absent;
+- both GitHub branches still reported `protected=false`.
+
+These facts describe the pre-v1.1 installation. Repository-writable code/runtime, the lack of the v1.1 runtime lock, and the absence of the v1.1 sandbox are inherited legacy conditions that the controlled v1.1 cutover is designed to replace; they are not evidence that the candidate itself regressed.
+
+### Real blockers found on the host
+
+Before any release rehearsal:
+
+1. GitHub governance remains unproven/unprotected.
+2. The Acer Git boundary rejects the executable GitHub CLI credential helper.
+3. The Acer contains ignored importable bytecode caches that the release checker rejects; they must be inventoried and only proven generated caches may be removed.
+4. The same Acer user has a GitHub credential with broader-than-fetch permissions; production Git authentication must be separated/reduced before release.
+5. Current backup/rollback evidence is not sufficient for a v1.1 migration.
+6. Tailscale/OpenSSH/private remote access and router/firewall control-plane evidence remain incomplete.
+
+### Repository defect discovered by the host audit
+
+The audit identified a genuine MEDIUM release-procedure contradiction: repository handoff policy required the real candidate/DB rehearsal before production merge, but the verifier was hard-bound to `origin/zion-v1`, making that rehearsal possible only after merge.
+
+The release flow is being corrected so that:
+
+- `ZION_RELEASE_SOURCE=candidate` binds only to `origin/zion-v1.1-dev` for the pre-merge rehearsal;
+- `ZION_RELEASE_SOURCE=production` binds only to `origin/zion-v1` after explicit merge authorization;
+- arbitrary refs remain forbidden;
+- the exact pre-merge candidate must pass disposable-copy DB rehearsal before PR #2 may merge;
+- the actual resulting production SHA must then be staged and verified again before downtime.
+
+This repository correction must pass CI before it supersedes the previous candidate evidence.
+
+### Safety state
+
+The Acer audit performed no package installation, service control, DB connection/migration, Git fetch/checkout/merge, SSH/Tailscale/firewall change, Telegram command, or deployment. Production remained untouched.
+

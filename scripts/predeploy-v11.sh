@@ -13,7 +13,19 @@ INSTALLED_SERVICE="/etc/systemd/system/zion.service"
 STATE_DIR="/home/zetta/.local/state/zion-community-bot"
 STATE_DB="$STATE_DIR/zion.db"
 EXPECTED_COMMIT="${ZION_EXPECTED_COMMIT:-}"
-APPROVED_REF="origin/zion-v1"
+RELEASE_SOURCE="${ZION_RELEASE_SOURCE:-production}"
+case "$RELEASE_SOURCE" in
+  candidate)
+    APPROVED_REF="origin/zion-v1.1-dev"
+    ;;
+  production)
+    APPROVED_REF="origin/zion-v1"
+    ;;
+  *)
+    echo "ERRO: ZION_RELEASE_SOURCE deve ser candidate ou production." >&2
+    exit 64
+    ;;
+esac
 RUNTIME_BASE="/home/zetta/.local/share/zion-community-bot/runtimes"
 PYTHON="${ZION_RUNTIME_PYTHON:-$RUNTIME_BASE/$EXPECTED_COMMIT/bin/python}"
 
@@ -23,6 +35,7 @@ trap 'rm -rf "$TMP_ROOT"' EXIT
 
 echo "ZION v1.1 PRE-DEPLOY — READ-ONLY PRODUCTION CHECK"
 echo "================================================="
+echo "release_source=$RELEASE_SOURCE"
 
 echo
 echo "[1/8] Approved branch/commit..."
