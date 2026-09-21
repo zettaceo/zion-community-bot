@@ -23,8 +23,21 @@ else
   EXPECTED_USER="zetta"
 fi
 EXPECTED="${ZION_DEPLOY_COMMIT:-}"
-REMOTE_BRANCH="zion-v1"
-APPROVED_REF="origin/zion-v1"
+RELEASE_SOURCE="${ZION_RELEASE_SOURCE:-production}"
+case "$RELEASE_SOURCE" in
+  candidate)
+    REMOTE_BRANCH="zion-v1.1-dev"
+    APPROVED_REF="origin/zion-v1.1-dev"
+    ;;
+  production)
+    REMOTE_BRANCH="zion-v1"
+    APPROVED_REF="origin/zion-v1"
+    ;;
+  *)
+    echo "ERRO: ZION_RELEASE_SOURCE deve ser candidate ou production." >&2
+    exit 64
+    ;;
+esac
 EXPECTED_REPO="zettaceo/zion-community-bot"
 LOCAL_PROD_BRANCH="zion-v1-prod"
 ENV_FILE="$ROOT/.env"
@@ -43,6 +56,7 @@ fail() { failures=$((failures + 1)); printf 'FAIL: %s\n' "$1"; }
 echo "ZION DEPLOYMENT PREFLIGHT"
 echo "========================="
 echo "This script is read-only for production runtime state."
+echo "release_source=$RELEASE_SOURCE"
 echo
 
 if [[ ! "$EXPECTED" =~ ^[0-9a-fA-F]{40}$ ]]; then
@@ -205,9 +219,9 @@ else
 fi
 
 if [[ "${ZION_GITHUB_GATES_PROVEN:-}" == "YES" ]]; then
-  pass "GitHub production branch/ruleset gate explicitly confirmed"
+  pass "GitHub governance gate explicitly confirmed"
 else
-  fail "set ZION_GITHUB_GATES_PROVEN=YES only after verifying zion-v1 protection and required CI"
+  fail "set ZION_GITHUB_GATES_PROVEN=YES only after verifying the required GitHub protection and CI gates"
 fi
 
 if [[ "${ZION_REMOTE_NETWORK_PROVEN:-}" == "YES" ]]; then
@@ -247,7 +261,7 @@ fi
 
 echo
 echo "External controls are explicit attestations:"
-echo "- ZION_GITHUB_GATES_PROVEN=YES: zion-v1 protection + required CI verified."
+echo "- ZION_GITHUB_GATES_PROVEN=YES: required GitHub protection + CI verified."
 echo "- ZION_REMOTE_NETWORK_PROVEN=YES: no public TCP/22 forward + Tailnet policy verified."
 echo "- The host cannot independently prove those control-plane settings."
 
