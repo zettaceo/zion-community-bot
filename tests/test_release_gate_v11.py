@@ -240,6 +240,73 @@ class V11ReleaseGateTests(unittest.TestCase):
         self.assertIn("credential.helper executável inseguro", first_upgrade)
         self.assertIn("GIT_SSL_NO_VERIFY", first_upgrade)
 
+    def test_release_source_is_closed_to_candidate_or_production(
+        self,
+    ) -> None:
+        for relative in (
+            "scripts/deployment-preflight.sh",
+            "scripts/verify-approved-release.sh",
+            "scripts/predeploy-v11.sh",
+        ):
+            with self.subTest(relative=relative):
+                text = self.read(relative)
+                self.assertIn(
+                    'RELEASE_SOURCE="${ZION_RELEASE_SOURCE:-production}"',
+                    text,
+                )
+                self.assertIn("candidate)", text)
+                self.assertIn('APPROVED_REF="origin/zion-v1.1-dev"', text)
+                self.assertIn("production)", text)
+                self.assertIn('APPROVED_REF="origin/zion-v1"', text)
+                self.assertIn(
+                    "ZION_RELEASE_SOURCE deve ser candidate ou production",
+                    text,
+                )
+
+        for relative in (
+            "scripts/deployment-preflight.sh",
+            "scripts/verify-approved-release.sh",
+        ):
+            with self.subTest(remote_relative=relative):
+                text = self.read(relative)
+                self.assertIn('REMOTE_BRANCH="zion-v1.1-dev"', text)
+                self.assertIn('REMOTE_BRANCH="zion-v1"', text)
+
+    def test_first_upgrade_rehearses_before_merge_and_rechecks_after_merge(
+        self,
+    ) -> None:
+        text = self.read("docs/V1.1-FIRST-UPGRADE.md")
+
+        rehearsal = text.index(
+            "## 6. Rehearse the exact pre-merge candidate"
+        )
+        merge = text.index(
+            "## 7. Merge PR #2 only after explicit production authorization"
+        )
+        production_verify = text.index(
+            "## 8. Re-verify the exact production SHA before downtime"
+        )
+
+        self.assertLess(rehearsal, merge)
+        self.assertLess(merge, production_verify)
+        self.assertIn("ZION_RELEASE_SOURCE=candidate", text)
+        self.assertIn("ZION_RELEASE_SOURCE=production", text)
+        self.assertIn(
+            "The pre-merge rehearsal must pass before PR #2 may be merged.",
+            text,
+        )
+
+    def test_deployment_model_uses_staged_candidate_runtime_for_verification(
+        self,
+    ) -> None:
+        text = self.read("docs/DEPLOYMENT-MODEL.md")
+
+        self.assertIn("per-SHA staged candidate runtime", text)
+        self.assertNotIn(
+            "uses the installed production Python runtime",
+            text,
+        )
+
     def test_first_upgrade_bootstraps_gates_from_detached_candidate(
         self,
     ) -> None:
