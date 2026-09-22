@@ -177,6 +177,15 @@ class Settings:
         else:
             issues.append("runtime_lock_inside_worktree")
 
+        try:
+            secret_path = self.mistral_secret_path.resolve(strict=False)
+            root_path = self.root_dir.resolve(strict=False)
+            secret_path.relative_to(root_path)
+        except ValueError:
+            pass
+        else:
+            issues.append("mistral_secret_inside_worktree")
+
         return tuple(issues)
 
     @classmethod
