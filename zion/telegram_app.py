@@ -1357,6 +1357,25 @@ async def mistral_secret_capture_handler(
             "Nada foi alterado; tente novamente mais tarde.",
         )
         raise ApplicationHandlerStop
+    except Exception as exc:
+        logger.error(
+            "Falha inesperada na validação Mistral: %s",
+            type(exc).__name__,
+        )
+        _audit_mistral_secret_operation(
+            rt,
+            chat_id=chat.id,
+            user_id=user.id,
+            operation=operation,
+            success=False,
+        )
+        await _send_secret_status(
+            context,
+            chat.id,
+            "A validação da credencial falhou de forma segura. "
+            "Nada foi armazenado.",
+        )
+        raise ApplicationHandlerStop
 
     previous_secret = (
         rt.secret_store.read()
@@ -1366,7 +1385,7 @@ async def mistral_secret_capture_handler(
 
     try:
         rt.secret_store.write_atomic(candidate)
-    except (SecretStoreError, SecretValidationError) as exc:
+    except Exception as exc:
         logger.warning(
             "Falha no cofre local Mistral: %s",
             type(exc).__name__,
@@ -1472,7 +1491,7 @@ async def clear_mistral_key_command(
     previous_secret = rt.secret_store.read()
     try:
         removed = rt.secret_store.clear()
-    except SecretStoreError as exc:
+    except Exception as exc:
         logger.warning(
             "Falha ao remover segredo Mistral: %s",
             type(exc).__name__,
