@@ -155,6 +155,7 @@ class SSHFirewallContractTests(unittest.TestCase):
         self.assertIn("ZION_FIREWALL_ROLLBACK_AUTHORIZED", text)
         self.assertIn("ZION_EXPECTED_COMMIT", text)
         self.assertIn("check-git-release-boundary.py", text)
+        self.assertIn("origin/zion-v1.1-dev", text)
         self.assertIn("zion_ssh_guard", text)
         self.assertIn('rm -f "$UNIT_DST" "$RUNTIME_DST" "$RULESET_DST"', text)
         self.assertNotIn("flush ruleset", text)
