@@ -348,7 +348,9 @@ A host rollback can temporarily leave local `zion-v1-prod` behind `origin/zion-v
 
 ## Immutable code / mutable state boundary
 
-The production service must not have write access to its code, `.env` or Python runtime.
+The production service must not have write access to its code, `.env` or Python runtime. It also must not be able to read the operator's GitHub administrative session or SSH private-key directory merely because the service runs as `zetta`.
+
+The reviewed v1.1 systemd contract makes `/home/zetta/.config/gh`, `/home/zetta/.ssh`, and common file-based credential paths inaccessible to both the bot and dashboard processes, while retaining the explicitly required repository/runtime/state mounts.
 
 The reviewed v1.1 systemd contract forces mutable state to:
 

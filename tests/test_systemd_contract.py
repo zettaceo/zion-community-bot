@@ -39,6 +39,10 @@ class SystemdContractTests(unittest.TestCase):
                 "InaccessiblePaths=/home/zetta/.local/share/"
                 "zion-community-bot/deploy-backups"
             ),
+            "InaccessiblePaths=/home/zetta/.config/gh",
+            "InaccessiblePaths=/home/zetta/.ssh",
+            "InaccessiblePaths=-/home/zetta/.git-credentials",
+            "InaccessiblePaths=-/home/zetta/.netrc",
             (
                 "ReadWritePaths=/home/zetta/.local/state/"
                 "zion-community-bot"
@@ -92,6 +96,13 @@ class SystemdContractTests(unittest.TestCase):
             ),
             text,
         )
+        self.assertIn("InaccessiblePaths=/home/zetta/.config/gh", text)
+        self.assertIn("InaccessiblePaths=/home/zetta/.ssh", text)
+        self.assertIn(
+            "InaccessiblePaths=-/home/zetta/.git-credentials",
+            text,
+        )
+        self.assertIn("InaccessiblePaths=-/home/zetta/.netrc", text)
         self.assertIn(
             (
                 "ReadWritePaths=/home/zetta/.local/state/"
