@@ -1234,8 +1234,22 @@ async def set_mistral_key_command(
         return
 
     if context.args:
-        await message.reply_text(
-            "Não envie a chave no comando. Use /setmistralkey sem argumentos."
+        deleted = await delete_message_safe(
+            context,
+            chat.id,
+            message.message_id,
+        )
+        await _send_secret_status(
+            context,
+            chat.id,
+            (
+                "A chave não pode ser enviada no comando. "
+                "A mensagem foi removida; use /setmistralkey sem argumentos."
+                if deleted
+                else
+                "Não consegui remover o comando que continha dados após "
+                "/setmistralkey. Exclua a mensagem manualmente."
+            ),
         )
         return
 
