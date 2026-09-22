@@ -129,10 +129,25 @@ if (( existing != 0 && existing != 3 )); then
   exit 2
 fi
 
-fresh=false
-if (( existing == 0 )); then
-  fresh=true
+if (( existing == 3 )); then
+  if /usr/bin/systemctl is-active --quiet "$SERVICE" \
+    && /usr/bin/systemctl is-enabled --quiet "$SERVICE" \
+    && sudo "$RUNTIME_DST" check; then
+    after_pid="$(/usr/bin/systemctl show "$BOT_SERVICE" -p MainPID --value)"
+    after_restarts="$(/usr/bin/systemctl show "$BOT_SERVICE" -p NRestarts --value)"
+    if [[ "$after_pid" != "$before_pid" || "$after_restarts" != "$before_restarts" ]]; then
+      echo "ERRO: zion.service mudou durante a verificação idempotente." >&2
+      exit 1
+    fi
+    echo "ZION SSH firewall guard já está instalado, ativo, habilitado e idêntico ao candidato."
+    exit 0
+  fi
+  echo "ERRO: arquivos firewall revisados já existem, mas o guard ativo/persistente não foi comprovado." >&2
+  echo "Revise o estado manualmente; o instalador não sobrescreve uma instalação existente." >&2
+  exit 2
 fi
+
+fresh=true
 
 sudo /usr/bin/install -d -o root -g root -m 0755 "$BACKUP_PARENT"
 sudo /usr/bin/install -d -o root -g root -m 0700 "$BACKUP_DIR"
