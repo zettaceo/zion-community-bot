@@ -35,8 +35,17 @@ from .logging_safe import (
     contains_high_confidence_credential,
 )
 from .migrate import migrate_legacy_guardian_state
+from .mistral import (
+    MistralCredentialInvalid,
+    MistralCredentialValidationUnavailable,
+)
 from .models import FloodDecision, OperatingState, Severity
 from .process_lock import ProcessLock
+from .secret_store import (
+    SecretStore,
+    SecretStoreError,
+    SecretValidationError,
+)
 
 
 logger = logging.getLogger("zion.telegram")
@@ -124,8 +133,18 @@ class Runtime:
                     )
             self.knowledge = KnowledgeBase(settings.knowledge_dir)
             self.guardian = Guardian(settings, self.db)
-            self.ai = AIService(settings, self.db, self.knowledge)
-            self.health = HealthService(settings, self.db)
+            self.secret_store = SecretStore(settings.mistral_secret_path)
+            self.ai = AIService(
+                settings,
+                self.db,
+                self.knowledge,
+                self.secret_store,
+            )
+            self.health = HealthService(
+                settings,
+                self.db,
+                self.secret_store,
+            )
             self.ask_limiter = AskRateLimiter(
                 settings.ai_user_requests_per_minute
             )
@@ -157,6 +176,10 @@ class Runtime:
             self.delivery_guard_last_error: str | None = None
             self.delivery_health_blocked = False
             self.delivery_health_block_reasons: tuple[str, ...] = ()
+            self.mistral_secret_captures: dict[
+                tuple[int, int],
+                float,
+            ] = {}
         except Exception:
             db = getattr(self, "db", None)
             if isinstance(db, ZionDB):
