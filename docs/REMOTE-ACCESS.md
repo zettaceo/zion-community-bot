@@ -282,6 +282,19 @@ After application:
 
 The strict remote-access preflight now treats absence/divergence of this guard as a failure.
 
+If the third-session gate fails, keep the recovery sessions/physical console available and run the reviewed rollback from the **same exact candidate**:
+
+```bash
+cd <detached-final-candidate>
+sudo -v
+
+ZION_EXPECTED_COMMIT=<reviewed-40-character-zion-v1.1-dev-sha> \
+ZION_FIREWALL_ROLLBACK_AUTHORIZED=YES \
+  bash scripts/rollback-ssh-firewall.sh
+```
+
+The rollback refuses divergent root-owned artifacts, disables the dedicated service, removes only the `zion_ssh_guard` table and its three installed artifacts, and confirms that `zion.service` did not restart. It never flushes unrelated nftables/Tailscale state.
+
 ## Phase 8 — external network/control-plane gate
 
 The host firewall closes TCP/22 on non-Tailscale local interfaces, including global IPv6 addresses, but defense in depth still requires control-plane evidence.
