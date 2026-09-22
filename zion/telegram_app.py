@@ -890,8 +890,11 @@ async def privacy_command(
         f"• Perguntas de AMA encerrado: retenção de até "
         f"{rt.settings.ama_retention_days} dias.\n"
         "• /ama armazena explicitamente a pergunta para organizar a sessão.\n"
-        "Nunca envie / Never send seed phrase, private key, password, "
-        "token or API key."
+        "• A única exceção para API key é o fluxo operador-only "
+        "/setmistralkey no chat privado; a mensagem é apagada antes da "
+        "persistência local.\n"
+        "Nunca envie / Never send seed phrase, private key, password ou "
+        "tokens por fluxos comuns."
     )
 
 
@@ -1599,6 +1602,10 @@ async def help_command(
         "/translate <idioma> <texto> — tradução explícita via IA\n"
         "/report — responda a uma mensagem para denunciar\n"
         "/ama <pergunta> — envia pergunta ao AMA ativo\n\n"
+        "OPERADOR / OPERATOR (chat privado)\n"
+        "/aistatus — estado da IA sem expor credenciais\n"
+        "/setmistralkey — inicia captura protegida da chave Mistral\n"
+        "/clearmistralkey — remoção protegida com confirmação\n\n"
         "A IA nunca recebe autoridade punitiva automática. "
         "Ações irreversíveis dependem de regra determinística ou humano autorizado."
     )
