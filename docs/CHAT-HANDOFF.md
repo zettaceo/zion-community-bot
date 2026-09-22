@@ -722,6 +722,39 @@ The production candidate is being hardened so the Mistral API key is no longer c
 
 The private-chat provisioning flow is deliberately honest about transport: the credential transits Telegram private chat before ZION deletes the incoming message. Application-level DB/log/backup persistence is prohibited. An operator who requires a channel that never transits Telegram must use a separately reviewed local/offline path.
 
+### Final repository evidence for this implementation
+
+The Mistral private-secret implementation was merged into `zion-v1.1-dev`.
+
+Current development HEAD:
+
+```text
+c0528ce81e3dfc1254149e083b90a41986d79b94
+```
+
+GitHub Actions **ZION CI #1221** passed on that exact post-merge HEAD:
+
+- runtime compatibility: PASS;
+- Python 3.12.14;
+- locked packages: 9;
+- imports: PASS;
+- **496/496 tests: OK**;
+- secret scan: PASS;
+- **ZION VALIDATION: OK**.
+
+The adversarial pass also closed:
+- dangling/alias secret-directory handling;
+- post-`os.replace` durability rollback;
+- failed clear rollback;
+- accidental `/setmistralkey <secret>` deletion before idempotency persistence;
+- fixed non-configurable production secret path;
+- audit-ledger failure rollback for set/rotate/clear;
+- dashboard denial of secret-store access.
+
+No unresolved HIGH or MEDIUM **repository/development** finding is known after this implementation pass.
+
 ### Current safety boundary
 
-This implementation does **not** authorize production. PR #2 remains Draft/unmerged; the real Mistral key must not be requested or provisioned until after an explicitly authorized v1.1 cutover. Repository CI/adversarial review must be green before this implementation is merged into `zion-v1.1-dev`.
+This implementation does **not** authorize production. PR #2 remains Draft/unmerged; the real Mistral key must not be requested or provisioned until after an explicitly authorized v1.1 cutover.
+
+The next required work is host/control-plane evidence against the exact current candidate `c0528ce81e3dfc1254149e083b90a41986d79b94`: SSH hardening, privileged firewall inspection, router/NAT and Tailnet policy proof, exact-candidate runtime staging and disposable DB rehearsal, plus GitHub governance.
