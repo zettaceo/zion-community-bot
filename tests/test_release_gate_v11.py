@@ -145,7 +145,7 @@ class V11ReleaseGateTests(unittest.TestCase):
             migration_step,
         )
         use_step = text.index(
-            'pragmas["application_id"] != ZION_APPLICATION_ID',
+            'if int(pragmas["application_id"]) != ZION_APPLICATION_ID:',
             migration_step,
         )
         self.assertLess(import_step, use_step)
