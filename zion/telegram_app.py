@@ -582,7 +582,7 @@ async def delete_message_safe(
             "Falha ao apagar chat=%s message=%s: %s",
             chat_id,
             message_id,
-            exc,
+            type(exc).__name__,
         )
         return False
 
