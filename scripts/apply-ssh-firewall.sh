@@ -135,11 +135,18 @@ fi
 check_existing_exact() {
   local src="$1"
   local dst="$2"
+  local expected_mode="$3"
   if [[ ! -e "$dst" && ! -L "$dst" ]]; then
     return 1
   fi
   if [[ ! -f "$dst" || -L "$dst" ]]; then
     echo "ERRO: destino existente não é arquivo regular: $dst" >&2
+    exit 2
+  fi
+  local metadata
+  metadata="$(sudo /usr/bin/stat -c '%U:%G:%a:%h' "$dst")"
+  if [[ "$metadata" != "root:root:$expected_mode:1" ]]; then
+    echo "ERRO: destino existente possui ownership/mode/links inesperados: $dst" >&2
     exit 2
   fi
   if ! sudo /usr/bin/cmp -s "$src" "$dst"; then
@@ -150,9 +157,9 @@ check_existing_exact() {
 }
 
 existing=0
-check_existing_exact "$RULESET_SRC" "$RULESET_DST" && existing=$((existing + 1))
-check_existing_exact "$RUNTIME_SRC" "$RUNTIME_DST" && existing=$((existing + 1))
-check_existing_exact "$UNIT_SRC" "$UNIT_DST" && existing=$((existing + 1))
+check_existing_exact "$RULESET_SRC" "$RULESET_DST" 644 && existing=$((existing + 1))
+check_existing_exact "$RUNTIME_SRC" "$RUNTIME_DST" 755 && existing=$((existing + 1))
+check_existing_exact "$UNIT_SRC" "$UNIT_DST" 644 && existing=$((existing + 1))
 
 if (( existing != 0 && existing != 3 )); then
   echo "ERRO: instalação firewall parcial; revisão manual necessária." >&2
@@ -179,9 +186,18 @@ fi
 
 fresh=true
 
+if [[ -L "$BACKUP_PARENT" || -L "$BACKUP_DIR" ]]; then
+  echo "ERRO: diretórios de backup firewall não podem ser symlink." >&2
+  exit 2
+fi
+
 sudo /usr/bin/install -d -o root -g root -m 0755 "$BACKUP_PARENT"
 sudo /usr/bin/install -d -o root -g root -m 0700 "$BACKUP_DIR"
 
+if [[ "$(sudo /usr/bin/stat -c '%U:%G:%a' "$BACKUP_PARENT")" != "root:root:755" ]]; then
+  echo "ERRO: pai do backup firewall deve ser root:root 0755." >&2
+  exit 2
+fi
 if [[ "$(sudo /usr/bin/stat -c '%U:%G:%a' "$BACKUP_DIR")" != "root:root:700" ]]; then
   echo "ERRO: backup firewall deve ser root:root 0700." >&2
   exit 2
@@ -192,6 +208,10 @@ evidence="$BACKUP_DIR/nft-before.$stamp.$BASHPID.txt"
 sudo /usr/sbin/nft list ruleset | sudo /usr/bin/tee "$evidence" >/dev/null
 sudo /usr/bin/chown root:root "$evidence"
 sudo /usr/bin/chmod 0600 "$evidence"
+if [[ "$(sudo /usr/bin/stat -c '%U:%G:%a:%h' "$evidence")" != "root:root:600:1" ]]; then
+  echo "ERRO: evidência pré-firewall não ficou root:root 0600 single-link." >&2
+  exit 2
+fi
 
 mutated=false
 rollback() {
@@ -213,6 +233,10 @@ if [[ "$fresh" == true ]]; then
   sudo /usr/bin/install -o root -g root -m 0644 "$RULESET_SRC" "$RULESET_DST"
   sudo /usr/bin/install -o root -g root -m 0755 "$RUNTIME_SRC" "$RUNTIME_DST"
   sudo /usr/bin/install -o root -g root -m 0644 "$UNIT_SRC" "$UNIT_DST"
+
+  check_existing_exact "$RULESET_SRC" "$RULESET_DST" 644 >/dev/null
+  check_existing_exact "$RUNTIME_SRC" "$RUNTIME_DST" 755 >/dev/null
+  check_existing_exact "$UNIT_SRC" "$UNIT_DST" 644 >/dev/null
 fi
 
 mutated=true
