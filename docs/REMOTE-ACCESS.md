@@ -222,22 +222,78 @@ bash scripts/remote-access-preflight.sh
 
 A non-zero exit means the remote-access gate is not complete.
 
-## Phase 7 — network-exposure gate
+## Phase 7 — reviewed host SSH firewall
 
-The host cannot prove router/NAT configuration or Tailnet ACL/device policy by itself.
+The v1.1 host uses a dedicated nftables table that changes **only inbound TCP/22**:
+
+- loopback SSH remains allowed;
+- SSH arriving on `tailscale0` remains allowed;
+- TCP/22 arriving on every other IPv4/IPv6 interface is dropped;
+- all non-SSH traffic remains untouched.
+
+Authoritative policy:
+
+`ops/nftables/zion-ssh-private.nft`
+
+Persistent unit:
+
+`systemd/zion-ssh-firewall.service`
+
+Guarded installer:
+
+`scripts/apply-ssh-firewall.sh`
+
+Do not activate UFW or paste generic firewall rules. The dedicated table is intentionally narrow so existing bot, DNS, Tailscale, Wi-Fi and other host traffic are not redefined.
+
+Preconditions:
+
+1. the reviewed SSH hardening already passed;
+2. a first key-only Tailscale session remains open;
+3. a second independent key-only Tailscale session has succeeded;
+4. local/physical recovery remains available;
+5. `sudo -v` is current;
+6. the operator explicitly authorized the firewall change.
+
+From one of the proven Tailscale sessions:
+
+```bash
+cd /home/zetta/zion-community-bot
+sudo -v
+
+ZION_FIREWALL_CHANGE_AUTHORIZED=YES \
+ZION_REMOTE_ACCESS_PROVEN=YES \
+ZION_SECOND_SSH_PROVEN=YES \
+  bash scripts/apply-ssh-firewall.sh
+```
+
+The installer refuses partial or divergent prior installations, stores a root-only pre-change nftables snapshot, installs a dedicated nftables policy/helper/systemd unit, enables it, checks the loaded rules, and verifies that `zion.service` did not restart.
+
+The runtime helper refuses to replace an unexpected pre-existing `inet zion_ssh_guard` table. Rollback deletes only the dedicated ZION table/files from a fresh failed installation; it does not flush or restore unrelated host/Tailscale firewall state.
+
+After application:
+
+1. keep both existing sessions open;
+2. open a **third** independent SSH session through Tailscale;
+3. prove `Accepted publickey` for that third session;
+4. run `sudo -v && bash scripts/remote-access-preflight.sh`;
+5. inspect `sudo nft list table inet zion_ssh_guard`;
+6. only then close recovery sessions.
+
+The strict remote-access preflight now treats absence/divergence of this guard as a failure.
+
+## Phase 8 — external network/control-plane gate
+
+The host firewall closes TCP/22 on non-Tailscale local interfaces, including global IPv6 addresses, but defense in depth still requires control-plane evidence.
 
 Before any remote deployment, manually verify:
 
-- router has no TCP/22 port-forward to the Acer;
+- router has no TCP/22 port-forward, DMZ mapping or equivalent exposure to the Acer;
 - no cloud/VPN forwarding exposes SSH publicly;
 - intended devices/users are the only Tailnet principals allowed to reach the Acer;
 - device approval/key-expiry policy is acceptable;
-- Tailscale SSH, Funnel and Serve are not enabled unless separately reviewed;
-- host firewall rules do not unintentionally expose SSH on an untrusted interface.
+- Tailscale SSH, Funnel and Serve are not enabled unless separately reviewed.
 
-If firewall rules are tightened, do it while two SSH sessions are available and test a third session before closing either existing connection.
-
-Do not paste generic firewall commands blindly: interface names and existing policy must be inspected on the Acer first.
+Router/NAT and Tailnet policy are not inferred from the host firewall. If their control planes are unavailable, keep them `NOT PROVEN`; do not fabricate `ZION_REMOTE_NETWORK_PROVEN=YES`.
 
 ## Ongoing preflight
 
