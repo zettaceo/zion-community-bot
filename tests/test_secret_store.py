@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import stat
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -209,6 +210,37 @@ class SecretStoreTests(unittest.TestCase):
             self.path.parent.glob(".mistral-api-key.tmp-*")
         )
         self.assertEqual(leftovers, [])
+
+    def test_concurrent_rotations_never_publish_partial_secret(self) -> None:
+        first = "synthetic-concurrent-mistral-material-111111"
+        second = "synthetic-concurrent-mistral-material-222222"
+        self.store.write_atomic(SYNTHETIC_SECRET)
+
+        barrier = threading.Barrier(3)
+        errors: list[BaseException] = []
+
+        def rotate(value: str) -> None:
+            try:
+                barrier.wait()
+                self.store.write_atomic(value)
+            except BaseException as exc:
+                errors.append(exc)
+
+        one = threading.Thread(target=rotate, args=(first,))
+        two = threading.Thread(target=rotate, args=(second,))
+        one.start()
+        two.start()
+        barrier.wait()
+        one.join()
+        two.join()
+
+        self.assertEqual(errors, [])
+        self.assertIn(self.store.read(), {first, second})
+        self.assertEqual(self.store.status(), SecretStore.PRIVATE)
+        self.assertEqual(
+            list(self.path.parent.glob(".mistral-api-key.*-*")),
+            [],
+        )
 
     def test_clear_removes_only_valid_secret(self) -> None:
         self.store.write_atomic(SYNTHETIC_SECRET)
