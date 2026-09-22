@@ -674,6 +674,10 @@ class Block4OperationsTests(unittest.TestCase):
                 ai_enabled=True,
                 ai_daily_token_budget=1000,
             )
+            settings.mistral_secret_path.parent.parent.mkdir(
+                mode=0o700,
+                exist_ok=True,
+            )
             SecretStore(settings.mistral_secret_path).write_atomic(
                 "synthetic-key-material"
             )
@@ -737,6 +741,10 @@ class Block4OperationsTests(unittest.TestCase):
                 root,
                 ai_enabled=True,
                 ai_daily_token_budget=0,
+            )
+            settings.mistral_secret_path.parent.parent.mkdir(
+                mode=0o700,
+                exist_ok=True,
             )
             SecretStore(settings.mistral_secret_path).write_atomic(
                 "synthetic-key-material"
