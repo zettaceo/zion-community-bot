@@ -1377,11 +1377,24 @@ async def mistral_secret_capture_handler(
         )
         raise ApplicationHandlerStop
 
-    previous_secret = (
-        rt.secret_store.read()
-        if existing_status == SecretStore.PRIVATE
-        else None
-    )
+    try:
+        previous_secret = (
+            rt.secret_store.read()
+            if existing_status == SecretStore.PRIVATE
+            else None
+        )
+    except Exception as exc:
+        logger.warning(
+            "Falha ao ler estado anterior do cofre Mistral: %s",
+            type(exc).__name__,
+        )
+        await _send_secret_status(
+            context,
+            chat.id,
+            "O estado anterior do cofre não pôde ser confirmado. "
+            "Nada foi alterado.",
+        )
+        raise ApplicationHandlerStop
 
     try:
         rt.secret_store.write_atomic(candidate)
@@ -1417,7 +1430,7 @@ async def mistral_secret_capture_handler(
                 rt.secret_store.clear()
             else:
                 rt.secret_store.write_atomic(previous_secret)
-        except SecretStoreError as exc:
+        except Exception as exc:
             logger.error(
                 "Falha ao reverter segredo Mistral após auditoria: %s",
                 type(exc).__name__,
@@ -1488,7 +1501,19 @@ async def clear_mistral_key_command(
         await message.reply_text("A credencial Mistral já está ausente.")
         return
 
-    previous_secret = rt.secret_store.read()
+    try:
+        previous_secret = rt.secret_store.read()
+    except Exception as exc:
+        logger.warning(
+            "Falha ao ler segredo antes da remoção Mistral: %s",
+            type(exc).__name__,
+        )
+        await message.reply_text(
+            "O estado atual do cofre não pôde ser confirmado; "
+            "nenhuma remoção foi tentada."
+        )
+        return
+
     try:
         removed = rt.secret_store.clear()
     except Exception as exc:
@@ -1511,7 +1536,7 @@ async def clear_mistral_key_command(
         try:
             if previous_secret is not None:
                 rt.secret_store.write_atomic(previous_secret)
-        except SecretStoreError as exc:
+        except Exception as exc:
             logger.error(
                 "Falha ao restaurar segredo Mistral após auditoria: %s",
                 type(exc).__name__,
