@@ -144,7 +144,8 @@ class Settings:
     ai_circuit_failures: int
     ai_circuit_seconds: int
 
-    mistral_api_key: str
+    mistral_secret_path: Path
+    legacy_mistral_api_key_present: bool
     mistral_api_url: str
     mistral_model: str
     mistral_timeout_seconds: float
@@ -155,8 +156,8 @@ class Settings:
 
         if not self.admin_user_ids:
             issues.append("operator_allowlist_empty")
-        if self.ai_enabled and not self.mistral_api_key:
-            issues.append("ai_enabled_without_key")
+        if self.legacy_mistral_api_key_present:
+            issues.append("deprecated_mistral_api_key_present")
         if self.ai_observe and not self.ai_enabled:
             issues.append("ai_observe_without_ai")
         if not self.wifi_interface:
@@ -389,7 +390,22 @@ class Settings:
                 120,
                 10,
             ),
-            mistral_api_key=os.getenv("MISTRAL_API_KEY", "").strip(),
+            mistral_secret_path=Path(
+                os.getenv(
+                    "ZION_MISTRAL_SECRET_PATH",
+                    str(
+                        Path.home()
+                        / ".local"
+                        / "state"
+                        / "zion-community-bot"
+                        / "secrets"
+                        / "mistral-api-key"
+                    ),
+                )
+            ).expanduser(),
+            legacy_mistral_api_key_present=bool(
+                os.getenv("MISTRAL_API_KEY", "").strip()
+            ),
             mistral_api_url=os.getenv(
                 "MISTRAL_API_URL",
                 "https://api.mistral.ai/v1/chat/completions",
