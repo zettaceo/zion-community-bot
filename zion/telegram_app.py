@@ -1134,6 +1134,7 @@ async def diagnostics_command(
         f"[{'OK' if diag['ai_latency_read_ok'] else 'UNAVAILABLE'}]\n"
         f"AI enabled/provider ready: "
         f"{rt.settings.ai_enabled}/{rt.ai.enabled}\n"
+        f"Mistral secret: {diag['mistral_secret_status']}\n"
         f"AI accounting: "
         f"{'OK' if ai_accounting_ok else 'FAIL-CLOSED'}\n"
         f"AI tokens UTC used/budget/remaining: "
@@ -1149,6 +1150,313 @@ async def diagnostics_command(
     )
 
 
+MISTRAL_SECRET_CAPTURE_TTL_SECONDS = 120
+
+
+def _explicit_operator(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    return bool(
+        update.effective_user
+        and update.effective_user.id
+        in runtime(context).settings.admin_user_ids
+    )
+
+
+async def _send_secret_status(
+    context: ContextTypes.DEFAULT_TYPE,
+    chat_id: int,
+    text: str,
+) -> None:
+    try:
+        await context.bot.send_message(chat_id=chat_id, text=text)
+    except Exception as exc:
+        logger.warning(
+            "Falha ao enviar status de provisionamento Mistral: %s",
+            type(exc).__name__,
+        )
+
+
+def _audit_mistral_secret_operation(
+    rt: Runtime,
+    *,
+    chat_id: int,
+    user_id: int,
+    operation: str,
+    success: bool,
+) -> None:
+    try:
+        rt.db.record_action(
+            incident_id=None,
+            chat_id=chat_id,
+            user_id=user_id,
+            action_type=(
+                "mistral_key_set"
+                if operation in {"set", "rotate"}
+                else "mistral_key_clear"
+            ),
+            actor_type="operator",
+            actor_id=str(user_id),
+            reason="private_secret_provisioning",
+            success=success,
+            metadata={
+                "secret": "mistral",
+                "operation": operation,
+            },
+        )
+    except Exception as exc:
+        logger.warning(
+            "Falha ao registrar auditoria de segredo Mistral: %s",
+            type(exc).__name__,
+        )
+
+
+async def set_mistral_key_command(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+) -> None:
+    message = update.effective_message
+    chat = update.effective_chat
+    if not message or not chat or not _explicit_operator(update, context):
+        if message:
+            await message.reply_text(
+                "⛔ Comando restrito aos operadores explícitos do ZION."
+            )
+        return
+
+    if chat.type != "private":
+        await message.reply_text(
+            "Use este comando no chat privado com o ZION."
+        )
+        return
+
+    if context.args:
+        await message.reply_text(
+            "Não envie a chave no comando. Use /setmistralkey sem argumentos."
+        )
+        return
+
+    rt = runtime(context)
+    if rt.secret_store.status() == SecretStore.UNSAFE:
+        await message.reply_text(
+            "O cofre local da Mistral está em estado inseguro. "
+            "A chave não será recebida até o host ser corrigido."
+        )
+        return
+
+    rt.mistral_secret_captures[(chat.id, update.effective_user.id)] = (
+        time.monotonic() + MISTRAL_SECRET_CAPTURE_TTL_SECONDS
+    )
+    await message.reply_text(
+        "Envie a chave Mistral na próxima mensagem.\n"
+        "Ela será processada como segredo e removida do chat antes de ser "
+        "armazenada.\n"
+        "A solicitação expira em 120 segundos."
+    )
+
+
+async def mistral_secret_capture_handler(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+) -> None:
+    message = update.effective_message
+    chat = update.effective_chat
+    user = update.effective_user
+    if not message or not chat or not user or chat.type != "private":
+        return
+
+    rt = runtime(context)
+    capture_key = (chat.id, user.id)
+    expires_at = rt.mistral_secret_captures.get(capture_key)
+    if expires_at is None:
+        return
+    if time.monotonic() > expires_at:
+        rt.mistral_secret_captures.pop(capture_key, None)
+        return
+
+    text = message.text or ""
+    if not text or text.startswith("/"):
+        return
+
+    # One attempt consumes the in-memory capture. The raw message must be
+    # deleted before validation, provider I/O, persistence or audit writes.
+    rt.mistral_secret_captures.pop(capture_key, None)
+
+    deleted = await delete_message_safe(
+        context,
+        chat.id,
+        message.message_id,
+    )
+    if not deleted:
+        await _send_secret_status(
+            context,
+            chat.id,
+            "Não consegui remover a mensagem com segurança. "
+            "A chave não foi armazenada. Exclua a mensagem e tente novamente.",
+        )
+        raise ApplicationHandlerStop
+
+    try:
+        candidate = SecretStore.normalize_candidate(text)
+    except SecretValidationError:
+        await _send_secret_status(
+            context,
+            chat.id,
+            "A chave recebida não possui um formato seguro válido. "
+            "Nada foi armazenado.",
+        )
+        raise ApplicationHandlerStop
+
+    existing_status = rt.secret_store.status()
+    if existing_status == SecretStore.UNSAFE:
+        await _send_secret_status(
+            context,
+            chat.id,
+            "O cofre local da Mistral está inseguro. Nada foi armazenado.",
+        )
+        raise ApplicationHandlerStop
+
+    operation = (
+        "rotate"
+        if existing_status == SecretStore.PRIVATE
+        else "set"
+    )
+
+    try:
+        await rt.ai.client.validate_api_key(candidate)
+    except MistralCredentialInvalid:
+        _audit_mistral_secret_operation(
+            rt,
+            chat_id=chat.id,
+            user_id=user.id,
+            operation=operation,
+            success=False,
+        )
+        await _send_secret_status(
+            context,
+            chat.id,
+            "A Mistral rejeitou a credencial. "
+            "A chave anterior, se existente, foi preservada.",
+        )
+        raise ApplicationHandlerStop
+    except MistralCredentialValidationUnavailable:
+        _audit_mistral_secret_operation(
+            rt,
+            chat_id=chat.id,
+            user_id=user.id,
+            operation=operation,
+            success=False,
+        )
+        await _send_secret_status(
+            context,
+            chat.id,
+            "Não foi possível validar a credencial Mistral agora. "
+            "Nada foi alterado; tente novamente mais tarde.",
+        )
+        raise ApplicationHandlerStop
+
+    try:
+        rt.secret_store.write_atomic(candidate)
+    except (SecretStoreError, SecretValidationError) as exc:
+        logger.warning(
+            "Falha no cofre local Mistral: %s",
+            type(exc).__name__,
+        )
+        _audit_mistral_secret_operation(
+            rt,
+            chat_id=chat.id,
+            user_id=user.id,
+            operation=operation,
+            success=False,
+        )
+        await _send_secret_status(
+            context,
+            chat.id,
+            "A credencial foi validada, mas o cofre local recusou a "
+            "persistência. A chave anterior, se existente, foi preservada.",
+        )
+        raise ApplicationHandlerStop
+
+    _audit_mistral_secret_operation(
+        rt,
+        chat_id=chat.id,
+        user_id=user.id,
+        operation=operation,
+        success=True,
+    )
+    await _send_secret_status(
+        context,
+        chat.id,
+        "Mistral configurada com sucesso.\n"
+        "A chave foi armazenada no cofre local protegido do ZION.\n"
+        "Use /aistatus para verificar.",
+    )
+    raise ApplicationHandlerStop
+
+
+async def clear_mistral_key_command(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+) -> None:
+    message = update.effective_message
+    chat = update.effective_chat
+    user = update.effective_user
+    if not message or not chat or not user or not _explicit_operator(update, context):
+        if message:
+            await message.reply_text(
+                "⛔ Comando restrito aos operadores explícitos do ZION."
+            )
+        return
+
+    if chat.type != "private":
+        await message.reply_text(
+            "Use este comando no chat privado com o ZION."
+        )
+        return
+
+    if [arg.upper() for arg in context.args] != ["CONFIRM"]:
+        await message.reply_text(
+            "Isso desativa o provider Mistral até uma nova chave ser "
+            "configurada.\n"
+            "Confirme com /clearmistralkey CONFIRM."
+        )
+        return
+
+    rt = runtime(context)
+    status = rt.secret_store.status()
+    if status == SecretStore.UNSAFE:
+        await message.reply_text(
+            "O cofre local está inseguro; a remoção automática foi recusada."
+        )
+        return
+    if status == SecretStore.MISSING:
+        await message.reply_text("A credencial Mistral já está ausente.")
+        return
+
+    try:
+        removed = rt.secret_store.clear()
+    except SecretStoreError as exc:
+        logger.warning(
+            "Falha ao remover segredo Mistral: %s",
+            type(exc).__name__,
+        )
+        await message.reply_text(
+            "Não foi possível remover a credencial com segurança."
+        )
+        return
+
+    if removed:
+        _audit_mistral_secret_operation(
+            rt,
+            chat_id=chat.id,
+            user_id=user.id,
+            operation="clear",
+            success=True,
+        )
+    await message.reply_text(
+        "Credencial Mistral removida. "
+        "O Guardian determinístico continua ativo."
+    )
+
+
 async def ai_status_command(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
@@ -1159,7 +1467,12 @@ async def ai_status_command(
         return
 
     rt = runtime(context)
-    key_state = "configured" if rt.settings.mistral_api_key else "missing"
+    secret_status = rt.secret_store.status()
+    key_state = (
+        "CONFIGURED"
+        if secret_status == SecretStore.PRIVATE
+        else secret_status
+    )
     used = rt.ai.tokens_used_today()
     budget = rt.settings.ai_daily_token_budget
     budget_text = "unlimited" if budget <= 0 else str(budget)
@@ -1174,8 +1487,10 @@ async def ai_status_command(
         "ZION AI\n"
         "Provider: Mistral AI\n"
         f"Model: {rt.settings.mistral_model}\n"
-        f"Enabled: {rt.settings.ai_enabled}\n"
-        f"API key: {key_state}\n"
+        f"Enabled by config: {rt.settings.ai_enabled}\n"
+        f"Provider ready: {rt.ai.enabled}\n"
+        f"API credential: {key_state}\n"
+        "Secret source: LOCAL PROTECTED STORE\n"
         f"Observe-only moderation: {rt.settings.ai_observe}\n"
         f"Circuit breaker: {circuit_text}\n"
         f"Provider failures: {rt.ai.circuit_failures}/"
@@ -4837,6 +5152,8 @@ def build_application(settings: Settings | None = None) -> Application:
         "translate": translate_command,
         "help": help_command,
         "aistatus": ai_status_command,
+        "setmistralkey": set_mistral_key_command,
+        "clearmistralkey": clear_mistral_key_command,
         "stats": stats_command,
         "gaps": gaps_command,
         "resolvegap": resolve_gap_command,
@@ -4871,6 +5188,16 @@ def build_application(settings: Settings | None = None) -> Application:
         "amaclose": ama_close_command,
         "reloadkb": reload_knowledge_command,
     }
+
+    # Group -3 captures only an explicitly armed private Mistral secret.
+    # It runs before generic credential protection, persistence and moderation.
+    app.add_handler(
+        MessageHandler(
+            filters.TEXT & ~filters.COMMAND,
+            mistral_secret_capture_handler,
+        ),
+        group=-3,
+    )
 
     # Group -2 protects secrets before persisting Telegram update IDs.
     # Functional command side effects remain at-most-once across restarts;
