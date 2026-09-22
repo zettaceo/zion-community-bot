@@ -353,14 +353,17 @@ If post-deploy acceptance fails:
 
 1. keep the incident contained; do not push/rewrite `zion-v1`;
 2. stop `zion.service`;
-3. verify the backup SQLite checksum/integrity before restoration;
-4. return the **local** production worktree to the recorded rollback SHA;
-5. restore the verified database backup if the candidate changed/migrated DB state;
-6. restore the prior systemd unit if necessary;
-7. remove stale DB WAL/SHM sidecars only while the service is stopped and only as part of a deliberate DB restore;
-8. start the service;
-9. repeat host + Telegram acceptance;
-10. open a forward-fix PR. Do not force-push the remote production branch backward.
+3. while the reviewed v1.1 code/runtime is still available and the service is stopped, inspect the fixed Mistral secret store. If a PRIVATE secret exists, clear it through `SecretStore.clear()` and verify status `MISSING`. If the store is UNSAFE or removal cannot be verified, stop the rollback and investigate; do not start legacy code with the secret present;
+4. verify the backup SQLite checksum/integrity before restoration;
+5. return the **local** production worktree to the recorded rollback SHA;
+6. restore the verified database backup if the candidate changed/migrated DB state;
+7. restore the prior systemd unit if necessary;
+8. remove stale DB WAL/SHM sidecars only while the service is stopped and only as part of a deliberate DB restore;
+9. start the service;
+10. repeat host + Telegram acceptance;
+11. open a forward-fix PR. Do not force-push the remote production branch backward.
+
+The Mistral secret is intentionally **not** backed up for rollback. Returning to a legacy build therefore leaves Mistral disabled. After a later reviewed v1.1 recovery, provision a fresh/current key again through the protected private-chat flow.
 
 A host rollback can temporarily leave local `zion-v1-prod` behind `origin/zion-v1`. That is an emergency state, not a branch rewrite.
 
