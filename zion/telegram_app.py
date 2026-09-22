@@ -1286,6 +1286,10 @@ async def mistral_secret_capture_handler(
 
     rt = runtime(context)
     capture_key = (chat.id, user.id)
+    if user.id not in rt.settings.admin_user_ids:
+        rt.mistral_secret_captures.pop(capture_key, None)
+        return
+
     expires_at = rt.mistral_secret_captures.get(capture_key)
     if expires_at is None:
         return
