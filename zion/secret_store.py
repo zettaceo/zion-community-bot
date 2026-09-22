@@ -54,6 +54,16 @@ class SecretStore:
 
         return normalized
 
+    def _directory_entry_exists(self) -> bool:
+        try:
+            self.directory.lstat()
+        except FileNotFoundError:
+            return False
+        except OSError:
+            # Metadata uncertainty is unsafe, never equivalent to missing.
+            return True
+        return True
+
     def _validate_directory(self) -> None:
         try:
             info = self.directory.lstat()
@@ -69,6 +79,16 @@ class SecretStore:
             raise SecretStoreError("secret directory owner is invalid")
         if mode != 0o700:
             raise SecretStoreError("secret directory mode is invalid")
+        try:
+            resolved = self.directory.resolve(strict=True)
+        except OSError as exc:
+            raise SecretStoreError(
+                "secret directory canonical path unavailable"
+            ) from exc
+        if resolved != self.directory.absolute():
+            raise SecretStoreError(
+                "secret directory resolves through a symlink or alias"
+            )
 
     def _ensure_directory(self) -> None:
         try:
@@ -103,7 +123,7 @@ class SecretStore:
         try:
             self._validate_directory()
         except SecretStoreError:
-            if not self.directory.exists():
+            if not self._directory_entry_exists():
                 return self.MISSING
             return self.UNSAFE
 
@@ -134,7 +154,7 @@ class SecretStore:
         try:
             self._validate_directory()
         except SecretStoreError:
-            if not self.directory.exists():
+            if not self._directory_entry_exists():
                 return None
             raise
 
@@ -179,6 +199,84 @@ class SecretStore:
         finally:
             os.close(fd)
 
+    def _write_private_temp(
+        self,
+        payload: bytes,
+        *,
+        label: str,
+    ) -> Path:
+        tmp = self.directory / (
+            "." + self.path.name + f".{label}-" + uuid.uuid4().hex
+        )
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+        if hasattr(os, "O_NOFOLLOW"):
+            flags |= os.O_NOFOLLOW
+
+        fd: int | None = None
+        try:
+            fd = os.open(tmp, flags, 0o600)
+            info = os.fstat(fd)
+            self._validate_file_stat(info)
+
+            offset = 0
+            while offset < len(payload):
+                written = os.write(fd, payload[offset:])
+                if written <= 0:
+                    raise SecretStoreError("short secret write")
+                offset += written
+            os.fsync(fd)
+            os.close(fd)
+            fd = None
+
+            tmp_info = tmp.lstat()
+            self._validate_file_stat(tmp_info)
+            return tmp
+        except BaseException:
+            if fd is not None:
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
+            try:
+                tmp.unlink()
+            except FileNotFoundError:
+                pass
+            except OSError:
+                pass
+            raise
+
+    def _restore_previous_after_publish_failure(
+        self,
+        previous: str | None,
+    ) -> None:
+        if previous is None:
+            self._validate_existing_path()
+            try:
+                self.path.unlink()
+            except FileNotFoundError:
+                pass
+            self._fsync_directory()
+            return
+
+        rollback_tmp = self._write_private_temp(
+            previous.encode("utf-8"),
+            label="rollback",
+        )
+        try:
+            os.replace(rollback_tmp, self.path)
+            self._fsync_directory()
+            if self.read() != previous:
+                raise SecretStoreError(
+                    "secret rollback verification failed"
+                )
+        finally:
+            try:
+                rollback_tmp.unlink()
+            except FileNotFoundError:
+                pass
+            except OSError:
+                pass
+
     def write_atomic(self, value: str) -> None:
         normalized = self.normalize_candidate(value)
         payload = normalized.encode("utf-8")
@@ -186,48 +284,34 @@ class SecretStore:
         with self._lock:
             self._ensure_directory()
             self._validate_existing_path()
+            previous = self.read()
 
-            tmp = self.directory / (
-                "." + self.path.name + ".tmp-" + uuid.uuid4().hex
-            )
-            flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
-            if hasattr(os, "O_NOFOLLOW"):
-                flags |= os.O_NOFOLLOW
-
-            fd: int | None = None
+            tmp = self._write_private_temp(payload, label="tmp")
             published = False
             try:
-                fd = os.open(tmp, flags, 0o600)
-                info = os.fstat(fd)
-                self._validate_file_stat(info)
-
-                offset = 0
-                while offset < len(payload):
-                    written = os.write(fd, payload[offset:])
-                    if written <= 0:
-                        raise SecretStoreError("short secret write")
-                    offset += written
-                os.fsync(fd)
-                os.close(fd)
-                fd = None
-
-                tmp_info = tmp.lstat()
-                self._validate_file_stat(tmp_info)
                 self._validate_existing_path()
-
                 os.replace(tmp, self.path)
                 published = True
-                self._fsync_directory()
-
-                # Re-open through the hardened read path before success.
-                if self.read() != normalized:
-                    raise SecretStoreError("published secret verification failed")
-            except BaseException:
-                if fd is not None:
+                try:
+                    self._fsync_directory()
+                    if self.read() != normalized:
+                        raise SecretStoreError(
+                            "published secret verification failed"
+                        )
+                except BaseException as publish_exc:
                     try:
-                        os.close(fd)
-                    except OSError:
-                        pass
+                        self._restore_previous_after_publish_failure(
+                            previous
+                        )
+                    except BaseException as rollback_exc:
+                        raise SecretStoreError(
+                            "secret publication failed and rollback "
+                            "could not be confirmed"
+                        ) from rollback_exc
+                    raise SecretStoreError(
+                        "secret publication failed; previous state restored"
+                    ) from publish_exc
+            finally:
                 if not published:
                     try:
                         tmp.unlink()
@@ -235,14 +319,13 @@ class SecretStore:
                         pass
                     except OSError:
                         pass
-                raise
 
     def clear(self) -> bool:
         with self._lock:
             try:
                 self._validate_directory()
             except SecretStoreError:
-                if not self.directory.exists():
+                if not self._directory_entry_exists():
                     return False
                 raise
 
@@ -252,9 +335,44 @@ class SecretStore:
             except FileNotFoundError:
                 return False
 
+            previous = self.read()
+            if previous is None:
+                return False
+
             try:
                 self.path.unlink()
             except OSError as exc:
                 raise SecretStoreError("cannot remove secret file") from exc
-            self._fsync_directory()
+
+            try:
+                self._fsync_directory()
+            except BaseException as clear_exc:
+                try:
+                    rollback_tmp = self._write_private_temp(
+                        previous.encode("utf-8"),
+                        label="clear-rollback",
+                    )
+                    try:
+                        os.replace(rollback_tmp, self.path)
+                        self._fsync_directory()
+                        if self.read() != previous:
+                            raise SecretStoreError(
+                                "secret clear rollback verification failed"
+                            )
+                    finally:
+                        try:
+                            rollback_tmp.unlink()
+                        except FileNotFoundError:
+                            pass
+                        except OSError:
+                            pass
+                except BaseException as rollback_exc:
+                    raise SecretStoreError(
+                        "secret clear failed and rollback "
+                        "could not be confirmed"
+                    ) from rollback_exc
+                raise SecretStoreError(
+                    "secret clear durability failed; previous state restored"
+                ) from clear_exc
+
             return True
