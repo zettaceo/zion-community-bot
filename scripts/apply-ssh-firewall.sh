@@ -6,6 +6,7 @@ export PATH
 
 SCRIPT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 EXPECTED_USER="zetta"
+EXPECTED_COMMIT="${ZION_EXPECTED_COMMIT:-}"
 
 RULESET_SRC="$SCRIPT_ROOT/ops/nftables/zion-ssh-private.nft"
 RUNTIME_SRC="$SCRIPT_ROOT/ops/nftables/zion-ssh-firewall-runtime.sh"
@@ -36,6 +37,35 @@ fi
 
 if [[ "$(id -un)" != "$EXPECTED_USER" ]]; then
   echo "ERRO: execute como $EXPECTED_USER, não como root." >&2
+  exit 2
+fi
+
+if [[ ! "$EXPECTED_COMMIT" =~ ^[0-9a-fA-F]{40}$ ]]; then
+  echo "ERRO: ZION_EXPECTED_COMMIT deve ser o SHA revisado completo." >&2
+  exit 2
+fi
+
+/usr/bin/python3 -I "$SCRIPT_ROOT/scripts/check-git-release-boundary.py" \
+  --root "$SCRIPT_ROOT"
+
+candidate_head="$(/usr/bin/git -C "$SCRIPT_ROOT" rev-parse HEAD)"
+approved_sha="$(/usr/bin/git -C "$SCRIPT_ROOT" rev-parse origin/zion-v1.1-dev^{commit} 2>/dev/null || true)"
+candidate_status="$(/usr/bin/git -C "$SCRIPT_ROOT" status --porcelain --untracked-files=all)"
+
+if [[ "$candidate_head" != "$EXPECTED_COMMIT" ]]; then
+  echo "ERRO: firewall candidate HEAD diverge de ZION_EXPECTED_COMMIT." >&2
+  exit 2
+fi
+if [[ "$approved_sha" != "$EXPECTED_COMMIT" ]]; then
+  echo "ERRO: origin/zion-v1.1-dev não aponta para o candidate revisado." >&2
+  exit 2
+fi
+if [[ -n "$candidate_status" ]]; then
+  echo "ERRO: firewall candidate worktree não está limpo." >&2
+  exit 2
+fi
+if [[ -e "$SCRIPT_ROOT/.env" || -L "$SCRIPT_ROOT/.env" ]]; then
+  echo "ERRO: detached firewall candidate não pode conter .env." >&2
   exit 2
 fi
 
