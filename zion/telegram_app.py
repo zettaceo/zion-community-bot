@@ -5133,6 +5133,11 @@ def build_application(settings: Settings | None = None) -> Application:
 
     if not settings.telegram_token:
         raise RuntimeError("TELEGRAM_BOT_TOKEN não configurado.")
+    if settings.legacy_mistral_api_key_present:
+        raise RuntimeError(
+            "MISTRAL_API_KEY está depreciada e deve permanecer vazia; "
+            "use o cofre local protegido."
+        )
 
     rt = Runtime(settings)
 
