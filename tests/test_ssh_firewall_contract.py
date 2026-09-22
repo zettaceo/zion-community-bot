@@ -52,6 +52,7 @@ class SSHFirewallContractTests(unittest.TestCase):
         text = self.read("scripts/apply-ssh-firewall.sh")
 
         for variable in (
+            "ZION_EXPECTED_COMMIT",
             "ZION_FIREWALL_CHANGE_AUTHORIZED",
             "ZION_REMOTE_ACCESS_PROVEN",
             "ZION_SECOND_SSH_PROVEN",
@@ -59,6 +60,10 @@ class SSHFirewallContractTests(unittest.TestCase):
             with self.subTest(variable=variable):
                 self.assertIn(variable, text)
 
+        self.assertIn("check-git-release-boundary.py", text)
+        self.assertIn("origin/zion-v1.1-dev", text)
+        self.assertIn("status --porcelain --untracked-files=all", text)
+        self.assertIn('candidate_head" != "$EXPECTED_COMMIT"', text)
         self.assertIn("sudo -n /usr/bin/true", text)
         self.assertIn("100.64.0.0/10", text)
         self.assertIn("fd7a:115c:a1e0::/48", text)
@@ -138,6 +143,10 @@ class SSHFirewallContractTests(unittest.TestCase):
 
         self.assertIn(
             "Phase 7 — reviewed host SSH firewall",
+            text,
+        )
+        self.assertIn(
+            "ZION_EXPECTED_COMMIT=<reviewed-40-character-zion-v1.1-dev-sha>",
             text,
         )
         self.assertIn(
