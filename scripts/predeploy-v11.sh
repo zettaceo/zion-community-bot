@@ -373,7 +373,7 @@ echo "[8/8] Applying candidate migrations ONLY to disposable copy..."
 "$PYTHON" - <<PY
 from pathlib import Path
 
-from zion.db import ZionDB
+from zion.db import ZION_APPLICATION_ID, ZionDB
 from zion.migrate import migrate_legacy_guardian_state
 
 db_path = Path("$COPY_DB")
