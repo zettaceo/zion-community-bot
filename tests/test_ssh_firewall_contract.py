@@ -34,6 +34,13 @@ class SSHFirewallContractTests(unittest.TestCase):
         self.assertLess(loopback, drop)
         self.assertLess(tailscale, drop)
 
+    def test_validation_includes_firewall_runtime_helper(self) -> None:
+        text = self.read("scripts/validate.sh")
+        self.assertIn(
+            "scripts/*.sh ops/nftables/*.sh",
+            text,
+        )
+
     def test_runtime_helper_never_flushes_unrelated_ruleset(self) -> None:
         text = self.read(
             "ops/nftables/zion-ssh-firewall-runtime.sh"
