@@ -694,3 +694,34 @@ GitHub Actions **ZION CI #1164** on `09ddea27261669a1bdeb4ec8b320ee9aa9625cd5`:
 8. Full release rollback rehearsal and Telegram live acceptance remain later gates.
 
 Production merge/deploy remains unauthorized.
+
+
+---
+
+## 2026-09-22 — MISTRAL PRIVATE SECRET PROVISIONING
+
+The production candidate is being hardened so the Mistral API key is no longer configured directly in `.env`.
+
+### Implemented repository boundary
+
+- `MISTRAL_API_KEY` is deprecated and must remain empty; a non-empty legacy value blocks candidate startup/predeploy rather than being migrated automatically.
+- The production secret path is fixed by code at `/home/zetta/.local/state/zion-community-bot/secrets/mistral-api-key`.
+- `zion/secret_store.py` owns the provider-secret filesystem boundary: canonical 0700 directory, 0600 single-link regular file, owner validation, symlink/hardlink rejection, `O_NOFOLLOW` reads where available, atomic writes, directory fsync and rollback after post-publication failures.
+- Mistral requests read the secret dynamically, so set/rotate/clear take effect without restarting ZION.
+- `/setmistralkey` is restricted to explicit `ZION_ADMIN_USER_IDS` operators in private chat. It arms a 120-second in-memory capture; the next non-command message is deleted before validation/persistence and stopped before the generic Guardian/AI/SQLite pipeline.
+- Accidental `/setmistralkey <value>` input is intercepted and deleted before command idempotency persistence, including non-space whitespace separators.
+- Provider validation uses the official `GET https://api.mistral.ai/v1/models` endpoint with HTTPS, redirects disabled and sanitized error handling.
+- A failed provider validation preserves the previous key. A failed Action Ledger write also reverts a successful local set/rotation/clear rather than leaving an unaudited secret mutation.
+- `/clearmistralkey CONFIRM` is required for removal.
+- `/aistatus`, health and diagnostics expose only MISSING/PRIVATE/UNSAFE or CONFIGURED state, never key bytes/fingerprint.
+- The dashboard unit cannot access the secrets directory.
+- Deployment backups do not copy or fingerprint the Mistral secret.
+- Legacy rollback must clear and verify the secret as MISSING before older same-user code starts.
+
+### Privacy statement
+
+The private-chat provisioning flow is deliberately honest about transport: the credential transits Telegram private chat before ZION deletes the incoming message. Application-level DB/log/backup persistence is prohibited. An operator who requires a channel that never transits Telegram must use a separately reviewed local/offline path.
+
+### Current safety boundary
+
+This implementation does **not** authorize production. PR #2 remains Draft/unmerged; the real Mistral key must not be requested or provisioned until after an explicitly authorized v1.1 cutover. Repository CI/adversarial review must be green before this implementation is merged into `zion-v1.1-dev`.
