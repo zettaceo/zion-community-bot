@@ -57,13 +57,13 @@ class SettingsTests(unittest.TestCase):
                 admin_user_ids=frozenset(),
                 ai_enabled=True,
                 ai_observe=True,
-                mistral_api_key="",
+                legacy_mistral_api_key_present=True,
                 runtime_lock_path=root / "runtime.lock",
             )
 
             issues = settings.configuration_issues()
             self.assertIn("operator_allowlist_empty", issues)
-            self.assertIn("ai_enabled_without_key", issues)
+            self.assertIn("deprecated_mistral_api_key_present", issues)
             self.assertIn("runtime_lock_inside_worktree", issues)
 
 
