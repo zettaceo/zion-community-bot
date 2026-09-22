@@ -16,6 +16,7 @@ from zion.logging_safe import (
     configure_logging,
     contains_high_confidence_credential,
     redact_secrets,
+    register_sensitive_value,
 )
 
 
@@ -227,6 +228,15 @@ class SecurityTests(unittest.TestCase):
             "example-secret-value-123456",
             redact_secrets(value),
         )
+
+    def test_runtime_registered_secret_is_redacted_without_env(self) -> None:
+        secret = "synthetic-runtime-mistral-material-123456"
+        register_sensitive_value(secret)
+
+        result = redact_secrets(f"provider credential={secret}")
+
+        self.assertNotIn(secret, result)
+        self.assertIn("[REDACTED]", result)
 
     def test_environment_secret_redacted(self) -> None:
         with patch.dict(
