@@ -156,6 +156,12 @@ class MistralSecretIntegrationTests(unittest.TestCase):
             with self.assertRaises(MistralCredentialValidationUnavailable):
                 asyncio.run(self.client.validate_api_key(NEW_SECRET))
 
+    def test_provider_500_is_validation_unavailable(self) -> None:
+        fake = FakeHTTPClient(get_status=500)
+        with patch("zion.mistral.httpx.AsyncClient", return_value=fake):
+            with self.assertRaises(MistralCredentialValidationUnavailable):
+                asyncio.run(self.client.validate_api_key(NEW_SECRET))
+
     def test_network_timeout_is_validation_unavailable(self) -> None:
         fake = FakeHTTPClient(
             get_error=httpx.ReadTimeout("synthetic timeout")
