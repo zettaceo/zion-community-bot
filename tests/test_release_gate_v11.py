@@ -128,6 +128,28 @@ class V11ReleaseGateTests(unittest.TestCase):
         )
         self.assertIn("dashboard aponta para DB diferente do bot", text)
 
+    def test_predeploy_disposable_migration_imports_application_id(
+        self,
+    ) -> None:
+        text = self.read("scripts/predeploy-v11.sh")
+
+        self.assertIn(
+            "from zion.db import ZION_APPLICATION_ID, ZionDB",
+            text,
+        )
+        migration_step = text.index(
+            "[8/8] Applying candidate migrations ONLY to disposable copy"
+        )
+        import_step = text.index(
+            "from zion.db import ZION_APPLICATION_ID, ZionDB",
+            migration_step,
+        )
+        use_step = text.index(
+            'pragmas["application_id"] != ZION_APPLICATION_ID',
+            migration_step,
+        )
+        self.assertLess(import_step, use_step)
+
     def test_predeploy_rejects_hardlinked_env(self) -> None:
         text = self.read("scripts/predeploy-v11.sh")
 
