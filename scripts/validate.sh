@@ -60,7 +60,7 @@ echo "[4/7] Rodando unit tests..."
 "$PYTHON" -m unittest discover -s tests -v
 
 echo "[5/7] Validando shell scripts..."
-for script in scripts/*.sh; do
+for script in scripts/*.sh ops/nftables/*.sh; do
   /usr/bin/bash -n "$script"
 done
 
