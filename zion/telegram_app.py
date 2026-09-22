@@ -3676,6 +3676,35 @@ async def command_idempotency_guard_handler(
     message = update.effective_message
     if message is not None:
         visible = message.text or message.caption or ""
+        stripped = visible.strip()
+        command_head, separator, _ = stripped.partition(" ")
+        command_name = command_head.split("@", 1)[0].lower()
+        if command_name == "/setmistralkey" and separator:
+            chat = update.effective_chat
+            deleted = bool(
+                chat
+                and await delete_message_safe(
+                    context,
+                    chat.id,
+                    message.message_id,
+                )
+            )
+            if chat:
+                await _send_secret_status(
+                    context,
+                    chat.id,
+                    (
+                        "A chave não pode ser enviada no comando. "
+                        "A mensagem foi removida; use /setmistralkey sem "
+                        "argumentos."
+                        if deleted
+                        else
+                        "Não consegui remover o comando que continha dados "
+                        "após /setmistralkey. Exclua a mensagem manualmente."
+                    ),
+                )
+            raise ApplicationHandlerStop
+
         sensitive_surface = telegram_sensitive_surface(
             message,
             visible,
