@@ -67,7 +67,7 @@ systemctl status zion-wifi-guardian.timer --no-pager
 
 ## Mistral activation
 
-The production Mistral key is not stored in `.env`. `MISTRAL_API_KEY` is deprecated and must remain empty.
+The production Mistral key is not stored in `.env`. `MISTRAL_API_KEY` is deprecated and must remain empty. The secret path is fixed by code at `/home/zetta/.local/state/zion-community-bot/secrets/mistral-api-key` and is not configurable through `.env`.
 
 Non-secret configuration may contain:
 
