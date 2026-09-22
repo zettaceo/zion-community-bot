@@ -39,6 +39,10 @@ RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 ReadOnlyPaths=/home/zetta/zion-community-bot
 ReadOnlyPaths=/home/zetta/.local/share/zion-community-bot/runtimes
 InaccessiblePaths=/home/zetta/.local/share/zion-community-bot/deploy-backups
+InaccessiblePaths=/home/zetta/.config/gh
+InaccessiblePaths=/home/zetta/.ssh
+InaccessiblePaths=-/home/zetta/.git-credentials
+InaccessiblePaths=-/home/zetta/.netrc
 ReadWritePaths=/home/zetta/.local/state/zion-community-bot
 
 [Install]
