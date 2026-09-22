@@ -135,6 +135,11 @@ class Runtime:
             self.knowledge = KnowledgeBase(settings.knowledge_dir)
             self.guardian = Guardian(settings, self.db)
             self.secret_store = SecretStore(settings.mistral_secret_path)
+            self.mistral_secret_startup_status = self.secret_store.status()
+            if self.mistral_secret_startup_status == SecretStore.UNSAFE:
+                logger.warning(
+                    "Cofre Mistral inseguro no startup; provider bloqueado."
+                )
             self.ai = AIService(
                 settings,
                 self.db,
