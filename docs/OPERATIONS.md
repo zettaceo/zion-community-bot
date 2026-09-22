@@ -284,6 +284,7 @@ After SSH hardening and two independent key-only Tailscale sessions pass, the re
 cd /home/zetta/zion-community-bot
 sudo -v
 
+ZION_EXPECTED_COMMIT=<reviewed-40-character-zion-v1.1-dev-sha> \
 ZION_FIREWALL_CHANGE_AUTHORIZED=YES \
 ZION_REMOTE_ACCESS_PROVEN=YES \
 ZION_SECOND_SSH_PROVEN=YES \
