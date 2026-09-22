@@ -111,6 +111,31 @@ class SettingsTests(unittest.TestCase):
             settings.allowed_domains,
         )
 
+    def test_deprecated_mistral_env_secret_is_detected_and_scrubbed(self) -> None:
+        synthetic = "synthetic-env-mistral-material-123456"
+        with patch.dict(
+            os.environ,
+            {"MISTRAL_API_KEY": synthetic},
+            clear=False,
+        ):
+            settings = Settings.from_env()
+            self.assertTrue(settings.legacy_mistral_api_key_present)
+            self.assertNotIn("MISTRAL_API_KEY", os.environ)
+
+        self.assertNotIn(synthetic, repr(settings))
+
+    def test_mistral_secret_path_inside_worktree_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            settings = replace(
+                make_settings(root),
+                mistral_secret_path=root / "secrets" / "mistral-api-key",
+            )
+            self.assertIn(
+                "mistral_secret_inside_worktree",
+                settings.configuration_issues(),
+            )
+
 
 if __name__ == "__main__":
     unittest.main()
