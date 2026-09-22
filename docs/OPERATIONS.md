@@ -73,7 +73,6 @@ Non-secret configuration may contain:
 
 ```text
 ZION_AI_ENABLED=true
-ZION_MISTRAL_SECRET_PATH=/home/zetta/.local/state/zion-community-bot/secrets/mistral-api-key
 MISTRAL_API_URL=https://api.mistral.ai/v1/chat/completions
 ```
 
