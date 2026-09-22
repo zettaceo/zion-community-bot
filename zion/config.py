@@ -406,19 +406,14 @@ class Settings:
                 120,
                 10,
             ),
-            mistral_secret_path=Path(
-                os.getenv(
-                    "ZION_MISTRAL_SECRET_PATH",
-                    str(
-                        Path.home()
-                        / ".local"
-                        / "state"
-                        / "zion-community-bot"
-                        / "secrets"
-                        / "mistral-api-key"
-                    ),
-                )
-            ).expanduser(),
+            mistral_secret_path=(
+                Path.home()
+                / ".local"
+                / "state"
+                / "zion-community-bot"
+                / "secrets"
+                / "mistral-api-key"
+            ),
             legacy_mistral_api_key_present=legacy_mistral_api_key_present,
             mistral_api_url=os.getenv(
                 "MISTRAL_API_URL",
