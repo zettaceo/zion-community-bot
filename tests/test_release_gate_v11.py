@@ -307,6 +307,30 @@ class V11ReleaseGateTests(unittest.TestCase):
             text,
         )
 
+    def test_release_scripts_are_executable_in_git_index(self) -> None:
+        expected = {
+            "scripts/deployment-preflight.sh",
+            "scripts/predeploy-v11.sh",
+            "scripts/remote-access-preflight.sh",
+        }
+
+        output = subprocess.check_output(
+            ["/usr/bin/git", "ls-files", "--stage", "--", *sorted(expected)],
+            cwd=ROOT,
+            text=True,
+        )
+
+        modes = {}
+        for line in output.splitlines():
+            meta, path = line.split("\t", 1)
+            mode = meta.split()[0]
+            modes[path] = mode
+
+        self.assertEqual(set(modes), expected)
+        for path in sorted(expected):
+            with self.subTest(path=path):
+                self.assertEqual(modes[path], "100755")
+
     def test_first_upgrade_bootstraps_gates_from_detached_candidate(
         self,
     ) -> None:
