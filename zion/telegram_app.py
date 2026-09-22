@@ -33,6 +33,7 @@ from .knowledge import KnowledgeBase
 from .logging_safe import (
     configure_logging,
     contains_high_confidence_credential,
+    register_sensitive_value,
 )
 from .migrate import migrate_legacy_guardian_state
 from .mistral import (
@@ -1234,6 +1235,7 @@ async def set_mistral_key_command(
         return
 
     if context.args:
+        register_sensitive_value(" ".join(context.args).strip())
         deleted = await delete_message_safe(
             context,
             chat.id,
@@ -3794,6 +3796,7 @@ async def command_idempotency_guard_handler(
         command_head = command_parts[0] if command_parts else ""
         command_name = command_head.split("@", 1)[0].lower()
         if command_name == "/setmistralkey" and len(command_parts) > 1:
+            register_sensitive_value(command_parts[1].strip())
             chat = update.effective_chat
             deleted = bool(
                 chat
