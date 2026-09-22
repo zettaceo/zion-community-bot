@@ -292,7 +292,7 @@ The script revalidates HEAD, worktree and runtime immediately before the first `
 
 The v1.1 release does **not** require a Mistral API key in `.env`. `MISTRAL_API_KEY` is deprecated and must be empty at predeploy. A non-empty legacy value blocks the candidate rather than being copied automatically.
 
-The reviewed production path is:
+The reviewed production path is fixed by code and is not configurable through `.env`:
 
 ```text
 /home/zetta/.local/state/zion-community-bot/secrets/mistral-api-key
