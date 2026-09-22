@@ -128,7 +128,7 @@ Target architecture:
 |---|---|
 | Event ingestion | `zion/telegram_app.py` |
 | Deterministic core | `zion/guardian.py`, `docs/POLICIES.md` |
-| AI intelligence | `zion/ai_service.py`, `zion/mistral.py`, `zion/knowledge.py` |
+| AI intelligence | `zion/ai_service.py`, `zion/mistral.py`, `zion/secret_store.py`, `zion/knowledge.py` |
 | Policy boundary | deterministic Guardian rules + operator authorization + observe-only AI |
 | Actions | Telegram action handlers + transactional ledger writes |
 | Memory/data | `zion/db.py` SQLite/WAL |
@@ -145,20 +145,20 @@ The destination architecture does **not** require a mechanical rewrite into an `
 | 3 | Intelligent welcome | **DONE** | bilingual onboarding, rules/security notice, join persistence, raid-aware onboarding | future staged onboarding is optional enhancement |
 | 4 | Z-SWAP support | **DONE** | grounded `/ask`, approved knowledge only, explicit unknown fallback, knowledge-gap escalation | expand factual corpus as product evolves |
 | 5 | Knowledge base / RAG | **DONE** | local approved Markdown, lexical retrieval, section/source labels, bounded gaps, `/reloadkb` | embeddings/version registry/freshness metadata are future upgrades, not baseline blockers |
-| 6 | AI layer | **PARTIAL** | classification, Q&A, summaries, translation, human-review signal, token budget, circuit breaker, accounting | richer emerging-topic/pattern analysis and a more explicit task router/review queue |
+| 6 | AI layer | **PARTIAL** | classification, Q&A, summaries, translation, human-review signal, token budget, circuit breaker, accounting, protected local Mistral secret store + private operator provisioning/rotation | richer emerging-topic/pattern analysis and a more explicit task router/review queue |
 | 7 | Contextual moderator | **DONE** | criticism is explicitly allowed; AI classification is observe-only; harassment/scam categories escalate | continue false-positive measurement |
 | 8 | Human escalation | **DONE** | incidents contain category/severity/source/evidence; operator incident commands and resolution | richer UI queue belongs to admin-panel work |
 | 9 | Community Assistant | **DONE** | help/rules/status, grounded support, summary, translation, reports, document/source assistance | add future channels only when justified |
 | 10 | Community Manager | **DONE** | announcements, polls, one-shot schedules, recurring schedules, AMA, 24h brief, knowledge gaps | richer editorial approval/templates are optional enhancement |
 | 11 | Scam sentinel | **PARTIAL** | domain allow/block, Unicode/IDNA, suspicious links, secret/seed-like content protection, AI scam/phishing/impersonation signals, lockdown | official usernames/wallet registry and additional deterministic high-confidence scam intelligence |
 | 12 | Incident response | **DONE** | persistent incident IDs, timestamps, evidence, actions, status lifecycle, operator review | optional richer correlation UI |
-| 13 | Admin commands | **DONE** | health/guardian/AI/stats/brief/gaps/incidents/strikes/user/state/warn/mute/ban/unban/domain/lockdown/schedule/AMA/diagnostics/reload | commands may grow, baseline control surface exists |
+| 13 | Admin commands | **DONE** | health/guardian/AI/stats/brief/gaps/incidents/strikes/user/state/warn/mute/ban/unban/domain/lockdown/schedule/AMA/diagnostics/reload plus private `/setmistralkey` / `/clearmistralkey` secret operations | commands may grow, baseline control surface exists |
 | 14 | Administrative panel | **PARTIAL** | read-only localhost dashboard with DB/integrity/state/health counters | authenticated management UI for users/incidents/domains/policies/config only if operationally justified |
 | 15 | Observability | **PARTIAL** | uptime, SQLite integrity/schema/WAL/SHM/size, disk, Wi-Fi, Telegram update lag, AI latency/accounting/circuit, alerts, scheduler/delivery state | CPU/memory process metrics and/or structured metrics exporter if needed |
 | 16 | Self-health | **DONE** | health snapshots, diagnostics, integrity checks, low-disk checks, AI/network/Telegram telemetry, operator alerts | keep host acceptance tested |
 | 17 | Safe degradation | **DONE** | AI failure does not grant punitive authority; circuit breaker; scheduled delivery health gate; Guardian deterministic; network/Wi-Fi recovery; fail-closed DB paths | remote-service fallback may be added only if a remote DB is adopted |
 | 18 | Professional persistence | **DONE** | versioned SQLite/WAL schema, migrations, integrity, backups, idempotency, retention, transactional actions | PostgreSQL/Supabase remains FUTURE until evidence justifies migration |
-| 19 | Security by design | **DONE** | secret-safe logging, `.env` boundary, admin authorization, rate limits, input normalization, systemd hardening, process lock, release gates | continue release/security review per change |
+| 19 | Security by design | **DONE** | secret-safe logging, `.env` boundary, dedicated Mistral secret store, delete-before-store private provisioning, admin authorization, rate limits, input normalization, systemd hardening, process lock, release gates | continue release/security review per change |
 | 20 | Multi-language | **DONE** | PT-BR/EN onboarding/help plus AI reply-in-user-language and explicit translation | expand official bilingual knowledge coverage |
 | 21 | Controlled memory | **DONE** | factual users/events/strikes/incidents/actions/settings/gaps; bounded retention; no opaque opinion score | review retention whenever new data is added |
 | 22 | Anti-abuse of AI | **DONE** | prompt-injection boundaries, untrusted JSON/text framing, no AI punitive tools, output validation, rate/budget controls | adversarial prompt tests continue |
@@ -243,6 +243,7 @@ zion/guardian.py          deterministic Guardian
 zion/db.py                persistence / migrations / transactions
 zion/ai_service.py        AI policy, budgets, accounting, circuit
 zion/mistral.py           provider boundary and prompts
+zion/secret_store.py       local protected provider-secret boundary
 zion/knowledge.py         approved knowledge retrieval
 zion/health.py            self-health / diagnostics
 zion/admin_dashboard.py   read-only localhost dashboard

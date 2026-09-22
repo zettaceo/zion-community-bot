@@ -184,7 +184,7 @@ os.environ.setdefault(
 
 from zion.config import Settings
 from zion.knowledge import KnowledgeBase
-from zion.mistral import MistralClient
+from zion.mistral import _valid_mistral_api_url
 
 settings = Settings.from_env()
 
@@ -193,9 +193,16 @@ if not settings.telegram_token:
 if not settings.admin_user_ids:
     raise RuntimeError("ZION_ADMIN_USER_IDS empty")
 
-if settings.ai_enabled and not MistralClient(settings).configured:
+if settings.legacy_mistral_api_key_present:
     raise RuntimeError(
-        "AI enabled without complete official Mistral configuration"
+        "deprecated MISTRAL_API_KEY must be empty; provision through "
+        "the protected private-chat secret flow after cutover"
+    )
+if settings.ai_enabled and not _valid_mistral_api_url(
+    settings.mistral_api_url
+):
+    raise RuntimeError(
+        "AI enabled with non-official Mistral HTTPS endpoint"
     )
 
 configured_knowledge = settings.knowledge_dir.resolve(strict=False)

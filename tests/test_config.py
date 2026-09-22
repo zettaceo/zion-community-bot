@@ -57,13 +57,13 @@ class SettingsTests(unittest.TestCase):
                 admin_user_ids=frozenset(),
                 ai_enabled=True,
                 ai_observe=True,
-                mistral_api_key="",
+                legacy_mistral_api_key_present=True,
                 runtime_lock_path=root / "runtime.lock",
             )
 
             issues = settings.configuration_issues()
             self.assertIn("operator_allowlist_empty", issues)
-            self.assertIn("ai_enabled_without_key", issues)
+            self.assertIn("deprecated_mistral_api_key_present", issues)
             self.assertIn("runtime_lock_inside_worktree", issues)
 
 
@@ -110,6 +110,51 @@ class SettingsTests(unittest.TestCase):
             "https://bad.example",
             settings.allowed_domains,
         )
+
+    def test_deprecated_mistral_env_secret_is_detected_and_scrubbed(self) -> None:
+        synthetic = "synthetic-env-mistral-material-123456"
+        with patch.dict(
+            os.environ,
+            {"MISTRAL_API_KEY": synthetic},
+            clear=False,
+        ):
+            settings = Settings.from_env()
+            self.assertTrue(settings.legacy_mistral_api_key_present)
+            self.assertNotIn("MISTRAL_API_KEY", os.environ)
+
+        self.assertNotIn(synthetic, repr(settings))
+
+    def test_mistral_secret_path_env_override_is_ignored(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "ZION_MISTRAL_SECRET_PATH": "/tmp/unsafe-secret-location",
+            },
+            clear=False,
+        ):
+            settings = Settings.from_env()
+
+        expected = (
+            Path.home()
+            / ".local"
+            / "state"
+            / "zion-community-bot"
+            / "secrets"
+            / "mistral-api-key"
+        )
+        self.assertEqual(settings.mistral_secret_path, expected)
+
+    def test_mistral_secret_path_inside_worktree_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            settings = replace(
+                make_settings(root),
+                mistral_secret_path=root / "secrets" / "mistral-api-key",
+            )
+            self.assertIn(
+                "mistral_secret_inside_worktree",
+                settings.configuration_issues(),
+            )
 
 
 if __name__ == "__main__":

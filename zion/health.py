@@ -8,6 +8,7 @@ from pathlib import Path
 from .config import Settings
 from .db import SUPPORTED_SCHEMA_VERSION, ZION_APPLICATION_ID, ZionDB
 from .models import HealthSnapshot, OperatingState
+from .secret_store import SecretStore
 
 
 def _private_file(path: Path) -> bool:
@@ -26,9 +27,17 @@ def _private_file(path: Path) -> bool:
 
 
 class HealthService:
-    def __init__(self, settings: Settings, db: ZionDB):
+    def __init__(
+        self,
+        settings: Settings,
+        db: ZionDB,
+        secret_store: SecretStore | None = None,
+    ):
         self.settings = settings
         self.db = db
+        self.secret_store = secret_store or SecretStore(
+            settings.mistral_secret_path
+        )
         self._started_monotonic = time.monotonic()
         self._integrity_checked_at = float("-inf")
         self._integrity_cache_seconds = max(
@@ -102,8 +111,11 @@ class HealthService:
                 self.settings.log_path.name + "*"
             )
         )
+        mistral_secret_status = self.secret_store.status()
         sensitive_files_private = (
-            sensitive_files_private and rotated_logs_private
+            sensitive_files_private
+            and rotated_logs_private
+            and mistral_secret_status != SecretStore.UNSAFE
         )
 
         state_read_ok = True
@@ -148,7 +160,9 @@ class HealthService:
             ),
             telegram_configured=bool(self.settings.telegram_token),
             ai_enabled=self.settings.ai_enabled,
-            ai_configured=bool(self.settings.mistral_api_key),
+            ai_configured=(
+                mistral_secret_status == SecretStore.PRIVATE
+            ),
             wifi_interface_present=wifi_path.exists(),
             disk_free_mb=disk_free_mb,
             uptime_seconds=int(
@@ -158,6 +172,7 @@ class HealthService:
                 "database": self.settings.db_path.name,
                 "ai_provider": "mistral",
                 "ai_model": self.settings.mistral_model,
+                "mistral_secret_status": mistral_secret_status,
                 "sensitive_files_private": sensitive_files_private,
                 "sqlite_integrity_ok": integrity_ok,
                 "sqlite_integrity_result": integrity_result,
@@ -285,6 +300,9 @@ class HealthService:
             "disk_low": bool(snapshot.details.get("disk_low")),
             "sensitive_files_private": bool(
                 snapshot.details.get("sensitive_files_private")
+            ),
+            "mistral_secret_status": str(
+                snapshot.details.get("mistral_secret_status", "MISSING")
             ),
             "wifi_interface_present": snapshot.wifi_interface_present,
             "ai_latency_24h": latency,

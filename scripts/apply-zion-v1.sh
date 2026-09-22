@@ -205,7 +205,7 @@ from pathlib import Path
 
 from zion.config import Settings
 from zion.knowledge import KnowledgeBase
-from zion.mistral import MistralClient
+from zion.mistral import _valid_mistral_api_url
 
 settings = Settings.from_env()
 env_path = settings.root_dir / ".env"
@@ -237,9 +237,11 @@ if issues:
         "configuration issues: " + ",".join(issues)
     )
 
-if settings.ai_enabled and not MistralClient(settings).configured:
+if settings.ai_enabled and not _valid_mistral_api_url(
+    settings.mistral_api_url
+):
     raise RuntimeError(
-        "IA habilitada sem configuração Mistral oficial completa"
+        "IA habilitada com endpoint Mistral HTTPS não oficial"
     )
 
 knowledge = KnowledgeBase(settings.knowledge_dir)
@@ -284,6 +286,10 @@ if not (
 if not under(settings.runtime_lock_path, state):
     raise RuntimeError(
         "ZION_RUNTIME_LOCK_PATH fora do state dir compartilhado"
+    )
+if not under(settings.mistral_secret_path, state):
+    raise RuntimeError(
+        "caminho do segredo Mistral fora do state dir compartilhado"
     )
 
 print(

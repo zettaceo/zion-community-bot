@@ -58,6 +58,11 @@ class SystemdContractTests(unittest.TestCase):
         )
         for value in required:
             self.assertIn(value, text)
+        self.assertNotIn(
+            "InaccessiblePaths=/home/zetta/.local/state/"
+            "zion-community-bot/secrets",
+            text,
+        )
 
     def test_dashboard_does_not_load_bot_secrets(self) -> None:
         text = (
@@ -94,6 +99,11 @@ class SystemdContractTests(unittest.TestCase):
                 "InaccessiblePaths=/home/zetta/.local/share/"
                 "zion-community-bot/deploy-backups"
             ),
+            text,
+        )
+        self.assertIn(
+            "InaccessiblePaths=/home/zetta/.local/state/"
+            "zion-community-bot/secrets",
             text,
         )
         self.assertIn("InaccessiblePaths=/home/zetta/.config/gh", text)

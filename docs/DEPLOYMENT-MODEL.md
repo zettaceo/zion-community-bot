@@ -288,6 +288,24 @@ The dashboard is not an alternate deployment path. Its one-time installer may be
 
 The script revalidates HEAD, worktree and runtime immediately before the first `sudo`. If a dashboard unit is already installed, **do not** use the bootstrap script to update it; later dashboard changes participate in the ordinary controlled release through `apply-zion-v1.sh`.
 
+## Mistral credential provisioning boundary
+
+The v1.1 release does **not** require a Mistral API key in `.env`. `MISTRAL_API_KEY` is deprecated and must be empty at predeploy. A non-empty legacy value blocks the candidate rather than being copied automatically.
+
+The reviewed production path is fixed by code and is not configurable through `.env`:
+
+```text
+/home/zetta/.local/state/zion-community-bot/secrets/mistral-api-key
+```
+
+The bot may deploy with `ZION_AI_ENABLED=true` and no Mistral secret. In that state the provider remains unavailable while the deterministic Guardian continues operating.
+
+After host/Telegram cutover acceptance, an explicit `ZION_ADMIN_USER_IDS` operator may provision or rotate the key through `/setmistralkey` in the private ZION chat. The two-step capture is in-memory, expires after 120 seconds, deletes the secret-bearing Telegram message before persistence, validates against the official Mistral API, and atomically publishes only to the protected local secret store. `/clearmistralkey CONFIRM` removes it without a service restart.
+
+The dashboard's systemd sandbox makes the secret directory inaccessible. Deployment backups must not copy provider secret bytes or a hash/fingerprint of the secret. Rollback to a build that expects `MISTRAL_API_KEY` leaves Mistral disabled until an operator performs a separately reviewed transition; do not export the secret back into `.env`.
+
+This operator-selected flow means the secret transits Telegram private chat before deletion. It is not a claim that Telegram never handled the credential.
+
 ## Post-deploy acceptance
 
 Do not call deployment successful until all of these are checked:
@@ -335,14 +353,17 @@ If post-deploy acceptance fails:
 
 1. keep the incident contained; do not push/rewrite `zion-v1`;
 2. stop `zion.service`;
-3. verify the backup SQLite checksum/integrity before restoration;
-4. return the **local** production worktree to the recorded rollback SHA;
-5. restore the verified database backup if the candidate changed/migrated DB state;
-6. restore the prior systemd unit if necessary;
-7. remove stale DB WAL/SHM sidecars only while the service is stopped and only as part of a deliberate DB restore;
-8. start the service;
-9. repeat host + Telegram acceptance;
-10. open a forward-fix PR. Do not force-push the remote production branch backward.
+3. while the reviewed v1.1 code/runtime is still available and the service is stopped, inspect the fixed Mistral secret store. If a PRIVATE secret exists, clear it through `SecretStore.clear()` and verify status `MISSING`. If the store is UNSAFE or removal cannot be verified, stop the rollback and investigate; do not start legacy code with the secret present;
+4. verify the backup SQLite checksum/integrity before restoration;
+5. return the **local** production worktree to the recorded rollback SHA;
+6. restore the verified database backup if the candidate changed/migrated DB state;
+7. restore the prior systemd unit if necessary;
+8. remove stale DB WAL/SHM sidecars only while the service is stopped and only as part of a deliberate DB restore;
+9. start the service;
+10. repeat host + Telegram acceptance;
+11. open a forward-fix PR. Do not force-push the remote production branch backward.
+
+The Mistral secret is intentionally **not** backed up for rollback. Returning to a legacy build therefore leaves Mistral disabled. After a later reviewed v1.1 recovery, provision a fresh/current key again through the protected private-chat flow.
 
 A host rollback can temporarily leave local `zion-v1-prod` behind `origin/zion-v1`. That is an emergency state, not a branch rewrite.
 

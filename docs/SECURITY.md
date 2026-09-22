@@ -6,8 +6,11 @@ AI interprets. Deterministic policy or an authorized human decides irreversible 
 
 ## Secrets
 
-- Real credentials live only in `.env` or a future secrets manager.
-- `.env`, SQLite runtime files and logs are excluded from Git.
+- Telegram/runtime bootstrap credentials remain local and never belong in Git.
+- The Mistral API key is **not** stored in `.env`, SQLite, logs or deployment backups. It lives at the fixed, non-`.env`-configurable path `~/.local/state/zion-community-bot/secrets/mistral-api-key`.
+- The Mistral secret directory is private (0700), the key file is private (0600), and reads/writes reject symlinks, hardlinks, path aliases, wrong ownership and unsafe modes.
+- Secret material captured or read at runtime is registered in a bounded in-memory redaction set, so later application log formatting masks the current and recent rotated provider keys even though they are not environment variables.
+- `.env`, SQLite runtime files, the Mistral secret store and logs are excluded from Git.
 - All application log handlers use secret redaction.
 - HTTP client loggers are reduced to WARNING to prevent request URLs/headers from being printed.
 - Telegram-token and Bearer-token patterns are additionally redacted.
@@ -20,6 +23,18 @@ Private Telegram chats do **not** imply administrator status.
 A private-chat admin must be explicitly listed in `ZION_ADMIN_USER_IDS`.
 
 Inside a group, Telegram group administrators/owners are accepted as admins. Explicit allowlisted IDs are also accepted.
+
+## Mistral private provisioning
+
+Only an explicit operator listed in `ZION_ADMIN_USER_IDS` may start `/setmistralkey`, and only in a private chat with ZION. Group-admin status alone does not grant this capability.
+
+The command never accepts a key argument. It arms a 120-second in-memory capture for the same operator/private chat. The next non-command text message is treated as secret material before the ordinary moderation/AI/persistence pipeline. ZION must successfully delete that Telegram message before it validates or stores the credential; deletion failure is fail-closed and nothing is persisted.
+
+Credential validation uses the official Mistral API over HTTPS without redirects. A rejected credential is not stored; provider/network uncertainty is not misreported as an invalid key. Rotation validates first and atomically publishes second, so a failed rotation preserves the prior valid secret.
+
+The local secret value is never written to SQLite, action metadata, incidents, application logs, the dashboard or deployment backups. Audit records contain only the operation type and operator identity. `/clearmistralkey CONFIRM` removes the secret without restarting ZION. The provider reads the secret store dynamically for each request, so set/rotate/clear take effect without service restart.
+
+The secret **does transit through Telegram private chat** during this operator-selected provisioning flow. ZION does not claim otherwise. Operators requiring a channel that never transits Telegram must use a separately reviewed local/offline provisioning procedure.
 
 ## AI trust boundary
 

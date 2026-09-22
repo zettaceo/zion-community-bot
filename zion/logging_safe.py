@@ -4,7 +4,9 @@ import logging
 import os
 import re
 import stat
+import threading
 import unicodedata
+from collections import deque
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
@@ -54,6 +56,20 @@ PRIVATE_KEY_BLOCK_REGEX = re.compile(
     r"-----END [A-Z0-9 -]*PRIVATE KEY-----"
 )
 
+_RUNTIME_SECRET_VALUES: deque[str] = deque(maxlen=64)
+_RUNTIME_SECRET_LOCK = threading.RLock()
+
+
+def register_sensitive_value(value: object) -> None:
+    text = str(value or "")
+    if len(text) < 6:
+        return
+    with _RUNTIME_SECRET_LOCK:
+        if text in _RUNTIME_SECRET_VALUES:
+            return
+        _RUNTIME_SECRET_VALUES.append(text)
+
+
 INVISIBLE_SECURITY_CODEPOINTS = {
     0x200B,
     0x200C,
@@ -80,6 +96,8 @@ def _sensitive_values() -> list[str]:
         and len(value) >= 6
         and any(marker in name.upper() for marker in SECRET_ENV_MARKERS)
     }
+    with _RUNTIME_SECRET_LOCK:
+        values.update(_RUNTIME_SECRET_VALUES)
     return sorted(values, key=len, reverse=True)
 
 

@@ -144,7 +144,8 @@ class Settings:
     ai_circuit_failures: int
     ai_circuit_seconds: int
 
-    mistral_api_key: str
+    mistral_secret_path: Path
+    legacy_mistral_api_key_present: bool
     mistral_api_url: str
     mistral_model: str
     mistral_timeout_seconds: float
@@ -155,8 +156,8 @@ class Settings:
 
         if not self.admin_user_ids:
             issues.append("operator_allowlist_empty")
-        if self.ai_enabled and not self.mistral_api_key:
-            issues.append("ai_enabled_without_key")
+        if self.legacy_mistral_api_key_present:
+            issues.append("deprecated_mistral_api_key_present")
         if self.ai_observe and not self.ai_enabled:
             issues.append("ai_observe_without_ai")
         if not self.wifi_interface:
@@ -176,6 +177,15 @@ class Settings:
         else:
             issues.append("runtime_lock_inside_worktree")
 
+        try:
+            secret_path = self.mistral_secret_path.resolve(strict=False)
+            root_path = self.root_dir.resolve(strict=False)
+            secret_path.relative_to(root_path)
+        except ValueError:
+            pass
+        else:
+            issues.append("mistral_secret_inside_worktree")
+
         return tuple(issues)
 
     @classmethod
@@ -193,6 +203,13 @@ class Settings:
                 mute_levels.append(value)
 
         allowed_domains = _domain_set("ALLOWED_DOMAINS")
+        legacy_mistral_api_key_present = bool(
+            os.getenv("MISTRAL_API_KEY", "").strip()
+        )
+        # Never retain a deprecated provider secret in the process
+        # environment after configuration parsing.
+        if legacy_mistral_api_key_present:
+            os.environ.pop("MISTRAL_API_KEY", None)
 
         return cls(
             root_dir=root,
@@ -389,7 +406,15 @@ class Settings:
                 120,
                 10,
             ),
-            mistral_api_key=os.getenv("MISTRAL_API_KEY", "").strip(),
+            mistral_secret_path=(
+                Path.home()
+                / ".local"
+                / "state"
+                / "zion-community-bot"
+                / "secrets"
+                / "mistral-api-key"
+            ),
+            legacy_mistral_api_key_present=legacy_mistral_api_key_present,
             mistral_api_url=os.getenv(
                 "MISTRAL_API_URL",
                 "https://api.mistral.ai/v1/chat/completions",

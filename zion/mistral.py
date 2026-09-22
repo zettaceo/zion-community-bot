@@ -12,12 +12,22 @@ import httpx
 
 from .config import Settings
 from .models import AIAnswer, AIClassification
+from .secret_store import SecretStore, SecretStoreError
 
 
 logger = logging.getLogger("zion.mistral")
 
 
 MISTRAL_API_HOST = "api.mistral.ai"
+MISTRAL_MODELS_URL = "https://api.mistral.ai/v1/models"
+
+
+class MistralCredentialInvalid(RuntimeError):
+    pass
+
+
+class MistralCredentialValidationUnavailable(RuntimeError):
+    pass
 
 
 def _valid_mistral_api_url(value: str) -> bool:
@@ -178,17 +188,55 @@ def _parse_json_object(text: str) -> dict[str, Any]:
 
 
 class MistralClient:
-    def __init__(self, settings: Settings):
+    def __init__(
+        self,
+        settings: Settings,
+        secret_store: SecretStore | None = None,
+    ):
         self.settings = settings
+        self.secret_store = secret_store or SecretStore(
+            settings.mistral_secret_path
+        )
 
     @property
     def configured(self) -> bool:
         return bool(
             self.settings.ai_enabled
-            and self.settings.mistral_api_key
-            and _valid_mistral_api_url(
-                self.settings.mistral_api_url
+            and _valid_mistral_api_url(self.settings.mistral_api_url)
+            and self.secret_store.status() == SecretStore.PRIVATE
+        )
+
+    async def validate_api_key(self, api_key: str) -> None:
+        try:
+            candidate = SecretStore.normalize_candidate(api_key)
+        except Exception as exc:
+            raise MistralCredentialInvalid(
+                "A credencial Mistral não possui formato local válido."
+            ) from exc
+
+        timeout = httpx.Timeout(self.settings.mistral_timeout_seconds)
+        try:
+            async with httpx.AsyncClient(
+                timeout=timeout,
+                follow_redirects=False,
+            ) as client:
+                response = await client.get(
+                    MISTRAL_MODELS_URL,
+                    headers={"Authorization": f"Bearer {candidate}"},
+                )
+        except (httpx.TimeoutException, httpx.NetworkError) as exc:
+            raise MistralCredentialValidationUnavailable(
+                "Não foi possível validar a credencial Mistral agora."
+            ) from exc
+
+        if response.status_code == 200:
+            return
+        if response.status_code in {401, 403}:
+            raise MistralCredentialInvalid(
+                "A Mistral rejeitou a credencial."
             )
+        raise MistralCredentialValidationUnavailable(
+            "A Mistral não pôde validar a credencial agora."
         )
 
     async def _chat(
@@ -203,6 +251,15 @@ class MistralClient:
                 "Mistral AI não está configurado com endpoint HTTPS oficial."
             )
 
+        try:
+            api_key = self.secret_store.read()
+        except SecretStoreError as exc:
+            raise RuntimeError(
+                "Credencial Mistral local está indisponível ou insegura."
+            ) from exc
+        if not api_key:
+            raise RuntimeError("Credencial Mistral local ausente.")
+
         payload = {
             "model": self.settings.mistral_model,
             "messages": messages,
@@ -211,7 +268,7 @@ class MistralClient:
         }
 
         headers = {
-            "Authorization": f"Bearer {self.settings.mistral_api_key}",
+            "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
         }
 

@@ -16,6 +16,7 @@ from tests.helpers import make_settings
 from zion.admin_dashboard import _status_payload
 from zion.db import ZionDB
 from zion.health import HealthService
+from zion.secret_store import SecretStore
 from zion.telegram_app import (
     Runtime,
     diagnostics_command,
@@ -671,8 +672,14 @@ class Block4OperationsTests(unittest.TestCase):
             settings = self._settings(
                 root,
                 ai_enabled=True,
-                mistral_api_key="synthetic-key-material",
                 ai_daily_token_budget=1000,
+            )
+            settings.mistral_secret_path.parent.parent.mkdir(
+                mode=0o700,
+                exist_ok=True,
+            )
+            SecretStore(settings.mistral_secret_path).write_atomic(
+                "synthetic-key-material"
             )
             rt = Runtime(settings)
             rt.ai._circuit_failures = 2
@@ -733,8 +740,14 @@ class Block4OperationsTests(unittest.TestCase):
             settings = self._settings(
                 root,
                 ai_enabled=True,
-                mistral_api_key="synthetic-key-material",
                 ai_daily_token_budget=0,
+            )
+            settings.mistral_secret_path.parent.parent.mkdir(
+                mode=0o700,
+                exist_ok=True,
+            )
+            SecretStore(settings.mistral_secret_path).write_atomic(
+                "synthetic-key-material"
             )
             rt = Runtime(settings)
             rt.ai._accounting_healthy = False

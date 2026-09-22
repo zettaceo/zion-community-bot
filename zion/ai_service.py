@@ -12,6 +12,7 @@ from .db import ZionDB
 from .knowledge import KnowledgeBase
 from .mistral import MistralClient
 from .models import AIAnswer, AIClassification, OperatingState
+from .secret_store import SecretStore
 
 
 logger = logging.getLogger("zion.ai")
@@ -64,11 +65,15 @@ class AIService:
         settings: Settings,
         db: ZionDB,
         knowledge: KnowledgeBase,
+        secret_store: SecretStore | None = None,
     ):
         self.settings = settings
         self.db = db
         self.knowledge = knowledge
-        self.client = MistralClient(settings)
+        self.secret_store = secret_store or SecretStore(
+            settings.mistral_secret_path
+        )
+        self.client = MistralClient(settings, self.secret_store)
         self._semaphore = asyncio.Semaphore(settings.ai_max_concurrency)
         self._budget_lock = threading.Lock()
         self._reserved_tokens = 0
