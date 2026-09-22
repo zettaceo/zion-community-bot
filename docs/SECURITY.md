@@ -36,6 +36,14 @@ The local secret value is never written to SQLite, action metadata, incidents, a
 
 The secret **does transit through Telegram private chat** during this operator-selected provisioning flow. ZION does not claim otherwise. Operators requiring a channel that never transits Telegram must use a separately reviewed local/offline provisioning procedure.
 
+## SSH host firewall boundary
+
+Production remote administration uses ordinary OpenSSH over Tailscale plus a dedicated host nftables guard. The guard is intentionally narrow: loopback and `tailscale0` may reach TCP/22; TCP/22 on every other IPv4/IPv6 interface is dropped; unrelated traffic is not redefined.
+
+The firewall policy lives in `ops/nftables/zion-ssh-private.nft` and is installed only through `scripts/apply-ssh-firewall.sh` after two independent key-only Tailscale sessions have already been proven. The installer records a root-only pre-change ruleset snapshot, refuses partial/divergent prior installations, and verifies that `zion.service` did not restart.
+
+The dedicated firewall does not replace router/NAT or Tailnet policy evidence. Those remain separate control-plane gates.
+
 ## AI trust boundary
 
 Messages sent by community users are untrusted input.
