@@ -7,7 +7,12 @@ from dataclasses import replace
 from pathlib import Path
 
 from tests.helpers import make_settings
-from zion.telegram_app import Runtime, build_application, post_init
+from zion.telegram_app import (
+    Runtime,
+    build_application,
+    mistral_secret_capture_handler,
+    post_init,
+)
 
 
 class ApplicationBuildTests(unittest.TestCase):
@@ -86,7 +91,14 @@ class ApplicationBuildTests(unittest.TestCase):
             runtime = application.bot_data["zion_runtime"]
             try:
                 self.assertIn(-3, application.handlers)
-                self.assertTrue(application.handlers[-3])
+                self.assertIn(-2, application.handlers)
+                self.assertIn(-1, application.handlers)
+                secret_handlers = application.handlers[-3]
+                self.assertEqual(len(secret_handlers), 1)
+                self.assertIs(
+                    secret_handlers[0].callback,
+                    mistral_secret_capture_handler,
+                )
             finally:
                 runtime.close()
 
