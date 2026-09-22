@@ -100,7 +100,7 @@ class SSHFirewallContractTests(unittest.TestCase):
         text = self.read("systemd/zion-ssh-firewall.service")
 
         self.assertIn("After=nftables.service tailscaled.service", text)
-        self.assertIn("Before=ssh.service sshd.service", text)
+        self.assertIn("Before=ssh.service sshd.service ssh.socket", text)
         self.assertIn("Wants=tailscaled.service", text)
         self.assertIn("RemainAfterExit=yes", text)
         self.assertIn(
