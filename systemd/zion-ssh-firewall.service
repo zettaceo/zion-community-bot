@@ -3,7 +3,7 @@ Description=ZION SSH ingress guard (Tailscale only)
 Documentation=file:/home/zetta/zion-community-bot/docs/REMOTE-ACCESS.md
 Wants=tailscaled.service
 After=nftables.service tailscaled.service
-Before=ssh.service sshd.service
+Before=ssh.service sshd.service ssh.socket
 
 [Service]
 Type=oneshot
