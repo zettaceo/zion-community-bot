@@ -1185,7 +1185,7 @@ def _audit_mistral_secret_operation(
     user_id: int,
     operation: str,
     success: bool,
-) -> None:
+) -> bool:
     try:
         rt.db.record_action(
             incident_id=None,
@@ -1205,11 +1205,13 @@ def _audit_mistral_secret_operation(
                 "operation": operation,
             },
         )
+        return True
     except Exception as exc:
         logger.warning(
             "Falha ao registrar auditoria de segredo Mistral: %s",
             type(exc).__name__,
         )
+        return False
 
 
 async def set_mistral_key_command(
@@ -1356,6 +1358,12 @@ async def mistral_secret_capture_handler(
         )
         raise ApplicationHandlerStop
 
+    previous_secret = (
+        rt.secret_store.read()
+        if existing_status == SecretStore.PRIVATE
+        else None
+    )
+
     try:
         rt.secret_store.write_atomic(candidate)
     except (SecretStoreError, SecretValidationError) as exc:
@@ -1378,13 +1386,40 @@ async def mistral_secret_capture_handler(
         )
         raise ApplicationHandlerStop
 
-    _audit_mistral_secret_operation(
+    if not _audit_mistral_secret_operation(
         rt,
         chat_id=chat.id,
         user_id=user.id,
         operation=operation,
         success=True,
-    )
+    ):
+        try:
+            if previous_secret is None:
+                rt.secret_store.clear()
+            else:
+                rt.secret_store.write_atomic(previous_secret)
+        except SecretStoreError as exc:
+            logger.error(
+                "Falha ao reverter segredo Mistral após auditoria: %s",
+                type(exc).__name__,
+            )
+            await _send_secret_status(
+                context,
+                chat.id,
+                "A auditoria da alteração falhou e a reversão local não "
+                "pôde ser confirmada. Não envie outra chave até revisão "
+                "do host.",
+            )
+            raise ApplicationHandlerStop
+
+        await _send_secret_status(
+            context,
+            chat.id,
+            "A auditoria da alteração falhou. "
+            "A mudança foi revertida e nenhuma nova chave ficou ativa.",
+        )
+        raise ApplicationHandlerStop
+
     await _send_secret_status(
         context,
         chat.id,
@@ -1434,6 +1469,7 @@ async def clear_mistral_key_command(
         await message.reply_text("A credencial Mistral já está ausente.")
         return
 
+    previous_secret = rt.secret_store.read()
     try:
         removed = rt.secret_store.clear()
     except SecretStoreError as exc:
@@ -1446,14 +1482,33 @@ async def clear_mistral_key_command(
         )
         return
 
-    if removed:
-        _audit_mistral_secret_operation(
-            rt,
-            chat_id=chat.id,
-            user_id=user.id,
-            operation="clear",
-            success=True,
+    if removed and not _audit_mistral_secret_operation(
+        rt,
+        chat_id=chat.id,
+        user_id=user.id,
+        operation="clear",
+        success=True,
+    ):
+        try:
+            if previous_secret is not None:
+                rt.secret_store.write_atomic(previous_secret)
+        except SecretStoreError as exc:
+            logger.error(
+                "Falha ao restaurar segredo Mistral após auditoria: %s",
+                type(exc).__name__,
+            )
+            await message.reply_text(
+                "A auditoria da remoção falhou e a restauração não pôde "
+                "ser confirmada. Revise o host antes de continuar."
+            )
+            return
+
+        await message.reply_text(
+            "A auditoria da remoção falhou. "
+            "A credencial anterior foi restaurada."
         )
+        return
+
     await message.reply_text(
         "Credencial Mistral removida. "
         "O Guardian determinístico continua ativo."
@@ -3677,9 +3732,10 @@ async def command_idempotency_guard_handler(
     if message is not None:
         visible = message.text or message.caption or ""
         stripped = visible.strip()
-        command_head, separator, _ = stripped.partition(" ")
+        command_parts = stripped.split(maxsplit=1)
+        command_head = command_parts[0] if command_parts else ""
         command_name = command_head.split("@", 1)[0].lower()
-        if command_name == "/setmistralkey" and separator:
+        if command_name == "/setmistralkey" and len(command_parts) > 1:
             chat = update.effective_chat
             deleted = bool(
                 chat
