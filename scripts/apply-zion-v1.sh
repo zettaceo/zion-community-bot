@@ -289,7 +289,7 @@ if not under(settings.runtime_lock_path, state):
     )
 if not under(settings.mistral_secret_path, state):
     raise RuntimeError(
-        "ZION_MISTRAL_SECRET_PATH fora do state dir compartilhado"
+        "caminho do segredo Mistral fora do state dir compartilhado"
     )
 
 print(
