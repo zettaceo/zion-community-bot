@@ -51,6 +51,7 @@ class FakeHTTPClient:
             },
         }
         self.auth_headers: list[str] = []
+        self.get_urls: list[str] = []
 
     async def __aenter__(self):
         return self
@@ -59,6 +60,7 @@ class FakeHTTPClient:
         return False
 
     async def get(self, url, *, headers):
+        self.get_urls.append(str(url))
         self.auth_headers.append(headers["Authorization"])
         if self.get_error is not None:
             raise self.get_error
@@ -126,9 +128,20 @@ class MistralSecretIntegrationTests(unittest.TestCase):
 
     def test_official_models_endpoint_accepts_valid_key(self) -> None:
         fake = FakeHTTPClient(get_status=200)
-        with patch("zion.mistral.httpx.AsyncClient", return_value=fake):
+        with patch(
+            "zion.mistral.httpx.AsyncClient",
+            return_value=fake,
+        ) as client_factory:
             asyncio.run(self.client.validate_api_key(NEW_SECRET))
+
+        self.assertEqual(
+            fake.get_urls,
+            ["https://api.mistral.ai/v1/models"],
+        )
         self.assertEqual(fake.auth_headers, [f"Bearer {NEW_SECRET}"])
+        self.assertFalse(
+            client_factory.call_args.kwargs["follow_redirects"]
+        )
 
     def test_401_rejects_candidate_without_writing_store(self) -> None:
         fake = FakeHTTPClient(get_status=401)
