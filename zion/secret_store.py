@@ -6,6 +6,8 @@ import threading
 import uuid
 from pathlib import Path
 
+from .logging_safe import register_sensitive_value
+
 
 class SecretStoreError(RuntimeError):
     """Secret-store boundary failure without secret material."""
@@ -52,6 +54,7 @@ class SecretStore:
                 "secret candidate contains control characters"
             )
 
+        register_sensitive_value(normalized)
         return normalized
 
     def _directory_entry_exists(self) -> bool:
