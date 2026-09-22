@@ -59,7 +59,7 @@ echo "============================"
 echo "mode=$([[ "$REPORT_ONLY" == true ]] && echo report-only || echo strict)"
 echo
 
-echo "[1/7] Tailscale"
+echo "[1/8] Tailscale"
 if ! command -v tailscale >/dev/null 2>&1; then
   fail "tailscale not installed"
 else
@@ -115,7 +115,7 @@ else
 fi
 
 echo
-echo "[2/7] OpenSSH server"
+echo "[2/8] OpenSSH server"
 if ! command -v sshd >/dev/null 2>&1; then
   fail "sshd not installed"
 else
@@ -133,7 +133,7 @@ else
 fi
 
 echo
-echo "[3/7] SSH key directory"
+echo "[3/8] SSH key directory"
 if [[ ! -d "$SSH_DIR" || -L "$SSH_DIR" ]]; then
   fail "$SSH_DIR missing or symlinked"
 else
@@ -174,7 +174,7 @@ else
 fi
 
 echo
-echo "[4/7] ZION sshd hardening"
+echo "[4/8] ZION sshd hardening"
 if ! is_regular_single_link "$SSHD_DROPIN"; then
   fail "$SSHD_DROPIN missing, symlinked or hard-linked"
 else
@@ -251,7 +251,7 @@ if command -v sshd >/dev/null 2>&1; then
 fi
 
 echo
-echo "[5/7] SSH host identity"
+echo "[5/8] SSH host identity"
 host_pub="/etc/ssh/ssh_host_ed25519_key.pub"
 if [[ -r "$host_pub" ]] && command -v ssh-keygen >/dev/null 2>&1; then
   fingerprint="$(ssh-keygen -lf "$host_pub" 2>/dev/null | awk '{print $2}' || true)"
@@ -265,7 +265,7 @@ else
 fi
 
 echo
-echo "[6/7] Listening surface"
+echo "[6/8] Listening surface"
 if command -v ss >/dev/null 2>&1; then
   listeners="$(ss -ltn 2>/dev/null | awk 'NR>1 {print $4}' | grep -E '(^|:)22$' || true)"
   if [[ -z "$listeners" ]]; then
@@ -281,7 +281,42 @@ else
 fi
 
 echo
-echo "[7/7] Non-verifiable external controls"
+echo "[7/8] Host SSH firewall"
+firewall_rendered=""
+if [[ -x /usr/sbin/nft ]]; then
+  firewall_rendered="$(/usr/sbin/nft list table inet zion_ssh_guard 2>/dev/null || true)"
+  if [[ -z "$firewall_rendered" ]] && command -v sudo >/dev/null 2>&1; then
+    firewall_rendered="$(sudo -n /usr/sbin/nft list table inet zion_ssh_guard 2>/dev/null || true)"
+  fi
+fi
+
+firewall_ok=false
+if [[ -n "$firewall_rendered" ]]; then
+  if grep -Fq 'iifname "lo" tcp dport 22 accept' <<<"$firewall_rendered" \
+    && grep -Fq 'iifname "tailscale0" tcp dport 22 accept' <<<"$firewall_rendered" \
+    && grep -Eq 'tcp dport 22 counter packets [0-9]+ bytes [0-9]+ drop' <<<"$firewall_rendered"; then
+    firewall_ok=true
+  fi
+fi
+
+if [[ "$firewall_ok" == true ]]; then
+  pass "dedicated nftables guard allows SSH only on loopback/Tailscale"
+  if /usr/bin/systemctl is-active --quiet zion-ssh-firewall.service 2>/dev/null \
+    && /usr/bin/systemctl is-enabled --quiet zion-ssh-firewall.service 2>/dev/null; then
+    pass "zion-ssh-firewall.service active and enabled"
+  elif [[ "$REPORT_ONLY" == true ]]; then
+    warn "SSH nftables guard exists but persistent service is not proven active+enabled"
+  else
+    fail "SSH nftables guard persistence is not proven active+enabled"
+  fi
+elif [[ "$REPORT_ONLY" == true ]]; then
+  warn "dedicated Tailscale-only SSH nftables guard not proven"
+else
+  fail "dedicated Tailscale-only SSH nftables guard not proven; run reviewed installer after two-session gate"
+fi
+
+echo
+echo "[8/8] Non-verifiable external controls"
 warn "router/NAT TCP/22 forwarding cannot be proven from this host"
 warn "Tailnet ACL/device-approval policy must be verified in Tailscale administration"
 warn "a second independent SSH session must be tested before closing the bootstrap session"
