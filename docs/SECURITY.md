@@ -147,6 +147,8 @@ Security boundary:
 
 Private SSH keys and Tailscale authentication material never belong in Git.
 
+The production bot and dashboard also treat the operator's own credentials as a separate confidentiality boundary. Their systemd sandboxes make `/home/zetta/.config/gh`, `/home/zetta/.ssh`, and common file-based Git/HTTP credential locations inaccessible to the service process. This prevents a compromised ZION runtime from reading the operator's GitHub administrative session or the host's Git fetch private key merely because the services run as Unix user `zetta`.
+
 See `docs/REMOTE-ACCESS.md`, `docs/GITHUB-DEPLOY-GATES.md` and `docs/DEPLOYMENT-MODEL.md`.
 
 
