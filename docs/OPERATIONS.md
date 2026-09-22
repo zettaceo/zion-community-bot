@@ -276,6 +276,33 @@ Follow:
 - `docs/DEPLOYMENT-MODEL.md`
 
 
+## Tailscale-only SSH host firewall
+
+After SSH hardening and two independent key-only Tailscale sessions pass, the reviewed host firewall can be installed without redefining unrelated host traffic:
+
+```bash
+cd /home/zetta/zion-community-bot
+sudo -v
+
+ZION_EXPECTED_COMMIT=<reviewed-40-character-zion-v1.1-dev-sha> \
+ZION_FIREWALL_CHANGE_AUTHORIZED=YES \
+ZION_REMOTE_ACCESS_PROVEN=YES \
+ZION_SECOND_SSH_PROVEN=YES \
+  bash scripts/apply-ssh-firewall.sh
+```
+
+The resulting `inet zion_ssh_guard` table allows TCP/22 only from `lo` and `tailscale0`, then drops TCP/22 on every other IPv4/IPv6 interface. The unit `zion-ssh-firewall.service` keeps that narrow guard across boot. It does not enable UFW, flush nftables, or change non-SSH traffic.
+
+Keep both recovery sessions open and prove a third Tailscale key-only session before closing either one. Then run:
+
+```bash
+sudo -v
+bash scripts/remote-access-preflight.sh
+sudo nft list table inet zion_ssh_guard
+```
+
+Router/NAT and Tailnet ACL/device policy remain separate manual/control-plane gates.
+
 ## Operational alert cadence
 
 Operational health checks are independent from hourly housekeeping.
