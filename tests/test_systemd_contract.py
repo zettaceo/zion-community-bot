@@ -96,6 +96,11 @@ class SystemdContractTests(unittest.TestCase):
             ),
             text,
         )
+        self.assertIn(
+            "InaccessiblePaths=/home/zetta/.local/state/"
+            "zion-community-bot/secrets",
+            text,
+        )
         self.assertIn("InaccessiblePaths=/home/zetta/.config/gh", text)
         self.assertIn("InaccessiblePaths=/home/zetta/.ssh", text)
         self.assertIn(
