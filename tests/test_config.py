@@ -124,6 +124,26 @@ class SettingsTests(unittest.TestCase):
 
         self.assertNotIn(synthetic, repr(settings))
 
+    def test_mistral_secret_path_env_override_is_ignored(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "ZION_MISTRAL_SECRET_PATH": "/tmp/unsafe-secret-location",
+            },
+            clear=False,
+        ):
+            settings = Settings.from_env()
+
+        expected = (
+            Path.home()
+            / ".local"
+            / "state"
+            / "zion-community-bot"
+            / "secrets"
+            / "mistral-api-key"
+        )
+        self.assertEqual(settings.mistral_secret_path, expected)
+
     def test_mistral_secret_path_inside_worktree_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
