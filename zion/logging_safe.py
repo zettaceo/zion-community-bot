@@ -6,6 +6,7 @@ import re
 import stat
 import threading
 import unicodedata
+from collections import deque
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
@@ -55,7 +56,7 @@ PRIVATE_KEY_BLOCK_REGEX = re.compile(
     r"-----END [A-Z0-9 -]*PRIVATE KEY-----"
 )
 
-_RUNTIME_SECRET_VALUES: set[str] = set()
+_RUNTIME_SECRET_VALUES: deque[str] = deque(maxlen=64)
 _RUNTIME_SECRET_LOCK = threading.RLock()
 
 
@@ -64,7 +65,9 @@ def register_sensitive_value(value: object) -> None:
     if len(text) < 6:
         return
     with _RUNTIME_SECRET_LOCK:
-        _RUNTIME_SECRET_VALUES.add(text)
+        if text in _RUNTIME_SECRET_VALUES:
+            return
+        _RUNTIME_SECRET_VALUES.append(text)
 
 
 INVISIBLE_SECURITY_CODEPOINTS = {
