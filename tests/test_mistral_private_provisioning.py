@@ -152,6 +152,8 @@ class MistralPrivateProvisioningTests(unittest.TestCase):
         asyncio.run(set_mistral_key_command(update, context))
 
         self.assertEqual(self.rt.mistral_secret_captures, {})
+        self.assertEqual(context.bot.deleted, [(1001, 1)])
+        self.assertNotIn(SECRET_A, str(context.bot.sent))
         self.assertNotIn(
             SECRET_A,
             "\n".join(update.effective_message.replies),
