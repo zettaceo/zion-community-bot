@@ -67,7 +67,6 @@ class AITests(unittest.TestCase):
         settings = replace(
             self.settings,
             ai_enabled=True,
-            mistral_api_key="fake-key-for-test-only",
             mistral_api_url="https://example.com/v1/chat/completions",
         )
         client = MistralClient(settings)
@@ -87,7 +86,6 @@ class AITests(unittest.TestCase):
         settings = replace(
             self.settings,
             ai_enabled=True,
-            mistral_api_key="fake-key-for-test-only",
         )
         client = MistralClient(settings)
 
@@ -126,7 +124,6 @@ class AITests(unittest.TestCase):
             self.settings,
             ai_enabled=True,
             ai_observe=True,
-            mistral_api_key="fake-key-for-test-only",
         )
         ai = AIService(settings, self.db, self.knowledge)
 
@@ -181,7 +178,6 @@ class AITests(unittest.TestCase):
         settings = replace(
             self.settings,
             ai_enabled=True,
-            mistral_api_key="fake-key-for-test-only",
         )
         ai = AIService(settings, self.db, knowledge)
 
@@ -219,7 +215,6 @@ class AITests(unittest.TestCase):
             self.settings,
             ai_enabled=True,
             ai_observe=True,
-            mistral_api_key="fake-key-for-test-only",
         )
         ai = AIService(settings, self.db, knowledge)
 
@@ -269,7 +264,6 @@ class AITests(unittest.TestCase):
         settings = replace(
             self.settings,
             ai_enabled=True,
-            mistral_api_key="fake-key-for-test-only",
         )
         ai = AIService(settings, self.db, knowledge)
 
@@ -306,7 +300,6 @@ class AITests(unittest.TestCase):
         settings = replace(
             self.settings,
             ai_enabled=True,
-            mistral_api_key="fake-key-for-test-only",
             ai_daily_token_budget=100,
             mistral_max_tokens=700,
         )
@@ -346,7 +339,6 @@ class AITests(unittest.TestCase):
         settings = replace(
             self.settings,
             ai_enabled=True,
-            mistral_api_key="fake-key-for-test-only",
         )
         ai = AIService(settings, self.db, knowledge)
 
@@ -413,7 +405,6 @@ class AITests(unittest.TestCase):
         settings = replace(
             self.settings,
             ai_enabled=True,
-            mistral_api_key="fake-key-for-test-only",
             ai_daily_token_budget=50000,
         )
         ai = AIService(settings, self.db, knowledge)
@@ -474,7 +465,6 @@ class AITests(unittest.TestCase):
         settings = replace(
             self.settings,
             ai_enabled=True,
-            mistral_api_key="fake-key-for-test-only",
             ai_circuit_failures=1,
             ai_circuit_seconds=120,
         )
@@ -509,7 +499,6 @@ class AITests(unittest.TestCase):
         settings = replace(
             self.settings,
             ai_enabled=True,
-            mistral_api_key="fake-key-for-test-only",
             ai_circuit_failures=1,
             ai_circuit_seconds=120,
         )
@@ -533,7 +522,6 @@ class AITests(unittest.TestCase):
         settings = replace(
             self.settings,
             ai_enabled=True,
-            mistral_api_key="fake-key-for-test-only",
             ai_circuit_failures=1,
         )
         ai = AIService(settings, self.db, self.knowledge)
@@ -554,7 +542,6 @@ class AITests(unittest.TestCase):
         settings = replace(
             self.settings,
             ai_enabled=True,
-            mistral_api_key="fake-key-for-test-only",
             ai_daily_token_budget=50000,
         )
         ai = AIService(settings, self.db, self.knowledge)
@@ -578,7 +565,6 @@ class AITests(unittest.TestCase):
         settings = replace(
             self.settings,
             ai_enabled=True,
-            mistral_api_key="fake-key-for-test-only",
             ai_daily_token_budget=5000,
             ai_circuit_failures=10,
         )
@@ -627,7 +613,6 @@ class AITests(unittest.TestCase):
         settings = replace(
             self.settings,
             ai_enabled=True,
-            mistral_api_key="fake-key-for-test-only",
             ai_daily_token_budget=5000,
             ai_circuit_failures=10,
         )
@@ -686,7 +671,6 @@ class AITests(unittest.TestCase):
         settings = replace(
             self.settings,
             ai_enabled=True,
-            mistral_api_key="fake-key-for-test-only",
             ai_circuit_failures=2,
             ai_circuit_seconds=120,
         )
@@ -742,7 +726,6 @@ class AITests(unittest.TestCase):
         settings = replace(
             self.settings,
             ai_enabled=True,
-            mistral_api_key="fake-key-for-test-only",
             ai_circuit_failures=3,
         )
         ai = AIService(settings, self.db, self.knowledge)
