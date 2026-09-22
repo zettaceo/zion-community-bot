@@ -627,3 +627,70 @@ GitHub Actions **ZION CI #1152** passed on that exact SHA with Python 3.12.14, t
 
 The Acer audit performed no package installation, service control, DB connection/migration, Git fetch/checkout/merge, SSH/Tailscale/firewall change, Telegram command, or deployment. Production remained untouched.
 
+
+
+---
+
+## 2026-09-21 — CONTROLLED ACER REMEDIATION RECONCILIATION
+
+The authorized controlled-remediation phase completed without production deploy, production merge or live DB mutation.
+
+### Host remediation evidence
+
+Confirmed on the real Acer:
+
+- local and remote production remained `f8c704f16d05c5fba3b55957721b025c9abbaa23`;
+- PR #2 remained OPEN + DRAFT + UNMERGED;
+- `zion.service` remained active with the same PID and `NRestarts=0`;
+- Git release boundary passed after remediation;
+- the executable GitHub CLI credential helper was removed from Git configuration;
+- production fetch now uses a repository-scoped, verified read-only SSH deploy key;
+- the user's administrative `gh` session was preserved;
+- 25 ignored CPython bytecode caches were provenance-checked and removed;
+- Tailscale is installed, authenticated and running;
+- OpenSSH is installed and active;
+- exact candidate runtime preparation succeeded for the then-current candidate `c564d1ad3792e48e79375c6bd45f1b9a83e281c6`, with `runtime/current` still pointing to the legacy `.venv`;
+- the live SQLite DB passed full integrity;
+- a disposable backup migrated from schema 0 to schema 2 with the expected ZION application ID, foreign keys, WAL, FULL synchronous and `trusted_schema=0`;
+- disposable rollback/restoration evidence passed;
+- no Telegram live acceptance was executed.
+
+The runtime prepared for `c564d1ad...` is now historical staging only because the development candidate advanced after repository fixes. It must not be activated or treated as the current candidate runtime.
+
+### Repository findings triggered by the Acer phase
+
+The controlled remediation exposed two repository-side defects that were fixed before continuing:
+
+1. Three release scripts were tracked as mode `100644` even though the release gate requires them executable. They are now `100755`, and CI has a regression test that reads the Git index and enforces those modes.
+2. The v1.1 bot/dashboard sandbox could still read the operator's `~/.config/gh` administrative session and `~/.ssh` private keys because the services run as `zetta`. The candidate units now make those locations, plus common file-based credential files, inaccessible inside the service mount namespaces.
+
+### Current implementation/security identity after remediation fixes
+
+- `zion-v1.1-dev`: `09ddea27261669a1bdeb4ec8b320ee9aa9625cd5`;
+- production `zion-v1`: `f8c704f16d05c5fba3b55957721b025c9abbaa23`;
+- delta: **682 ahead / 0 behind / 103 changed files**;
+- PR #2: OPEN + DRAFT + UNMERGED.
+
+GitHub Actions **ZION CI #1164** on `09ddea27261669a1bdeb4ec8b320ee9aa9625cd5`:
+
+- Python 3.12.14;
+- locked packages: 9;
+- runtime compatibility: PASS;
+- imports: PASS;
+- **445/445 tests: OK**;
+- shell validation: PASS;
+- secret scan: PASS;
+- **ZION VALIDATION: OK**.
+
+### Remaining blockers
+
+1. GitHub governance remains BLOCKING: both release branches still report `protected=false`. The private repository's ruleset endpoint reports that GitHub Pro or a public repository is required; do not fake `ZION_GITHUB_GATES_PROVEN=YES`.
+2. SSH hardening is not yet complete: the reviewed ZION sshd drop-in is absent, password authentication has been observed, and the privileged `sshd -t/-T` validation still requires an authenticated sudo session.
+3. Firewall policy is not yet proven with privileged reads.
+4. Router/NAT TCP/22 exposure is not yet proven.
+5. Tailnet ACL/grants/device-approval policy is not yet proven from the control plane.
+6. The exact current candidate `09ddea...` has not yet been staged/rehearsed on the Acer. The prior `c564d1ad...` runtime/rehearsal must not substitute for it.
+7. Official pre-merge rehearsal remains blocked until the governance and remote/network attestations are factually true.
+8. Full release rollback rehearsal and Telegram live acceptance remain later gates.
+
+Production merge/deploy remains unauthorized.
