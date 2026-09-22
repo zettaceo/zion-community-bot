@@ -77,6 +77,10 @@ class MistralSecretIntegrationTests(unittest.TestCase):
             make_settings(self.root),
             ai_enabled=True,
         )
+        self.settings.mistral_secret_path.parent.parent.mkdir(
+            mode=0o700,
+            exist_ok=True,
+        )
         self.store = SecretStore(self.settings.mistral_secret_path)
         self.client = MistralClient(self.settings, self.store)
 
