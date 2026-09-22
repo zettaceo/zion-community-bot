@@ -38,9 +38,14 @@ fi
   --root "$SCRIPT_ROOT"
 
 candidate_head="$(/usr/bin/git -C "$SCRIPT_ROOT" rev-parse HEAD)"
+approved_sha="$(/usr/bin/git -C "$SCRIPT_ROOT" rev-parse origin/zion-v1.1-dev^{commit} 2>/dev/null || true)"
 candidate_status="$(/usr/bin/git -C "$SCRIPT_ROOT" status --porcelain --untracked-files=all)"
 if [[ "$candidate_head" != "$EXPECTED_COMMIT" || -n "$candidate_status" ]]; then
   echo "ERRO: rollback deve partir do candidate exato e limpo." >&2
+  exit 2
+fi
+if [[ "$approved_sha" != "$EXPECTED_COMMIT" ]]; then
+  echo "ERRO: origin/zion-v1.1-dev não aponta para o candidate do rollback." >&2
   exit 2
 fi
 
