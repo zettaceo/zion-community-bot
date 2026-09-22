@@ -203,6 +203,13 @@ class Settings:
                 mute_levels.append(value)
 
         allowed_domains = _domain_set("ALLOWED_DOMAINS")
+        legacy_mistral_api_key_present = bool(
+            os.getenv("MISTRAL_API_KEY", "").strip()
+        )
+        # Never retain a deprecated provider secret in the process
+        # environment after configuration parsing.
+        if legacy_mistral_api_key_present:
+            os.environ.pop("MISTRAL_API_KEY", None)
 
         return cls(
             root_dir=root,
@@ -412,9 +419,7 @@ class Settings:
                     ),
                 )
             ).expanduser(),
-            legacy_mistral_api_key_present=bool(
-                os.getenv("MISTRAL_API_KEY", "").strip()
-            ),
+            legacy_mistral_api_key_present=legacy_mistral_api_key_present,
             mistral_api_url=os.getenv(
                 "MISTRAL_API_URL",
                 "https://api.mistral.ai/v1/chat/completions",
