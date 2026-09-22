@@ -131,6 +131,7 @@ class SSHFirewallContractTests(unittest.TestCase):
         expected = {
             "ops/nftables/zion-ssh-firewall-runtime.sh",
             "scripts/apply-ssh-firewall.sh",
+            "scripts/rollback-ssh-firewall.sh",
         }
         output = subprocess.check_output(
             ["/usr/bin/git", "ls-files", "--stage", "--", *sorted(expected)],
@@ -147,6 +148,19 @@ class SSHFirewallContractTests(unittest.TestCase):
         for path in sorted(expected):
             with self.subTest(path=path):
                 self.assertEqual(modes[path], "100755")
+
+    def test_rollback_is_candidate_pinned_and_dedicated(self) -> None:
+        text = self.read("scripts/rollback-ssh-firewall.sh")
+
+        self.assertIn("ZION_FIREWALL_ROLLBACK_AUTHORIZED", text)
+        self.assertIn("ZION_EXPECTED_COMMIT", text)
+        self.assertIn("check-git-release-boundary.py", text)
+        self.assertIn("zion_ssh_guard", text)
+        self.assertIn('rm -f "$UNIT_DST" "$RUNTIME_DST" "$RULESET_DST"', text)
+        self.assertNotIn("flush ruleset", text)
+        self.assertNotIn("iptables -F", text)
+        self.assertIn("before_pid=", text)
+        self.assertIn("after_pid=", text)
 
     def test_runbook_requires_third_session_after_firewall(self) -> None:
         text = self.read("docs/REMOTE-ACCESS.md")
@@ -165,6 +179,10 @@ class SSHFirewallContractTests(unittest.TestCase):
         )
         self.assertIn(
             "open a **third** independent SSH session",
+            text,
+        )
+        self.assertIn(
+            "ZION_FIREWALL_ROLLBACK_AUTHORIZED=YES",
             text,
         )
         self.assertIn(
