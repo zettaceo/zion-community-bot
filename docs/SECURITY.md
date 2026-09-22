@@ -7,8 +7,9 @@ AI interprets. Deterministic policy or an authorized human decides irreversible 
 ## Secrets
 
 - Telegram/runtime bootstrap credentials remain local and never belong in Git.
-- The Mistral API key is **not** stored in `.env`, SQLite, logs or deployment backups. It lives in the dedicated local secret store at `~/.local/state/zion-community-bot/secrets/mistral-api-key`.
-- The Mistral secret directory is private (0700), the key file is private (0600), and reads/writes reject symlinks, hardlinks, wrong ownership and unsafe modes.
+- The Mistral API key is **not** stored in `.env`, SQLite, logs or deployment backups. It lives at the fixed, non-`.env`-configurable path `~/.local/state/zion-community-bot/secrets/mistral-api-key`.
+- The Mistral secret directory is private (0700), the key file is private (0600), and reads/writes reject symlinks, hardlinks, path aliases, wrong ownership and unsafe modes.
+- Secret material captured or read at runtime is registered in a bounded in-memory redaction set, so later application log formatting masks the current and recent rotated provider keys even though they are not environment variables.
 - `.env`, SQLite runtime files, the Mistral secret store and logs are excluded from Git.
 - All application log handlers use secret redaction.
 - HTTP client loggers are reduced to WARNING to prevent request URLs/headers from being printed.
