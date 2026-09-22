@@ -63,7 +63,12 @@ def make_settings(root: Path) -> Settings:
         ai_daily_token_budget=50000,
         ai_circuit_failures=3,
         ai_circuit_seconds=120,
-        mistral_secret_path=root / "secrets" / "mistral-api-key",
+        mistral_secret_path=(
+            root.parent
+            / f"{root.name}-state"
+            / "secrets"
+            / "mistral-api-key"
+        ),
         legacy_mistral_api_key_present=False,
         mistral_api_url="https://api.mistral.ai/v1/chat/completions",
         mistral_model="mistral-small-latest",
