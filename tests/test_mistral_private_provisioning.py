@@ -323,6 +323,86 @@ class MistralPrivateProvisioningTests(unittest.TestCase):
         self.assertEqual(self.rt.secret_store.read(), SECRET_A)
         self.assertNotIn(SECRET_B, str(context.bot.sent))
 
+    def test_audit_failure_reverts_new_secret_publication(self) -> None:
+        context, _ = self.arm()
+        secret_update = make_update(
+            user_id=1,
+            message_id=2,
+            text=SECRET_A,
+        )
+
+        with patch.object(
+            self.rt.ai.client,
+            "validate_api_key",
+            new=AsyncMock(return_value=None),
+        ), patch.object(
+            self.rt.db,
+            "record_action",
+            side_effect=RuntimeError("synthetic audit failure"),
+        ):
+            with self.assertRaises(ApplicationHandlerStop):
+                asyncio.run(
+                    mistral_secret_capture_handler(
+                        secret_update,
+                        context,
+                    )
+                )
+
+        self.assertIsNone(self.rt.secret_store.read())
+        self.assertNotIn(SECRET_A, str(context.bot.sent))
+        self.assertTrue(
+            any("revertida" in text for _, text in context.bot.sent)
+        )
+
+    def test_audit_failure_reverts_rotation_to_previous_secret(self) -> None:
+        self.rt.secret_store.write_atomic(SECRET_A)
+        context, _ = self.arm()
+        secret_update = make_update(
+            user_id=1,
+            message_id=2,
+            text=SECRET_B,
+        )
+
+        with patch.object(
+            self.rt.ai.client,
+            "validate_api_key",
+            new=AsyncMock(return_value=None),
+        ), patch.object(
+            self.rt.db,
+            "record_action",
+            side_effect=RuntimeError("synthetic audit failure"),
+        ):
+            with self.assertRaises(ApplicationHandlerStop):
+                asyncio.run(
+                    mistral_secret_capture_handler(
+                        secret_update,
+                        context,
+                    )
+                )
+
+        self.assertEqual(self.rt.secret_store.read(), SECRET_A)
+        self.assertNotIn(SECRET_B, str(context.bot.sent))
+
+    def test_clear_audit_failure_restores_previous_secret(self) -> None:
+        self.rt.secret_store.write_atomic(SECRET_A)
+        update = make_update(user_id=1)
+        context = FakeContext(self.rt, args=["CONFIRM"])
+
+        with patch.object(
+            self.rt.db,
+            "record_action",
+            side_effect=RuntimeError("synthetic audit failure"),
+        ):
+            asyncio.run(clear_mistral_key_command(update, context))
+
+        self.assertEqual(self.rt.secret_store.read(), SECRET_A)
+        self.assertTrue(
+            any(
+                "restaurada" in reply
+                for reply in update.effective_message.replies
+            )
+        )
+
     def test_clear_requires_private_confirmation_and_needs_no_restart(self) -> None:
         self.rt.secret_store.write_atomic(SECRET_A)
         before_id = id(self.rt)
