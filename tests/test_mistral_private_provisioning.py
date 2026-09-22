@@ -230,6 +230,28 @@ class MistralPrivateProvisioningTests(unittest.TestCase):
         self.assertEqual(context.bot.deleted, [])
         self.assertIsNone(self.rt.secret_store.read())
 
+    def test_process_restart_discards_pending_capture(self) -> None:
+        _, update = self.arm()
+        key = (update.effective_chat.id, update.effective_user.id)
+        self.assertIn(key, self.rt.mistral_secret_captures)
+
+        self.rt.close()
+        self.rt = Runtime(self.settings)
+        context = FakeContext(self.rt)
+        secret_update = make_update(
+            user_id=1,
+            message_id=2,
+            text=SECRET_A,
+        )
+
+        asyncio.run(
+            mistral_secret_capture_handler(secret_update, context)
+        )
+
+        self.assertEqual(self.rt.mistral_secret_captures, {})
+        self.assertEqual(context.bot.deleted, [])
+        self.assertIsNone(self.rt.secret_store.read())
+
     def test_delete_failure_fails_closed_before_validation_or_store(self) -> None:
         context, _ = self.arm()
         context.bot.delete_ok = False
