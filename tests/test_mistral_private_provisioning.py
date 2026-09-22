@@ -116,6 +116,21 @@ class MistralPrivateProvisioningTests(unittest.TestCase):
         asyncio.run(set_mistral_key_command(update, context))
         return context, update
 
+    def test_runtime_starts_with_unsafe_secret_but_provider_is_blocked(self) -> None:
+        self.rt.close()
+        secret_path = self.settings.mistral_secret_path
+        secret_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        secret_path.write_text(SECRET_A, encoding="utf-8")
+        secret_path.chmod(0o644)
+
+        self.rt = Runtime(self.settings)
+
+        self.assertEqual(
+            self.rt.mistral_secret_startup_status,
+            SecretStore.UNSAFE,
+        )
+        self.assertFalse(self.rt.ai.enabled)
+
     def test_unauthorized_private_user_cannot_arm_capture(self) -> None:
         update = make_update(user_id=2)
         context = FakeContext(self.rt)
