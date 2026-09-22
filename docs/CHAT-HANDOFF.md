@@ -758,3 +758,85 @@ No unresolved HIGH or MEDIUM **repository/development** finding is known after t
 This implementation does **not** authorize production. PR #2 remains Draft/unmerged; the real Mistral key must not be requested or provisioned until after an explicitly authorized v1.1 cutover.
 
 The next required work is host/control-plane evidence against the exact current candidate `c0528ce81e3dfc1254149e083b90a41986d79b94`: SSH hardening, privileged firewall inspection, router/NAT and Tailnet policy proof, exact-candidate runtime staging and disposable DB rehearsal, plus GitHub governance.
+
+
+---
+
+## 2026-09-22 — FINAL ACER PRE-PRODUCTION RECONCILIATION
+
+The final Acer pre-production pass against candidate `af93361ef244f91436239dd69c62a32c35b6ea69` completed without production merge, cutover or live-database migration.
+
+### Host evidence proved
+
+- production local/remote remained `f8c704f16d05c5fba3b55957721b025c9abbaa23`;
+- PR #2 remained OPEN + DRAFT + UNMERGED;
+- `zion.service` remained active on the legacy runtime with `NRestarts=0`;
+- Git release boundary passed with the repository-scoped read-only deploy key;
+- SSH hardening was installed and effective: key-only auth, password/keyboard-interactive/root disabled, forwarding/tunnel controls disabled;
+- a second independent Tailscale SSH session succeeded with `Accepted publickey`;
+- Tailscale local state passed; Serve/Funnel/Tailscale SSH were not enabled;
+- exact `af93361...` per-SHA runtime passed `check-runtime.py` and `pip check`;
+- candidate bot/dashboard systemd units passed verification without installation;
+- legacy `MISTRAL_API_KEY` was absent and the new secret store remained MISSING;
+- live SQLite full integrity/foreign-key checks passed without migration;
+- verified backup + disposable schema 0 → 2 migration + rollback rehearsal passed.
+
+### Host blockers proved
+
+- local firewall was permissive while sshd listened on wildcard IPv4/IPv6;
+- router/NAT and public IPv6 control-plane exposure were not proven;
+- Tailnet ACL/grants/device-approval policy was not proven;
+- GitHub still reported `zion-v1` and `zion-v1.1-dev` as `protected=false`, and private-repository governance endpoints required an account-plan upgrade or a public repository;
+- the official rehearsal correctly remained blocked because the external attestations were not true.
+
+### Repository finding discovered by the host pass
+
+The candidate's `scripts/predeploy-v11.sh` disposable-migration subprocess referenced `ZION_APPLICATION_ID` without importing it, producing a real `NameError` at step 8/8.
+
+This HIGH repository finding was fixed in PR #28. A regression test now requires the import before the application-ID comparison.
+
+Post-merge development HEAD after the fix:
+
+```text
+557722f461c84b4df485b9d403595946cc65cbdf
+```
+
+GitHub Actions **ZION CI #1228** passed with **497/497 tests**, imports, secret scan and **ZION VALIDATION: OK**.
+
+### Reviewed SSH firewall procedure added after the host pass
+
+The host report correctly refused to improvise firewall rules. PR #29 adds a reviewed, candidate-pinned and reversible host firewall procedure:
+
+- dedicated `inet zion_ssh_guard` nftables table;
+- allow TCP/22 only on `lo` and `tailscale0`;
+- drop TCP/22 on every other IPv4/IPv6 interface;
+- leave all non-SSH traffic untouched;
+- require exact candidate, clean Git boundary, explicit authorization, proven Tailscale key access and a second independent session;
+- install through a persistent systemd unit ordered before SSH service/socket activation;
+- record a root-only pre-change nftables snapshot;
+- require a third Tailscale SSH session after application;
+- provide a guarded rollback that removes only ZION's dedicated firewall table/artifacts;
+- strict `remote-access-preflight.sh` now fails closed until the dedicated guard is active and persistent.
+
+Post-merge development HEAD after this repository hardening:
+
+```text
+7d6587245ebb1f566bcc1360ad1a028a9347a992
+```
+
+GitHub Actions **ZION CI #1245** passed on that SHA with Python 3.12.14, the 9-package audited runtime, **507/507 tests**, imports, shell validation, secret scan and **ZION VALIDATION: OK**.
+
+### Current boundary
+
+All runtime/rehearsal evidence collected for `af93361...` is historical evidence only. The exact current development candidate `7d658724...` must receive a fresh per-SHA runtime and disposable DB rehearsal before it can become release evidence.
+
+Remaining external/host work:
+
+1. apply the reviewed SSH firewall from the exact current candidate and prove a third Tailscale key-only session;
+2. prove router/NAT and IPv6 control-plane state;
+3. prove Tailnet ACL/grants/device-approval policy;
+4. resolve GitHub private-repository governance without making the repository public merely to bypass the gate;
+5. stage/rehearse the exact current candidate;
+6. run the official pre-merge rehearsal only with truthful attestations.
+
+Production merge/deploy remains unauthorized.
