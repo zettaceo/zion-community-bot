@@ -67,12 +67,34 @@ systemctl status zion-wifi-guardian.timer --no-pager
 
 ## Mistral activation
 
-1. Store the Mistral key in local `.env`; never paste it into chat or commit it.
-2. Set `ZION_AI_ENABLED=true`.
-3. Keep `ZION_AI_OBSERVE=false` for the first support-only test.
-4. Validate `/aistatus` and `/ask`.
-5. Only after observing stable behavior, enable `ZION_AI_OBSERVE=true`.
-6. Observe-only mode never punishes users.
+The production Mistral key is not stored in `.env`. `MISTRAL_API_KEY` is deprecated and must remain empty.
+
+Non-secret configuration may contain:
+
+```text
+ZION_AI_ENABLED=true
+ZION_MISTRAL_SECRET_PATH=/home/zetta/.local/state/zion-community-bot/secrets/mistral-api-key
+MISTRAL_API_URL=https://api.mistral.ai/v1/chat/completions
+```
+
+The bot may start with `ZION_AI_ENABLED=true` while the secret is missing; the deterministic Guardian remains active and the Mistral provider reports not configured.
+
+After an authorized v1.1 cutover, an explicit operator provisions the real key through the private chat flow:
+
+1. Open the **private** chat with the official ZION bot.
+2. Send `/setmistralkey` with no arguments.
+3. Within 120 seconds, send the key as the next text message.
+4. ZION deletes that Telegram message before any local persistence. If deletion fails, the key is not stored.
+5. ZION validates the credential against the official Mistral API and atomically publishes it into the local protected secret store.
+6. Run `/aistatus`; it shows only CONFIGURED/MISSING/UNSAFE state, never key material.
+7. Keep `ZION_AI_OBSERVE=false` for the first bounded support-only test.
+8. Only after stable behavior is observed may observe-only classification be enabled through the reviewed configuration path.
+
+Rotation repeats `/setmistralkey`; a failed rotation preserves the old valid key. Removal requires `/clearmistralkey CONFIRM`. Neither operation requires a ZION restart.
+
+This flow intentionally sends the secret through Telegram private chat before ZION deletes the message. The application does not persist the value in SQLite/logs/backups. A local/offline procedure is required if the operator needs a channel that never transits Telegram.
+
+Observe-only mode never punishes users.
 
 ## Emergency
 
