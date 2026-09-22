@@ -187,6 +187,23 @@ class MistralPrivateProvisioningTests(unittest.TestCase):
         self.assertEqual(context.bot.deleted, [])
         self.assertIsNone(self.rt.secret_store.read())
 
+    def test_injected_pending_capture_cannot_bypass_operator_allowlist(self) -> None:
+        key = (1001, 2)
+        self.rt.mistral_secret_captures[key] = time.monotonic() + 120
+        update = make_update(
+            user_id=2,
+            chat_id=1001,
+            message_id=2,
+            text=SECRET_A,
+        )
+        context = FakeContext(self.rt)
+
+        asyncio.run(mistral_secret_capture_handler(update, context))
+
+        self.assertNotIn(key, self.rt.mistral_secret_captures)
+        self.assertEqual(context.bot.deleted, [])
+        self.assertIsNone(self.rt.secret_store.read())
+
     def test_different_user_or_chat_cannot_satisfy_capture(self) -> None:
         context, update = self.arm()
         key = (update.effective_chat.id, update.effective_user.id)
