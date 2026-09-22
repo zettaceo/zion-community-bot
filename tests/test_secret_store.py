@@ -79,6 +79,84 @@ class SecretStoreTests(unittest.TestCase):
                 "x" * (SecretStore.MAX_SECRET_BYTES + 1)
             )
 
+    def test_dangling_symlink_secret_directory_is_unsafe(self) -> None:
+        dangling = self.root / "missing-target"
+        self.path.parent.symlink_to(dangling, target_is_directory=True)
+
+        self.assertEqual(self.store.status(), SecretStore.UNSAFE)
+        with self.assertRaises(SecretStoreError):
+            self.store.read()
+        with self.assertRaises(SecretStoreError):
+            self.store.clear()
+
+    def test_post_publish_failure_restores_previous_secret(self) -> None:
+        replacement = "synthetic-mistral-new-material-987654"
+        self.store.write_atomic(SYNTHETIC_SECRET)
+
+        original_fsync = self.store._fsync_directory
+        calls = {"count": 0}
+
+        def fail_once() -> None:
+            calls["count"] += 1
+            if calls["count"] == 1:
+                raise SecretStoreError("synthetic directory fsync failure")
+            original_fsync()
+
+        with patch.object(
+            self.store,
+            "_fsync_directory",
+            side_effect=fail_once,
+        ):
+            with self.assertRaises(SecretStoreError):
+                self.store.write_atomic(replacement)
+
+        self.assertEqual(self.store.read(), SYNTHETIC_SECRET)
+        self.assertEqual(self.store.status(), SecretStore.PRIVATE)
+
+    def test_first_publish_failure_leaves_secret_missing(self) -> None:
+        original_fsync = self.store._fsync_directory
+        calls = {"count": 0}
+
+        def fail_once() -> None:
+            calls["count"] += 1
+            if calls["count"] == 1:
+                raise SecretStoreError("synthetic directory fsync failure")
+            original_fsync()
+
+        with patch.object(
+            self.store,
+            "_fsync_directory",
+            side_effect=fail_once,
+        ):
+            with self.assertRaises(SecretStoreError):
+                self.store.write_atomic(SYNTHETIC_SECRET)
+
+        self.assertEqual(self.store.status(), SecretStore.MISSING)
+        self.assertIsNone(self.store.read())
+
+    def test_clear_durability_failure_restores_previous_secret(self) -> None:
+        self.store.write_atomic(SYNTHETIC_SECRET)
+
+        original_fsync = self.store._fsync_directory
+        calls = {"count": 0}
+
+        def fail_once() -> None:
+            calls["count"] += 1
+            if calls["count"] == 1:
+                raise SecretStoreError("synthetic clear fsync failure")
+            original_fsync()
+
+        with patch.object(
+            self.store,
+            "_fsync_directory",
+            side_effect=fail_once,
+        ):
+            with self.assertRaises(SecretStoreError):
+                self.store.clear()
+
+        self.assertEqual(self.store.read(), SYNTHETIC_SECRET)
+        self.assertEqual(self.store.status(), SecretStore.PRIVATE)
+
     def test_symlink_destination_is_rejected(self) -> None:
         self.path.parent.mkdir(mode=0o700)
         target = self.root / "other-secret"
