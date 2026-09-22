@@ -27,13 +27,13 @@ class FakeBot:
         self.sent.append((chat_id, text))
 
 
-def make_update() -> SimpleNamespace:
+def make_update(separator: str = " ") -> SimpleNamespace:
     return SimpleNamespace(
         update_id=77,
         effective_chat=SimpleNamespace(id=1001, type="private"),
         effective_message=SimpleNamespace(
             message_id=55,
-            text=f"/setmistralkey {SYNTHETIC_ARGUMENT}",
+            text=f"/setmistralkey{separator}{SYNTHETIC_ARGUMENT}",
             caption=None,
         ),
     )
@@ -41,22 +41,24 @@ def make_update() -> SimpleNamespace:
 
 class MistralCommandArgumentGuardTests(unittest.TestCase):
     def test_argument_is_deleted_before_command_claim(self) -> None:
-        bot = FakeBot()
-        context = SimpleNamespace(
-            bot=bot,
-            application=SimpleNamespace(bot_data={}),
-        )
-
-        with self.assertRaises(ApplicationHandlerStop):
-            asyncio.run(
-                command_idempotency_guard_handler(
-                    make_update(),
-                    context,
+        for separator in (" ", "\t", "\n"):
+            with self.subTest(separator=repr(separator)):
+                bot = FakeBot()
+                context = SimpleNamespace(
+                    bot=bot,
+                    application=SimpleNamespace(bot_data={}),
                 )
-            )
 
-        self.assertEqual(bot.deleted, [(1001, 55)])
-        self.assertNotIn(SYNTHETIC_ARGUMENT, str(bot.sent))
+                with self.assertRaises(ApplicationHandlerStop):
+                    asyncio.run(
+                        command_idempotency_guard_handler(
+                            make_update(separator),
+                            context,
+                        )
+                    )
+
+                self.assertEqual(bot.deleted, [(1001, 55)])
+                self.assertNotIn(SYNTHETIC_ARGUMENT, str(bot.sent))
 
     def test_argument_delete_failure_still_stops_processing(self) -> None:
         bot = FakeBot(fail_delete=True)
