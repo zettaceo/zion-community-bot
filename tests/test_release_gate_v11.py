@@ -128,6 +128,33 @@ class V11ReleaseGateTests(unittest.TestCase):
         )
         self.assertIn("dashboard aponta para DB diferente do bot", text)
 
+    def test_predeploy_isolates_candidate_python_bytecode(
+        self,
+    ) -> None:
+        text = self.read("scripts/predeploy-v11.sh")
+
+        self.assertIn(
+            'PYCACHE_ROOT="$TMP_ROOT/pycache"',
+            text,
+        )
+        self.assertIn('mkdir -m 700 "$PYCACHE_ROOT"', text)
+        self.assertIn("candidate_python() {", text)
+        self.assertIn(
+            'PYTHONPYCACHEPREFIX="$PYCACHE_ROOT" "$PYTHON" "$@"',
+            text,
+        )
+        self.assertGreaterEqual(
+            text.count("candidate_python - <<"),
+            4,
+        )
+        self.assertNotIn('"$PYTHON" - <<', text)
+
+        env_check = text.index(
+            '"$SYSTEM_PYTHON" -I "$ROOT/scripts/check-python-release-env.py"'
+        )
+        cache_setup = text.index('PYCACHE_ROOT="$TMP_ROOT/pycache"')
+        self.assertLess(env_check, cache_setup)
+
     def test_predeploy_disposable_migration_imports_application_id(
         self,
     ) -> None:
