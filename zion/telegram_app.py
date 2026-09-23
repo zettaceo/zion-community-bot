@@ -57,6 +57,10 @@ ADMIN_STATUSES = {
     ChatMemberStatus.OWNER,
 }
 
+GROUP_CONVERSATION_TTL_SECONDS = 10 * 60
+GROUP_CONVERSATION_MAX_SESSIONS = 2048
+GROUP_CONVERSATION_QUESTION_MAX_CHARS = 1200
+
 
 class AskRateLimiter:
     def __init__(self, requests_per_minute: int):
@@ -187,6 +191,11 @@ class Runtime:
                 tuple[int, int],
                 float,
             ] = {}
+            self.group_conversation_sessions: dict[
+                tuple[int, int],
+                tuple[float, str],
+            ] = {}
+            self.group_conversation_sessions_next_prune_at = 0.0
         except Exception:
             db = getattr(self, "db", None)
             if isinstance(db, ZionDB):
@@ -292,6 +301,89 @@ def _bot_identity(context: ContextTypes.DEFAULT_TYPE) -> tuple[int | None, str]:
     return bot_id, username.lstrip("@")
 
 
+def _group_conversation_key(update: Update) -> tuple[int, int] | None:
+    if (
+        not update.effective_chat
+        or not update.effective_user
+        or update.effective_chat.type == "private"
+    ):
+        return None
+    return (int(update.effective_chat.id), int(update.effective_user.id))
+
+
+def _active_group_conversation_question(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+) -> str | None:
+    key = _group_conversation_key(update)
+    if key is None:
+        return None
+
+    rt = runtime(context)
+    value = rt.group_conversation_sessions.get(key)
+    if value is None:
+        return None
+
+    expires_at, previous_question = value
+    if expires_at <= time.monotonic():
+        rt.group_conversation_sessions.pop(key, None)
+        return None
+    return previous_question
+
+
+def _looks_like_conversation_turn(value: str) -> bool:
+    folded = _fold_conversation_text(value)
+    if "?" in value:
+        return True
+    if re.fullmatch(
+        r"\s*(?:obrigado|obrigada|valeu|agradecido)[\s!,.]*",
+        folded,
+    ):
+        return True
+    return bool(
+        re.match(
+            r"^\s*(?:o que|qual|quais|como|onde|quando|quem|por que|"
+            r"porque|posso|pode|tem|existe|me explica|explique|me fala|"
+            r"diga|conte|resuma|resume|quero saber|gostaria|e se|e qual|"
+            r"e quais|e como|mas|entao|isso inclui)\b",
+            folded,
+        )
+    )
+
+
+def _remember_group_conversation(
+    rt: Runtime,
+    update: Update,
+    question: str,
+) -> None:
+    key = _group_conversation_key(update)
+    if key is None:
+        return
+
+    now = time.monotonic()
+    sessions = rt.group_conversation_sessions
+    if (
+        now >= rt.group_conversation_sessions_next_prune_at
+        or len(sessions) >= GROUP_CONVERSATION_MAX_SESSIONS
+    ):
+        for candidate, (expires_at, _) in list(sessions.items()):
+            if expires_at <= now:
+                sessions.pop(candidate, None)
+        rt.group_conversation_sessions_next_prune_at = now + 60
+
+    if (
+        key not in sessions
+        and len(sessions) >= GROUP_CONVERSATION_MAX_SESSIONS
+    ):
+        oldest = min(sessions, key=lambda candidate: sessions[candidate][0])
+        sessions.pop(oldest, None)
+
+    sessions[key] = (
+        now + GROUP_CONVERSATION_TTL_SECONDS,
+        question[:GROUP_CONVERSATION_QUESTION_MAX_CHARS],
+    )
+
+
 def natural_conversation_question(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
@@ -333,15 +425,15 @@ def natural_conversation_question(
         )
     )
     product_topic = bool(
-        re.search(r"\b(?:z[\s-]?swap|zion|guardian)\b", folded)
-    )
-    question_like = bool(
-        "?" in question
-        or re.match(
-            r"^\s*(?:o que|qual|quais|como|onde|quando|quem|por que|"
-            r"porque|posso|tem|existe|me explica|explique)\b",
+        re.search(
+            r"\b(?:z[\s-]?swap|zion|guardian|pilot|plano\s+piloto)\b",
             folded,
         )
+    )
+    question_like = _looks_like_conversation_turn(question)
+    recent_follow_up = bool(
+        _active_group_conversation_question(update, context)
+        and question_like
     )
 
     if not (
@@ -350,6 +442,7 @@ def natural_conversation_question(
         or named_directly
         or short_greeting
         or (product_topic and question_like)
+        or recent_follow_up
     ):
         return None
 
@@ -399,6 +492,8 @@ async def answer_natural_conversation(
         return False
 
     rt = runtime(context)
+    previous_question = _active_group_conversation_question(update, context)
+    question_like = _looks_like_conversation_turn(question)
     update_id = getattr(update, "update_id", None)
     if claim_private_update and update_id is not None:
         try:
@@ -418,6 +513,7 @@ async def answer_natural_conversation(
     casual = _casual_conversation_reply(question)
     if casual is not None:
         await update.effective_message.reply_text(casual)
+        _remember_group_conversation(rt, update, question)
         return True
 
     if not rt.ask_limiter.allow(update.effective_user.id):
@@ -427,14 +523,20 @@ async def answer_natural_conversation(
         )
         return True
 
-    answer = await rt.ai.answer(
-        chat_id=update.effective_chat.id,
-        user_id=update.effective_user.id,
-        question=question,
-    )
-    await update.effective_message.reply_text(
-        telegram_ai_reply_text(answer.text)
-    )
+    answer_kwargs: dict[str, Any] = {
+        "chat_id": update.effective_chat.id,
+        "user_id": update.effective_user.id,
+        "question": question,
+    }
+    if previous_question is not None and question_like:
+        answer_kwargs["context_query"] = (
+            previous_question + "\n" + question
+        )[:6000]
+
+    answer = await rt.ai.answer(**answer_kwargs)
+    rendered = telegram_ai_reply_text(answer.text)
+    await update.effective_message.reply_text(rendered)
+    _remember_group_conversation(rt, update, question)
     return True
 
 

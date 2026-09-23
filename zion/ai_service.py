@@ -427,6 +427,7 @@ class AIService:
         chat_id: int | None,
         user_id: int | None,
         question: str,
+        context_query: str | None = None,
     ) -> AIAnswer:
         if not self.state_allows_ai():
             return AIAnswer(
@@ -439,7 +440,8 @@ class AIService:
             )
 
         safe_question = sanitize_for_ai(question)
-        context = self.knowledge.render_context(safe_question)
+        safe_context_query = sanitize_for_ai(context_query or question)
+        context = self.knowledge.render_context(safe_context_query)
         question_hash = self._hash_text(safe_question)
 
         if not context.strip():
@@ -536,9 +538,11 @@ class AIService:
                 latency_ms=answer.latency_ms,
                 input_hash=question_hash,
                 metadata={
-                    "knowledge_hits": len(self.knowledge.search(safe_question)),
+                    "knowledge_hits": len(
+                        self.knowledge.search(safe_context_query)
+                    ),
                     "knowledge_sources": self.knowledge.source_labels(
-                        safe_question
+                        safe_context_query
                     ),
                 },
             )

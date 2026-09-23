@@ -99,5 +99,17 @@ class KnowledgeTests(unittest.TestCase):
         self.assertIn("plataforma não custodial", rendered)
         self.assertNotIn("z-swap.md", rendered)
 
+    def test_product_knowledge_answers_pilot_benefits(self) -> None:
+        root = Path(__file__).resolve().parents[1] / "knowledge"
+        kb = KnowledgeBase(root)
+
+        rendered = kb.render_context(
+            "Quais são os benefícios do plano piloto?"
+        )
+
+        self.assertIn("suporte direto prioritário", rendered)
+        self.assertIn("status Founder", rendered)
+        self.assertNotIn("z-swap.md", rendered)
+
 if __name__ == "__main__":
     unittest.main()
