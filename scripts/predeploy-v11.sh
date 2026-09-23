@@ -49,6 +49,13 @@ fi
 "$SYSTEM_PYTHON" -I "$ROOT/scripts/check-git-release-boundary.py" \
   --root "$PROD_ROOT"
 
+PYCACHE_ROOT="$TMP_ROOT/pycache"
+mkdir -m 700 "$PYCACHE_ROOT"
+
+candidate_python() {
+  PYTHONPYCACHEPREFIX="$PYCACHE_ROOT" "$PYTHON" "$@"
+}
+
 cd "$ROOT"
 /usr/bin/git status --short --branch
 HEAD_SHA="$(/usr/bin/git rev-parse HEAD)"
@@ -132,7 +139,7 @@ PROD_ROOT="$PROD_ROOT" \
 CANDIDATE_ROOT="$ROOT" \
 PROD_SERVICE_STATE_LAYOUT="$PROD_SERVICE_STATE_LAYOUT" \
 STATE_DIR="$STATE_DIR" \
-"$PYTHON" - <<'PY'
+candidate_python - <<'PY'
 import os
 import stat
 from pathlib import Path
@@ -249,7 +256,7 @@ PROD_DB_PATH="$(
   PROD_ROOT="$PROD_ROOT" \
   PROD_SERVICE_STATE_LAYOUT="$PROD_SERVICE_STATE_LAYOUT" \
   STATE_DIR="$STATE_DIR" \
-  "$PYTHON" - <<'PY'
+  candidate_python - <<'PY'
 import os
 from pathlib import Path
 from dotenv import load_dotenv
@@ -311,7 +318,7 @@ PROD_SERVICE_STATE_LAYOUT="$PROD_SERVICE_STATE_LAYOUT" \
 STATE_DIR="$STATE_DIR" \
 COPY_DB="$COPY_DB" \
 COPY_LEGACY="$COPY_LEGACY" \
-"$PYTHON" - <<'PY'
+candidate_python - <<'PY'
 import os
 import shutil
 from pathlib import Path
@@ -370,7 +377,7 @@ PY
 
 echo
 echo "[8/8] Applying candidate migrations ONLY to disposable copy..."
-"$PYTHON" - <<PY
+candidate_python - <<PY
 from pathlib import Path
 
 from zion.db import ZION_APPLICATION_ID, ZionDB
