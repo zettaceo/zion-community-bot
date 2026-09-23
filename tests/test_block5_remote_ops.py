@@ -250,7 +250,7 @@ class Block5RemoteOperationsTests(unittest.TestCase):
             "origin/zion-v1",
             "zettaceo/zion-community-bot",
             "ls-remote --exit-code origin",
-            "ZION_GITHUB_GATES_PROVEN",
+            "check-release-attestations.sh",
             "worktree add --detach",
             "worktree remove --force",
             "predeploy-v11.sh",
@@ -314,7 +314,7 @@ class Block5RemoteOperationsTests(unittest.TestCase):
         self.assertNotIn("ZION_APPROVED_REF:-", text)
         self.assertIn('LOCAL_PROD_BRANCH="zion-v1-prod"', text)
         self.assertIn("ZION_PREVIOUS_COMMIT", text)
-        self.assertIn("ZION_GITHUB_GATES_PROVEN", text)
+        self.assertIn("check-release-attestations.sh", text)
         self.assertIn("zettaceo/zion-community-bot", text)
         self.assertNotIn("ls-remote --exit-code origin", text)
         self.assertIn(
