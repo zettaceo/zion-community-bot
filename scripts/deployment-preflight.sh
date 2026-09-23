@@ -218,16 +218,21 @@ else
   fail "candidate remote-access-preflight.sh missing or not executable"
 fi
 
-if [[ "${ZION_GITHUB_GATES_PROVEN:-}" == "YES" ]]; then
-  pass "GitHub governance gate explicitly confirmed"
-else
-  fail "set ZION_GITHUB_GATES_PROVEN=YES only after verifying the required GitHub protection and CI gates"
-fi
+attestation_output=""
+if attestation_output="$("$SCRIPT_ROOT/scripts/check-release-attestations.sh" 2>&1)"; then
+  if [[ "${ZION_GITHUB_GATES_PROVEN:-}" == "YES" ]]; then
+    pass "GitHub governance gate explicitly confirmed"
+  else
+    warn "GitHub governance gate explicitly WAIVED for the initial go-live; protection remains unresolved"
+  fi
 
-if [[ "${ZION_REMOTE_NETWORK_PROVEN:-}" == "YES" ]]; then
-  pass "router/Tailnet exposure controls explicitly confirmed"
+  if [[ "${ZION_REMOTE_NETWORK_PROVEN:-}" == "YES" ]]; then
+    pass "router/Tailnet exposure controls explicitly confirmed"
+  else
+    warn "router/Tailnet control-plane gate explicitly WAIVED for the initial go-live; evidence remains unresolved"
+  fi
 else
-  fail "set ZION_REMOTE_NETWORK_PROVEN=YES only after verifying no public TCP/22 forward and Tailnet policy"
+  fail "external release attestations invalid: $attestation_output"
 fi
 
 if [[ -L "$CURRENT_RUNTIME" ]] \
@@ -261,9 +266,10 @@ fi
 
 echo
 echo "External controls are explicit attestations:"
-echo "- ZION_GITHUB_GATES_PROVEN=YES: required GitHub protection + CI verified."
-echo "- ZION_REMOTE_NETWORK_PROVEN=YES: no public TCP/22 forward + Tailnet policy verified."
-echo "- The host cannot independently prove those control-plane settings."
+echo "- PROVEN means the control was actually verified."
+echo "- WAIVED means the operator consciously accepted the unresolved external control for the initial go-live."
+echo "- A waiver never converts an unresolved control into PASS."
+echo "- The host cannot independently prove GitHub/router/Tailnet control-plane state."
 
 echo
 echo "Summary: failures=$failures warnings=$warnings"

@@ -81,6 +81,22 @@ ZION_GITHUB_GATES_PROVEN=YES
 
 The variable is an attestation, not an automated proof.
 
+## Explicit initial go-live waiver
+
+The preferred release path still requires the GitHub controls above. For the first v1.1 go-live only, the operator may explicitly accept the unresolved GitHub governance risk without pretending the branch is protected.
+
+Use:
+
+```text
+ZION_GITHUB_GATES_WAIVED=YES
+ZION_INITIAL_GO_LIVE_WAIVER=YES
+ZION_EXTERNAL_WAIVER_REASON=<single-line reason>
+```
+
+together with either a proven or explicitly waived remote-network gate. The checker rejects `PROVEN=YES` and `WAIVED=YES` for the same control.
+
+A waiver is reported as `WAIVED`, never as `PASS` or `PROVEN`. It is not persisted into production configuration. GitHub protection remains follow-up work and should be completed before later ordinary releases.
+
 ## Emergency policy
 
 If GitHub protection must ever be bypassed during an incident:

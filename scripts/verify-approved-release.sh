@@ -45,10 +45,7 @@ fi
 "$SYSTEM_PYTHON" -I "$SCRIPT_ROOT/scripts/check-git-release-boundary.py" \
   --root "$ROOT"
 "$SYSTEM_PYTHON" -I "$SCRIPT_ROOT/scripts/check-python-release-env.py"
-if [[ "${ZION_GITHUB_GATES_PROVEN:-}" != "YES" ]]; then
-  echo "ERRO: confirme os gates GitHub antes de verificar release aprovado." >&2
-  exit 2
-fi
+"$SCRIPT_ROOT/scripts/check-release-attestations.sh"
 
 if [[ ! -x "$PYTHON" ]] \
   || [[ ! -f "$RUNTIME_BASE/$EXPECTED/release-sha.txt" ]] \
@@ -115,7 +112,6 @@ echo "Production service remains running during verification."
 
 ZION_EXPECTED_COMMIT="$EXPECTED" \
 ZION_RELEASE_SOURCE="$RELEASE_SOURCE" \
-ZION_GITHUB_GATES_PROVEN=YES \
   bash "$candidate/scripts/predeploy-v11.sh"
 
 echo
