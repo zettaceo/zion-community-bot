@@ -20,6 +20,39 @@ class DatabaseTests(unittest.TestCase):
         self.db.close()
         self.temp.cleanup()
 
+    def test_symlinked_database_path_is_rejected(self) -> None:
+        target = Path(self.temp.name) / "target.db"
+        target.write_text("not a database", encoding="utf-8")
+        link = Path(self.temp.name) / "linked.db"
+        link.symlink_to(target)
+
+        with self.assertRaises(RuntimeError):
+            ZionDB(link)
+
+    def test_hardlinked_database_path_is_rejected(self) -> None:
+        target = Path(self.temp.name) / "hardlink-target.db"
+        target.write_bytes(b"external")
+        link = Path(self.temp.name) / "hardlinked.db"
+        link.hardlink_to(target)
+
+        with self.assertRaisesRegex(RuntimeError, "hard links"):
+            ZionDB(link)
+
+    def test_hardlinked_sqlite_sidecars_are_rejected(self) -> None:
+        for suffix in ("-wal", "-shm"):
+            with self.subTest(suffix=suffix):
+                root = Path(self.temp.name)
+                database = root / f"candidate{suffix.replace('-', '')}.db"
+                target = root / f"outside{suffix.replace('-', '')}"
+                target.write_bytes(b"external")
+                sidecar = Path(str(database) + suffix)
+                sidecar.hardlink_to(target)
+
+                with self.assertRaisesRegex(RuntimeError, "hard links"):
+                    ZionDB(database)
+
+                sidecar.unlink()
+
     def test_database_permissions_are_private(self) -> None:
         mode = stat.S_IMODE(self.path.stat().st_mode)
         self.assertEqual(mode, 0o600)
@@ -86,6 +119,31 @@ class DatabaseTests(unittest.TestCase):
         )
         resolved = self.db.get_incident(incident)
         self.assertEqual(resolved["status"], "resolved")
+
+    def test_user_event_retention_cleanup(self) -> None:
+        self.db.record_user_event(
+            1,
+            2,
+            "joined",
+            now=100.0,
+        )
+        self.db.record_user_event(
+            1,
+            3,
+            "joined",
+            now=300.0,
+        )
+
+        removed = self.db.prune_user_events(200.0)
+        self.assertEqual(removed, 1)
+        self.assertEqual(
+            self.db.count_user_events(
+                chat_id=1,
+                event_type="joined",
+                since=0.0,
+            ),
+            1,
+        )
 
     def test_knowledge_gap_retention_cleanup(self) -> None:
         self.db.record_knowledge_gap(
@@ -174,6 +232,47 @@ class DatabaseTests(unittest.TestCase):
             self.db.ai_tokens_since(0),
             150,
         )
+
+    def test_database_rejects_invalid_domain_disposition(self) -> None:
+        with self.assertRaises(ValueError):
+            self.db.set_domain(
+                "example.com",
+                "maybe",
+                "test",
+            )
+
+    def test_database_rejects_invalid_incident_fields(self) -> None:
+        with self.assertRaises(ValueError):
+            self.db.create_incident(
+                chat_id=1,
+                user_id=2,
+                category="test",
+                severity="unknown",
+                source="test",
+            )
+
+        with self.assertRaises(ValueError):
+            self.db.create_incident(
+                chat_id=1,
+                user_id=2,
+                category="test",
+                severity=Severity.LOW,
+                source="test",
+                status="pending",
+            )
+
+    def test_incident_note_is_bounded(self) -> None:
+        incident_id = self.db.create_incident(
+            chat_id=1,
+            user_id=2,
+            category="test",
+            severity=Severity.LOW,
+            source="test",
+            note="x" * 5000,
+        )
+        incident = self.db.get_incident(incident_id)
+        self.assertIsNotNone(incident)
+        self.assertEqual(len(incident["note"]), 2000)
 
     def test_incident_and_action(self) -> None:
         incident = self.db.create_incident(

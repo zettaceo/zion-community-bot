@@ -9,6 +9,7 @@ ZION may automatically act on:
 - manually activated lockdown;
 - unauthorized links/domains;
 - high-confidence possible wallet-secret exposure;
+- high-confidence credential exposure;
 - repeat flood escalation up to ban, according to configured strike count.
 
 These rules are objective, inspectable and auditable.
@@ -87,3 +88,33 @@ AI-backed member commands are rate-limited per user.
 Observe-only classification uses a separate per-user limiter and the same global Mistral daily token budget.
 
 When the budget is exhausted, deterministic Guardian features remain active.
+
+
+## Unicode and disguised domains
+
+Domains are normalized to their ASCII IDNA representation before policy comparison. This prevents a Unicode lookalike from matching an unrelated ASCII allowlist entry.
+
+Telegram URL/text-link entities are evaluated in addition to visible text.
+
+## Distributed chat bursts
+
+A high message rate spread across multiple distinct members can move ZION from NORMAL to temporary ELEVATED mode.
+
+This trigger:
+- does not create an individual strike by itself;
+- does not mute or ban an individual by itself;
+- tightens deterministic flood thresholds temporarily;
+- creates an auditable incident and state-change action.
+
+## Community operations retention
+
+Explicit AMA questions are stored only because the member invokes the AMA collection command. Questions from closed AMAs are deleted after the configured retention period.
+
+Recurring announcements are administrative content and remain active until cancelled.
+
+## Operational alerts
+
+Health alerts can notify explicit ZION operators about database/integrity problems, low disk, sensitive-file permissions, missing Wi-Fi interface or abnormal Telegram update lag. Health alerts do not perform destructive recovery actions.
+
+
+Operational alerts are deduplicated. An unchanged active condition may be reminded only after the configured repeat interval; a changed condition alerts immediately and a cleared condition produces one recovery notification.

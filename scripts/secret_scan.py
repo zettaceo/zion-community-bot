@@ -8,7 +8,7 @@ from pathlib import Path
 
 
 TELEGRAM_TOKEN = re.compile(
-    rb"(?<![A-Za-z0-9_])\d{6,}:[A-Za-z0-9_-]{20,}"
+    rb"(?<!\d)\d{6,}:[A-Za-z0-9_-]{20,}"
 )
 
 FAKE_TELEGRAM_TOKENS = {
@@ -42,7 +42,7 @@ ALLOWED_ENV_VALUES = {
 
 def tracked_files() -> list[Path]:
     raw = subprocess.check_output(
-        ["git", "ls-files", "-z"],
+        ["/usr/bin/git", "ls-files", "-z"],
     )
     return [
         Path(item.decode("utf-8"))
@@ -56,9 +56,6 @@ def scan_file(path: Path) -> list[str]:
         data = path.read_bytes()
     except OSError as exc:
         return [f"{path}: não foi possível ler: {exc}"]
-
-    if b"\0" in data:
-        return []
 
     findings: list[str] = []
 

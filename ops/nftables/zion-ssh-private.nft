@@ -1,0 +1,14 @@
+# ZION SSH ingress guard.
+#
+# This table changes only inbound TCP/22. Loopback and Tailscale are allowed;
+# every other interface is dropped for SSH in both IPv4 and IPv6.
+# All non-SSH traffic is left untouched.
+table inet zion_ssh_guard {
+    chain input {
+        type filter hook input priority -50; policy accept;
+
+        iifname "lo" tcp dport 22 accept
+        iifname "tailscale0" tcp dport 22 accept
+        tcp dport 22 counter drop
+    }
+}

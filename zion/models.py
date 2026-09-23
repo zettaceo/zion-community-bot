@@ -42,6 +42,16 @@ class FloodDecision:
     mute_seconds: int = 0
     should_ban: bool = False
     message_ids: list[int] = field(default_factory=list)
+    incident_id: str | None = None
+
+
+@dataclass(slots=True)
+class ChatBurstDecision:
+    triggered: bool = False
+    message_count: int = 0
+    unique_users: int = 0
+    window_seconds: int = 0
+    elevated_seconds: int = 0
 
 
 @dataclass(slots=True)
@@ -49,6 +59,7 @@ class LinkDecision:
     has_links: bool = False
     domains: list[str] = field(default_factory=list)
     unauthorized_domains: list[str] = field(default_factory=list)
+    unsupported_schemes: list[str] = field(default_factory=list)
     should_delete: bool = False
     reason: str = ""
 

@@ -60,13 +60,18 @@ Keep `ZION_AI_OBSERVE=false` for the first AI support test.
 bash scripts/validate.sh
 ```
 
-## Deploy modular v1 after review
+## Production release
 
-```bash
-bash scripts/apply-zion-v1.sh
-```
+Do **not** run `scripts/apply-zion-v1.sh` as a standalone deployment shortcut.
 
-The script validates first and only then restarts systemd.
+The first production transition from the current v1 line to v1.1 must follow:
+
+- `docs/V1.1-FIRST-UPGRADE.md`
+- `docs/V1.1-RELEASE-AUDIT.md`
+- `docs/DEPLOYMENT-MODEL.md`
+- `docs/GITHUB-DEPLOY-GATES.md`
+
+Release selection is bound to one approved 40-character production SHA, with pre-cutover verification and rollback evidence. Repository CI does not substitute for real Acer/control-plane gates.
 
 ## Commands
 
@@ -80,6 +85,7 @@ Member/basic:
 - `/summary`
 - `/translate`
 - `/report` as a reply
+- `/ama <question>` when an AMA is open
 
 Admin:
 
@@ -107,6 +113,12 @@ Admin:
 - `/allowdomain example.com`
 - `/blockdomain example.com`
 - `/schedule <ISO8601-with-timezone> <message>`
+- `/recurring <interval> <ISO8601-with-timezone> <message>`
+- `/cancelrecurring <id>`
+- `/amaopen <tema>`
+- `/amalist`
+- `/amaclose`
+- `/diagnostics`
 - `/reloadkb`
 
 ## Source of truth
@@ -164,3 +176,24 @@ ZION distinguishes two privilege levels:
 - **ZION operator**: user ID explicitly listed in `ZION_ADMIN_USER_IDS`. Required for global/system controls and telemetry such as state/lockdown, domain policy, incidents, Mistral status/budget, knowledge gaps and knowledge reload.
 
 This prevents an administrator from an unrelated group from changing global ZION policy.
+
+
+## ZION v1.1 development
+
+The v1.1 branch extends the modular baseline without granting AI punitive authority.
+
+New development surfaces include:
+- bilingual PT-BR/EN onboarding and help;
+- recurring announcements;
+- AMA question collection with bounded retention;
+- section-level knowledge source labels;
+- stronger prompt-injection boundaries;
+- Unicode/IDNA link normalization;
+- distributed chat-burst detection that only raises temporary ELEVATED mode;
+- SQLite quick-check, DB size, Telegram update-lag and AI latency diagnostics;
+- deduplicated operational alerts to explicit ZION operators;
+- private Tailscale + SSH remote-access runbook.
+
+Operational alerts are deduplicated and unchanged active conditions are reminded no more often than `ZION_HEALTH_ALERT_REPEAT_SECONDS` (default: 6 hours).
+
+Production remains on the explicitly deployed stable commit until a separate review and cutover is approved.
