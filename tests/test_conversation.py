@@ -81,6 +81,7 @@ def make_update(
     chat_type: str,
     message_id: int = 1,
     reply_to_bot: bool = False,
+    user_id: int = 2,
 ):
     message = FakeMessage(text, message_id=message_id)
     if reply_to_bot:
@@ -94,7 +95,7 @@ def make_update(
     return SimpleNamespace(
         update_id=message_id,
         effective_user=SimpleNamespace(
-            id=2,
+            id=user_id,
             username="carlos",
             first_name="Carlos",
             language_code="pt",
@@ -166,6 +167,86 @@ class ConversationTests(unittest.TestCase):
         )
 
         self.assertEqual(question, "Pode explicar de forma mais simples?")
+
+    def test_group_follow_up_without_command_keeps_recent_context(self) -> None:
+        first = make_update(
+            "O que é a Z-SWAP?",
+            chat_type="supergroup",
+            message_id=10,
+        )
+        follow_up = make_update(
+            "Me fala em uma frase quais os benefícios do plano Pilot",
+            chat_type="supergroup",
+            message_id=11,
+        )
+
+        asyncio.run(moderation_handler(first, self.context))
+        asyncio.run(moderation_handler(follow_up, self.context))
+
+        self.assertEqual(self.runtime.ai.answer.await_count, 2)
+        follow_up_call = self.runtime.ai.answer.await_args_list[1]
+        self.assertEqual(
+            follow_up_call.kwargs["question"],
+            "Me fala em uma frase quais os benefícios do plano Pilot",
+        )
+        self.assertIn("O que é a Z-SWAP?", follow_up_call.kwargs["context_query"])
+        self.assertEqual(len(follow_up.effective_message.replies), 1)
+
+    def test_group_pilot_question_needs_no_prior_context(self) -> None:
+        update = make_update(
+            "Me fala os benefícios do plano piloto",
+            chat_type="supergroup",
+            message_id=12,
+        )
+
+        asyncio.run(moderation_handler(update, self.context))
+
+        self.runtime.ai.answer.assert_awaited_once_with(
+            chat_id=-10020,
+            user_id=2,
+            question="Me fala os benefícios do plano piloto",
+        )
+        self.assertEqual(len(update.effective_message.replies), 1)
+
+    def test_recent_conversation_does_not_capture_unrelated_chatter(self) -> None:
+        first = make_update(
+            "O que é a Z-SWAP?",
+            chat_type="supergroup",
+            message_id=20,
+        )
+        unrelated = make_update(
+            "Vou almoçar e volto depois.",
+            chat_type="supergroup",
+            message_id=21,
+        )
+
+        asyncio.run(moderation_handler(first, self.context))
+        self.runtime.ai.answer.reset_mock()
+        asyncio.run(moderation_handler(unrelated, self.context))
+
+        self.runtime.ai.answer.assert_not_awaited()
+        self.assertEqual(unrelated.effective_message.replies, [])
+
+    def test_recent_conversation_is_isolated_per_user(self) -> None:
+        first = make_update(
+            "O que é a Z-SWAP?",
+            chat_type="supergroup",
+            message_id=30,
+            user_id=2,
+        )
+        other_user = make_update(
+            "Me fala em uma frase quais são os benefícios",
+            chat_type="supergroup",
+            message_id=31,
+            user_id=3,
+        )
+
+        asyncio.run(moderation_handler(first, self.context))
+        self.runtime.ai.answer.reset_mock()
+        asyncio.run(moderation_handler(other_user, self.context))
+
+        self.runtime.ai.answer.assert_not_awaited()
+        self.assertEqual(other_user.effective_message.replies, [])
 
     def test_unaddressed_group_chatter_is_not_answered(self) -> None:
         update = make_update(

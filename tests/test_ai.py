@@ -209,6 +209,45 @@ class AITests(unittest.TestCase):
         self.assertNotIn("Fontes ZION:", answer.text)
         self.assertNotIn("official.md", answer.text)
 
+    def test_context_query_grounds_a_short_follow_up(self) -> None:
+        (self.root / "knowledge" / "official.md").write_text(
+            "# Plano Pilot\nO plano Pilot oferece suporte prioritário.\n",
+            encoding="utf-8",
+        )
+        knowledge = KnowledgeBase(self.settings.knowledge_dir)
+        settings = replace(self.settings, ai_enabled=True)
+        ai = AIService(settings, self.db, knowledge)
+
+        class FakeClient:
+            configured = True
+
+            def __init__(self) -> None:
+                self.context = ""
+
+            async def answer(self, *, question: str, context: str):
+                self.context = context
+                return AIAnswer(
+                    text="Você recebe suporte prioritário.",
+                    model="fake-model",
+                    input_tokens=5,
+                    output_tokens=5,
+                    latency_ms=1,
+                )
+
+        client = FakeClient()
+        ai.client = client
+        answer = asyncio.run(
+            ai.answer(
+                chat_id=1,
+                user_id=2,
+                question="E o que eu ganho com isso?",
+                context_query="Quais são os benefícios do plano Pilot?",
+            )
+        )
+
+        self.assertEqual(answer.text, "Você recebe suporte prioritário.")
+        self.assertIn("suporte prioritário", client.context)
+
     def test_lockdown_blocks_provider_before_any_call(self) -> None:
         (self.root / "knowledge" / "official.md").write_text(
             "# Guardian\nGuardian protection remains active.\n",
