@@ -67,15 +67,25 @@ class Block5RemoteOperationsTests(unittest.TestCase):
             self.assertEqual(report.returncode, 0)
             self.assertIn("No configuration was changed.", report.stdout)
 
+            strict_env = env.copy()
+            strict_env["SSH_CONNECTION"] = (
+                "203.0.113.10 54321 192.0.2.20 22"
+            )
+            strict_env.pop("ZION_TAILSCALE_CLIENT_IP", None)
+
             strict = subprocess.run(
                 ["bash", str(script)],
                 cwd=ROOT,
-                env=env,
+                env=strict_env,
                 text=True,
                 capture_output=True,
                 check=False,
             )
             self.assertEqual(strict.returncode, 2)
+            self.assertIn(
+                "SSH client context is outside Tailscale address space",
+                strict.stdout,
+            )
 
     def test_authoritative_sshd_template_is_key_only_and_no_forwarding(
         self,
