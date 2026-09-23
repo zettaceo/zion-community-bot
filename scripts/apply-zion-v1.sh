@@ -134,10 +134,7 @@ if [[ "$CURRENT_HEAD" != "$EXPECTED_COMMIT" ]]; then
   exit 1
 fi
 
-if [[ "${ZION_GITHUB_GATES_PROVEN:-}" != "YES" ]]; then
-  echo "ERRO: ZION_GITHUB_GATES_PROVEN=YES é obrigatório após verificar proteção/CI no GitHub." >&2
-  exit 1
-fi
+"$ROOT/scripts/check-release-attestations.sh"
 
 ORIGIN_URL="$(/usr/bin/git remote get-url origin 2>/dev/null || true)"
 case "$ORIGIN_URL" in
