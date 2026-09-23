@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
 import time
 from dataclasses import dataclass
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from typing import Any
 from urllib.parse import urlparse
 
@@ -28,6 +31,76 @@ class MistralCredentialInvalid(RuntimeError):
 
 class MistralCredentialValidationUnavailable(RuntimeError):
     pass
+
+
+class MistralRateLimited(RuntimeError):
+    def __init__(
+        self,
+        message: str,
+        *,
+        retry_after_seconds: float | None = None,
+    ):
+        super().__init__(message)
+        self.retry_after_seconds = retry_after_seconds
+
+
+RATE_LIMIT_HEADER_NAMES = (
+    "retry-after",
+    "x-ratelimit-limit",
+    "x-ratelimit-remaining",
+    "x-ratelimit-reset",
+    "x-ratelimit-limit-requests",
+    "x-ratelimit-remaining-requests",
+    "x-ratelimit-limit-tokens",
+    "x-ratelimit-remaining-tokens",
+)
+
+
+def _sanitized_rate_limit_headers(
+    headers: httpx.Headers,
+) -> dict[str, str]:
+    result: dict[str, str] = {}
+    for name in RATE_LIMIT_HEADER_NAMES:
+        value = headers.get(name)
+        if value is None:
+            continue
+        clean = re.sub(
+            r"[^0-9A-Za-z:,.+/_ -]",
+            "?",
+            value,
+        )[:96]
+        result[name] = clean
+    return result
+
+
+def _retry_after_seconds(
+    value: str | None,
+    *,
+    fallback: float,
+    maximum: float,
+) -> float:
+    delay = max(0.0, float(fallback))
+    raw = (value or "").strip()
+
+    if raw:
+        try:
+            delay = max(0.0, float(raw))
+        except ValueError:
+            try:
+                parsed = parsedate_to_datetime(raw)
+                if parsed.tzinfo is None:
+                    parsed = parsed.replace(tzinfo=timezone.utc)
+                delay = max(
+                    0.0,
+                    (
+                        parsed.astimezone(timezone.utc)
+                        - datetime.now(timezone.utc)
+                    ).total_seconds(),
+                )
+            except (TypeError, ValueError, OverflowError):
+                pass
+
+    return min(delay, max(0.0, float(maximum)))
 
 
 def _valid_mistral_api_url(value: str) -> bool:
@@ -197,6 +270,23 @@ class MistralClient:
         self.secret_store = secret_store or SecretStore(
             settings.mistral_secret_path
         )
+        self._request_pacing_lock = asyncio.Lock()
+        self._next_request_at = 0.0
+
+    async def _wait_for_request_slot(self) -> None:
+        interval = (
+            max(0, self.settings.mistral_min_request_interval_ms)
+            / 1000.0
+        )
+        if interval <= 0:
+            return
+
+        async with self._request_pacing_lock:
+            now = time.monotonic()
+            delay = max(0.0, self._next_request_at - now)
+            if delay > 0:
+                await asyncio.sleep(delay)
+            self._next_request_at = time.monotonic() + interval
 
     @property
     def configured(self) -> bool:
@@ -274,16 +364,68 @@ class MistralClient:
 
         started = time.monotonic()
         timeout = httpx.Timeout(self.settings.mistral_timeout_seconds)
+        max_retries = max(0, self.settings.mistral_rate_limit_retries)
+        max_delay = max(
+            0.1,
+            self.settings.mistral_rate_limit_max_delay_seconds,
+        )
+        pacing_seconds = (
+            max(0, self.settings.mistral_min_request_interval_ms)
+            / 1000.0
+        )
 
         async with httpx.AsyncClient(
             timeout=timeout,
             follow_redirects=False,
         ) as client:
-            response = await client.post(
-                self.settings.mistral_api_url,
-                headers=headers,
-                json=payload,
-            )
+            for attempt in range(max_retries + 1):
+                await self._wait_for_request_slot()
+                response = await client.post(
+                    self.settings.mistral_api_url,
+                    headers=headers,
+                    json=payload,
+                )
+
+                if response.status_code != 429:
+                    break
+
+                fallback_delay = min(
+                    max_delay,
+                    max(
+                        pacing_seconds,
+                        0.5 * (2**attempt),
+                    ),
+                )
+                retry_after = _retry_after_seconds(
+                    response.headers.get("retry-after"),
+                    fallback=fallback_delay,
+                    maximum=max_delay,
+                )
+                rate_headers = _sanitized_rate_limit_headers(
+                    response.headers
+                )
+
+                if attempt >= max_retries:
+                    logger.warning(
+                        "Mistral rate limit HTTP 429 após %s tentativas | "
+                        "rate=%s",
+                        attempt + 1,
+                        rate_headers,
+                    )
+                    raise MistralRateLimited(
+                        "Mistral API limitada temporariamente (HTTP 429).",
+                        retry_after_seconds=retry_after,
+                    )
+
+                logger.warning(
+                    "Mistral rate limit HTTP 429; retry %s/%s em %.2fs | "
+                    "rate=%s",
+                    attempt + 1,
+                    max_retries,
+                    retry_after,
+                    rate_headers,
+                )
+                await asyncio.sleep(retry_after)
 
         latency_ms = int((time.monotonic() - started) * 1000)
 
