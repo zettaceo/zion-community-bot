@@ -431,9 +431,9 @@ class AIService:
         if not self.state_allows_ai():
             return AIAnswer(
                 text=(
-                    "A camada de IA está pausada pelo estado operacional "
-                    f"{self.operating_state().value}. "
-                    "O Guardian determinístico continua ativo."
+                    "No momento não consigo usar a IA porque o ZION está no "
+                    f"modo {self.operating_state().value}. A proteção da "
+                    "comunidade continua funcionando normalmente."
                 ),
                 model=self.settings.mistral_model,
             )
@@ -461,17 +461,19 @@ class AIService:
             )
             return AIAnswer(
                 text=(
-                    "Não encontrei informação oficial suficiente na base "
-                    "de conhecimento do ZION para confirmar isso. "
-                    "A pergunta foi registrada como lacuna de conhecimento "
-                    "para revisão da equipe."
+                    "Ainda não tenho informação oficial suficiente para "
+                    "responder isso com segurança. Se quiser, reformule a "
+                    "pergunta ou fale com a equipe da Z-SWAP."
                 ),
                 model=self.settings.mistral_model,
             )
 
         if not self.enabled:
             return AIAnswer(
-                text="A camada de IA Mistral do ZION ainda não está habilitada.",
+                text=(
+                    "Ainda não consigo responder por IA, mas a proteção da "
+                    "comunidade continua ativa."
+                ),
                 model=self.settings.mistral_model,
             )
 
@@ -487,7 +489,11 @@ class AIService:
 
         if self.circuit_open():
             return AIAnswer(
-                text="A camada de IA está temporariamente em proteção automática. Tente novamente em alguns minutos.",
+                text=(
+                    "Ativei uma proteção automática por causa de uma "
+                    "indisponibilidade temporária. Tente novamente em alguns "
+                    "minutos."
+                ),
                 model=self.settings.mistral_model,
             )
 
@@ -517,14 +523,6 @@ class AIService:
                 self._release_budget(reservation)
 
             self._record_provider_success()
-
-            source_labels = self.knowledge.source_labels(safe_question)
-            if source_labels:
-                answer.text = (
-                    answer.text.rstrip()
-                    + "\n\nFontes ZION:\n- "
-                    + "\n- ".join(source_labels)
-                )
 
             self._record_provider_success_event(
                 reservation=reservation,
@@ -565,8 +563,9 @@ class AIService:
             )
             return AIAnswer(
                 text=(
-                    "A camada de IA está temporariamente indisponível. "
-                    "O Guardian determinístico continua ativo."
+                    "A IA está indisponível agora. Tente novamente em "
+                    "alguns instantes; a proteção da comunidade continua "
+                    "funcionando normalmente."
                 ),
                 model=self.settings.mistral_model,
             )

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import time
 import unicodedata
 from collections import defaultdict, deque
@@ -229,6 +230,212 @@ def user_display_name(user: Any) -> str:
     if first_name:
         return first_name
     return f"usuário {user_id}"
+
+
+def telegram_ai_reply_text(value: object, max_chars: int = 3900) -> str:
+    """Render provider output as safe, readable Telegram plain text."""
+    text = str(value or "").replace("\r\n", "\n").replace("\r", "\n")
+
+    # Source lists were part of the old response contract. Drop them even if
+    # a provider reproduces the old shape from learned behaviour.
+    text = re.sub(
+        r"(?ims)\n*fontes?\s+zion\s*:.*$",
+        "",
+        text,
+    )
+
+    # Internal paths and source file names never belong in a community answer.
+    text = re.sub(
+        r"(?i)(?:[a-z]:\\|/(?:home|srv|opt|var|tmp|etc)/)[^\s<>()]+",
+        "documentação oficial",
+        text,
+    )
+    text = re.sub(
+        r"(?i)\b[\w.-]+\.(?:md|py|toml|ya?ml|json)\b",
+        "documentação oficial",
+        text,
+    )
+
+    # Telegram receives plain text here. Normalize common Markdown so users do
+    # not see raw emphasis markers, headings or code fences.
+    text = re.sub(r"(?m)^\s{0,3}#{1,6}\s*", "", text)
+    text = re.sub(r"(?m)^\s*>\s?", "", text)
+    text = re.sub(r"(?m)^\s*[-*]\s+", "• ", text)
+    text = re.sub(r"\[([^\]]+)\]\([^\)]+\)", r"\1", text)
+    text = text.replace("```", "").replace("**", "").replace("__", "")
+    text = text.replace("`", "").replace("~~", "")
+    text = re.sub(r"[ \t]+\n", "\n", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    text = text.strip()
+
+    if not text:
+        text = "Não consegui formular uma resposta agora. Tente novamente."
+    return text[: max(1, int(max_chars))]
+
+
+def _fold_conversation_text(value: str) -> str:
+    folded = unicodedata.normalize("NFKD", value.casefold())
+    return "".join(
+        char for char in folded if not unicodedata.combining(char)
+    )
+
+
+def _bot_identity(context: ContextTypes.DEFAULT_TYPE) -> tuple[int | None, str]:
+    try:
+        bot_id = getattr(context.bot, "id", None)
+    except RuntimeError:
+        bot_id = None
+    try:
+        username = str(getattr(context.bot, "username", "") or "").strip()
+    except RuntimeError:
+        username = ""
+    return bot_id, username.lstrip("@")
+
+
+def natural_conversation_question(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    text: str,
+) -> str | None:
+    """Return text only when an ordinary message is addressed to ZION."""
+    question = (text or "").strip()
+    if not question or question.startswith("/") or not update.effective_chat:
+        return None
+
+    if update.effective_chat.type == "private":
+        return question[:6000]
+
+    message = update.effective_message
+    bot_id, bot_username = _bot_identity(context)
+    replied = getattr(message, "reply_to_message", None)
+    replied_user = getattr(replied, "from_user", None)
+    is_reply = bool(
+        bot_id is not None
+        and getattr(replied_user, "id", None) == bot_id
+    )
+
+    folded = _fold_conversation_text(question)
+    username_mention = bool(
+        bot_username
+        and re.search(
+            rf"(?<!\w)@{re.escape(bot_username.casefold())}(?!\w)",
+            question.casefold(),
+        )
+    )
+    named_directly = bool(
+        re.match(r"^\s*(?:zion|z[\s-]?ion)\b", folded)
+    )
+    short_greeting = bool(
+        re.fullmatch(
+            r"\s*(?:oi|ola|bom dia|boa tarde|boa noite|e ai|salve)"
+            r"[\s!,.]*(?:zion)?[\s!,.]*",
+            folded,
+        )
+    )
+    product_topic = bool(
+        re.search(r"\b(?:z[\s-]?swap|zion|guardian)\b", folded)
+    )
+    question_like = bool(
+        "?" in question
+        or re.match(
+            r"^\s*(?:o que|qual|quais|como|onde|quando|quem|por que|"
+            r"porque|posso|tem|existe|me explica|explique)\b",
+            folded,
+        )
+    )
+
+    if not (
+        is_reply
+        or username_mention
+        or named_directly
+        or short_greeting
+        or (product_topic and question_like)
+    ):
+        return None
+
+    cleaned = question
+    if bot_username:
+        cleaned = re.sub(
+            rf"(?i)(?<!\w)@{re.escape(bot_username)}(?!\w)[\s,:;-]*",
+            "",
+            cleaned,
+        ).strip()
+    cleaned = re.sub(
+        r"(?i)^\s*(?:zion|z[\s-]?ion)\b[\s,:;-]*",
+        "",
+        cleaned,
+    ).strip()
+    return (cleaned or question)[:6000]
+
+
+def _casual_conversation_reply(question: str) -> str | None:
+    folded = _fold_conversation_text(question)
+    simple = re.sub(r"[^a-z0-9\s]", "", folded).strip()
+    if simple in {"oi", "ola", "e ai", "salve", "zion"}:
+        return "Olá! Como posso ajudar com a Z-SWAP?"
+    if simple in {"bom dia", "boa tarde", "boa noite"}:
+        return f"{simple.capitalize()}! Como posso ajudar com a Z-SWAP?"
+    if simple in {"obrigado", "obrigada", "valeu", "agradecido"}:
+        return "Por nada! Se precisar, estou por aqui."
+    return None
+
+
+async def answer_natural_conversation(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    text: str,
+    *,
+    claim_private_update: bool = False,
+) -> bool:
+    if (
+        not update.effective_message
+        or not update.effective_user
+        or not update.effective_chat
+    ):
+        return False
+
+    question = natural_conversation_question(update, context, text)
+    if question is None:
+        return False
+
+    rt = runtime(context)
+    update_id = getattr(update, "update_id", None)
+    if claim_private_update and update_id is not None:
+        try:
+            claimed = rt.db.claim_idempotency_key(
+                f"telegram_conversation:{int(update_id)}",
+                ttl_seconds=rt.settings.idempotency_retention_days * 86400,
+            )
+        except Exception as exc:
+            logger.error(
+                "Falha no gate de idempotência da conversa: %s",
+                type(exc).__name__,
+            )
+            return True
+        if not claimed:
+            return True
+
+    casual = _casual_conversation_reply(question)
+    if casual is not None:
+        await update.effective_message.reply_text(casual)
+        return True
+
+    if not rt.ask_limiter.allow(update.effective_user.id):
+        await update.effective_message.reply_text(
+            "Recebi muitas perguntas em pouco tempo. Tente novamente em "
+            "alguns instantes."
+        )
+        return True
+
+    answer = await rt.ai.answer(
+        chat_id=update.effective_chat.id,
+        user_id=update.effective_user.id,
+        question=question,
+    )
+    await update.effective_message.reply_text(
+        telegram_ai_reply_text(answer.text)
+    )
+    return True
 
 
 def format_duration(seconds: int) -> str:
@@ -886,12 +1093,13 @@ async def privacy_command(
         "• Mensagens comuns não são armazenadas integralmente no banco.\n"
         "• Ordinary message bodies are not stored in full.\n"
         "• Metadados operacionais de moderação podem ser registrados.\n"
-        "• /ask, /summary e /translate podem enviar conteúdo sanitizado "
-        "à Mistral quando a IA estiver habilitada.\n"
+        "• Perguntas dirigidas ao ZION, além de /ask, /summary e /translate, "
+        "podem enviar conteúdo sanitizado à Mistral quando a IA estiver "
+        "habilitada.\n"
         f"• Observe-only de mensagens comuns: {observe}.\n"
         "• Possíveis segredos de carteira são bloqueados antes de chamadas "
         "de IA quando detectados pelo Guardian.\n"
-        f"• Lacunas de /ask: retenção de "
+        f"• Lacunas de perguntas ao ZION: retenção de "
         f"{rt.settings.knowledge_gap_retention_days} dias.\n"
         f"• Perguntas de AMA encerrado: retenção de até "
         f"{rt.settings.ama_retention_days} dias.\n"
@@ -1705,7 +1913,9 @@ async def ask_command(
         user_id=update.effective_user.id,
         question=question[:6000],
     )
-    await update.effective_message.reply_text(answer.text[:3900])
+    await update.effective_message.reply_text(
+        telegram_ai_reply_text(answer.text)
+    )
 
 
 async def help_command(
@@ -1721,7 +1931,9 @@ async def help_command(
         "/status — estado público / public status\n"
         "/rules — regras / rules\n"
         "/privacy — privacidade, IA e retenção / privacy, AI and retention\n"
-        "/ask <pergunta> — suporte fundamentado na base oficial\n"
+        "/ask <pergunta> — suporte fundamentado na base oficial (opcional)\n"
+        "Você também pode conversar normalmente com o ZION no privado ou "
+        "chamá-lo pelo nome no grupo.\n"
         "/summary <texto> — resumo explícito via IA quando habilitada\n"
         "/translate <idioma> <texto> — tradução explícita via IA\n"
         "/report — responda a uma mensagem para denunciar\n"
@@ -1783,7 +1995,9 @@ async def summary_command(
         user_id=update.effective_user.id,
         text=source[:12000],
     )
-    await update.effective_message.reply_text(answer.text[:3900])
+    await update.effective_message.reply_text(
+        telegram_ai_reply_text(answer.text)
+    )
 
 
 async def translate_command(
@@ -1844,7 +2058,9 @@ async def translate_command(
         text=source[:12000],
         target_language=target,
     )
-    await update.effective_message.reply_text(answer.text[:3900])
+    await update.effective_message.reply_text(
+        telegram_ai_reply_text(answer.text)
+    )
 
 
 async def guardian_command(
@@ -4081,9 +4297,15 @@ async def moderation_handler(
     ):
         return
 
-    # Ordinary private-chat messages are outside group moderation. Universal
-    # secret/credential protection still runs before this boundary.
+    # Private conversation stays outside group moderation, but ordinary text
+    # can now be answered after universal secret protection.
     if chat.type == "private":
+        await answer_natural_conversation(
+            update,
+            context,
+            text,
+            claim_private_update=True,
+        )
         return
 
     update_id = getattr(update, "update_id", None)
@@ -4132,6 +4354,7 @@ async def moderation_handler(
     # Administradores continuam isentos de flood e política de links,
     # mas somente depois da proteção universal de segredos.
     if admin:
+        await answer_natural_conversation(update, context, text)
         return
 
     remaining = rt.guardian.containment_remaining(chat.id, user.id)
@@ -4226,6 +4449,11 @@ async def moderation_handler(
                 "Falha ao enviar aviso de link não autorizado: %s",
                 exc,
             )
+        return
+
+    # Guardian decisions always run first. Only a safe message explicitly
+    # addressed to ZION reaches the conversational AI.
+    if await answer_natural_conversation(update, context, text):
         return
 
     if (

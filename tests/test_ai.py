@@ -169,7 +169,7 @@ class AITests(unittest.TestCase):
         gaps = self.db.list_knowledge_gaps()
         self.assertEqual(len(gaps), 1)
 
-    def test_grounded_answer_appends_section_level_sources(self) -> None:
+    def test_grounded_answer_does_not_expose_internal_sources(self) -> None:
         (self.root / "knowledge" / "official.md").write_text(
             "# Security\nNever share a seed phrase.\n",
             encoding="utf-8",
@@ -202,8 +202,12 @@ class AITests(unittest.TestCase):
             )
         )
 
-        self.assertIn("Fontes ZION:", answer.text)
-        self.assertIn("official.md — Security", answer.text)
+        self.assertEqual(
+            answer.text,
+            "Use the official security guidance.",
+        )
+        self.assertNotIn("Fontes ZION:", answer.text)
+        self.assertNotIn("official.md", answer.text)
 
     def test_lockdown_blocks_provider_before_any_call(self) -> None:
         (self.root / "knowledge" / "official.md").write_text(
