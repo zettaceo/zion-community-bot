@@ -69,12 +69,20 @@ systemctl status zion-wifi-guardian.timer --no-pager
 
 The production Mistral key is not stored in `.env`. `MISTRAL_API_KEY` is deprecated and must remain empty. The secret path is fixed by code at `/home/zetta/.local/state/zion-community-bot/secrets/mistral-api-key` and is not configurable through `.env`.
 
-Non-secret configuration may contain:
+Non-secret production configuration for the current support model:
 
 ```text
 ZION_AI_ENABLED=true
+ZION_AI_OBSERVE=false
+ZION_AI_MAX_CONCURRENCY=3
 MISTRAL_API_URL=https://api.mistral.ai/v1/chat/completions
+MISTRAL_MODEL=ministral-8b-2512
+MISTRAL_MIN_REQUEST_INTERVAL_MS=350
+MISTRAL_RATE_LIMIT_RETRIES=2
+MISTRAL_RATE_LIMIT_MAX_DELAY_SECONDS=5
 ```
+
+The throughput profile intentionally queues bursts inside ZION: at most three AI calls are in flight and request starts are paced by 350 ms. A provider HTTP 429 is retried a bounded number of times, honoring `Retry-After` when supplied and otherwise using exponential fallback. Only a sanitized allowlist of rate-limit headers may be logged; Authorization and secret material are never logged.
 
 The bot may start with `ZION_AI_ENABLED=true` while the secret is missing; the deterministic Guardian remains active and the Mistral provider reports not configured.
 

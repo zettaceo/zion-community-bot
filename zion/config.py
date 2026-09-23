@@ -150,6 +150,9 @@ class Settings:
     mistral_model: str
     mistral_timeout_seconds: float
     mistral_max_tokens: int
+    mistral_min_request_interval_ms: int
+    mistral_rate_limit_retries: int
+    mistral_rate_limit_max_delay_seconds: float
 
     def configuration_issues(self) -> tuple[str, ...]:
         issues: list[str] = []
@@ -390,7 +393,7 @@ class Settings:
                 4,
                 1,
             ),
-            ai_max_concurrency=_int("ZION_AI_MAX_CONCURRENCY", 2, 1),
+            ai_max_concurrency=_int("ZION_AI_MAX_CONCURRENCY", 3, 1),
             ai_daily_token_budget=_int(
                 "ZION_AI_DAILY_TOKEN_BUDGET",
                 50000,
@@ -421,7 +424,7 @@ class Settings:
             ).strip(),
             mistral_model=os.getenv(
                 "MISTRAL_MODEL",
-                "mistral-small-latest",
+                "ministral-8b-2512",
             ).strip(),
             mistral_timeout_seconds=_float(
                 "MISTRAL_TIMEOUT_SECONDS",
@@ -429,4 +432,19 @@ class Settings:
                 3.0,
             ),
             mistral_max_tokens=_int("MISTRAL_MAX_TOKENS", 700, 64),
+            mistral_min_request_interval_ms=_int(
+                "MISTRAL_MIN_REQUEST_INTERVAL_MS",
+                350,
+                0,
+            ),
+            mistral_rate_limit_retries=_int(
+                "MISTRAL_RATE_LIMIT_RETRIES",
+                2,
+                0,
+            ),
+            mistral_rate_limit_max_delay_seconds=_float(
+                "MISTRAL_RATE_LIMIT_MAX_DELAY_SECONDS",
+                5.0,
+                0.1,
+            ),
         )

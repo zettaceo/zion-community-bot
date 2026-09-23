@@ -144,6 +144,29 @@ class SettingsTests(unittest.TestCase):
         )
         self.assertEqual(settings.mistral_secret_path, expected)
 
+    def test_mistral_throughput_profile_is_parsed(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "MISTRAL_MODEL": "ministral-8b-2512",
+                "MISTRAL_MIN_REQUEST_INTERVAL_MS": "350",
+                "MISTRAL_RATE_LIMIT_RETRIES": "2",
+                "MISTRAL_RATE_LIMIT_MAX_DELAY_SECONDS": "5",
+                "ZION_AI_MAX_CONCURRENCY": "3",
+            },
+            clear=False,
+        ):
+            settings = Settings.from_env()
+
+        self.assertEqual(settings.mistral_model, "ministral-8b-2512")
+        self.assertEqual(settings.mistral_min_request_interval_ms, 350)
+        self.assertEqual(settings.mistral_rate_limit_retries, 2)
+        self.assertEqual(
+            settings.mistral_rate_limit_max_delay_seconds,
+            5.0,
+        )
+        self.assertEqual(settings.ai_max_concurrency, 3)
+
     def test_mistral_secret_path_inside_worktree_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
