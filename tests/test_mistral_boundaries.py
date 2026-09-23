@@ -303,6 +303,8 @@ class MistralBoundaryTests(unittest.TestCase):
             )
             self.assertIn("official_context", system)
             self.assertIn("user_question", system)
+            self.assertIn("texto simples", system)
+            self.assertIn("nomes de arquivos", system)
 
 
 if __name__ == "__main__":

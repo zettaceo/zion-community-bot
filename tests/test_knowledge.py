@@ -87,6 +87,17 @@ class KnowledgeTests(unittest.TestCase):
                 max_chars=500,
             )
             self.assertLessEqual(len(rendered), 500)
+            self.assertIn("[Contexto oficial: Guardian]", rendered)
+            self.assertNotIn("official.md", rendered)
+
+    def test_product_knowledge_answers_basic_z_swap_question(self) -> None:
+        root = Path(__file__).resolve().parents[1] / "knowledge"
+        kb = KnowledgeBase(root)
+
+        rendered = kb.render_context("O que é a Z-SWAP?")
+
+        self.assertIn("plataforma não custodial", rendered)
+        self.assertNotIn("z-swap.md", rendered)
 
 if __name__ == "__main__":
     unittest.main()
