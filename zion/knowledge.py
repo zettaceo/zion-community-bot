@@ -168,7 +168,10 @@ class KnowledgeBase:
         rendered: list[str] = []
 
         for chunk in chunks:
-            prefix = f"[Fonte: {chunk.source} — {chunk.heading}]\n"
+            # The model needs approved content, not repository metadata.
+            # Keeping file names out of the prompt prevents internal knowledge
+            # layout from leaking into community-facing answers.
+            prefix = f"[Contexto oficial: {chunk.heading}]\n"
             if len(prefix) >= remaining:
                 break
 

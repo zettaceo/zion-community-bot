@@ -2,9 +2,9 @@
 
 # O que é o ZION? / What is ZION?
 
-PT-BR: ZION é a camada operacional da comunidade Z-SWAP para segurança, moderação determinística, suporte, onboarding, conhecimento, incidentes e operações administrativas.
+PT-BR: ZION é o assistente oficial da comunidade Z-SWAP. Ele ajuda a entender o produto, encontrar orientações confiáveis, receber novos membros e manter a comunidade mais segura. Nos bastidores, o Guardian aplica regras claras de proteção e moderação.
 
-EN: ZION is the Z-SWAP community operating layer for safety, deterministic moderation, support, onboarding, knowledge, incidents and administrative operations.
+EN: ZION is the official assistant for the Z-SWAP community. It helps people understand the product, find reliable guidance, welcome new members and keep the community safer. Behind the conversation, the Guardian applies clear protection and moderation rules.
 
 # A IA pode banir alguém? / Can AI ban someone?
 
@@ -20,9 +20,9 @@ The deterministic Guardian remains operational when the AI layer is unavailable.
 
 # Quais dados são armazenados? / What data is stored?
 
-Mensagens comuns não são armazenadas integralmente. ZION mantém metadados operacionais necessários para moderação, auditoria e estado. Perguntas explícitas de /ask sem correspondência oficial podem ser mantidas como lacunas sanitizadas por retenção limitada. Perguntas enviadas explicitamente a um AMA são mantidas temporariamente para organizar a sessão e depois são removidas conforme a retenção configurada.
+Mensagens comuns não são armazenadas integralmente. ZION mantém metadados operacionais necessários para moderação, auditoria e estado. Perguntas dirigidas ao ZION, com ou sem /ask, podem ser enviadas de forma sanitizada à Mistral. Quando não há correspondência oficial, elas podem ser mantidas como lacunas sanitizadas por retenção limitada. Perguntas enviadas explicitamente a um AMA são mantidas temporariamente para organizar a sessão e depois são removidas conforme a retenção configurada.
 
-Ordinary message bodies are not stored in full. ZION keeps operational metadata needed for moderation, audit and state. Explicit /ask questions with no official knowledge match may be retained as sanitized knowledge gaps for a limited period. Questions explicitly submitted to an AMA are retained temporarily to organize the session and later removed according to configured retention.
+Ordinary message bodies are not stored in full. ZION keeps operational metadata needed for moderation, audit and state. Questions addressed to ZION, with or without /ask, may be sent to Mistral after sanitization. When no official knowledge matches, they may be retained as sanitized knowledge gaps for a limited period. Questions explicitly submitted to an AMA are retained temporarily to organize the session and later removed according to configured retention.
 
 # Como denunciar uma mensagem? / How do I report a message?
 
