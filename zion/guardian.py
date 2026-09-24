@@ -310,6 +310,9 @@ _INSULT_RULES = {
     "insult_pt_07": "filho da puta",
     "insult_pt_08": "vai se foder",
     "insult_pt_09": "vai tomar no cu",
+    "sexual_insult_pt_01": "sua puta",
+    "sexual_insult_pt_02": "sua vadia",
+    "sexual_insult_pt_03": "sua piranha",
     "insult_en_01": "fuck you",
     "insult_en_02": "moron",
     "insult_en_03": "stupid",
@@ -334,6 +337,9 @@ _INHERENTLY_DIRECT_RULES = frozenset({
     "insult_pt_07",
     "insult_pt_08",
     "insult_pt_09",
+    "sexual_insult_pt_01",
+    "sexual_insult_pt_02",
+    "sexual_insult_pt_03",
     "insult_en_01",
 })
 
