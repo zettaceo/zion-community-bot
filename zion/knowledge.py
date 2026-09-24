@@ -26,12 +26,42 @@ STOPWORDS = {
 }
 
 
+# Curated product vocabulary keeps short, natural questions useful without
+# relying on model memory.  Groups are intentionally small and auditable: if a
+# member says "plano profissional", retrieval must reach the same approved
+# facts as "plano Pro", while unrelated words are left untouched.
+TOKEN_ALIASES = (
+    frozenset({"plano", "planos", "tier", "tiers", "nivel", "niveis"}),
+    frozenset({
+        "beneficio", "beneficios", "vantagem", "vantagens", "recurso",
+        "recursos", "inclui", "incluso",
+    }),
+    frozenset({"free", "gratis", "gratuito", "thrall"}),
+    frozenset({"pro", "profissional", "drengr", "freyr"}),
+    frozenset({"trader", "berserkr", "thor"}),
+    frozenset({"pilot", "piloto", "einherjar", "odin"}),
+    frozenset({"assinatura", "mensal", "recorrente", "hird"}),
+    frozenset({"passe", "pass", "nft", "panteao"}),
+    frozenset({"taxa", "taxas", "fee", "fees"}),
+    frozenset({"analise", "analises", "cota", "cotas", "limite", "limites"}),
+    frozenset({"preco", "precos", "valor", "valores", "custo", "custos"}),
+    frozenset({"comparar", "comparacao", "diferenca", "diferencas"}),
+)
+
+TIER_ALIASES = {
+    "free": frozenset({"free", "gratis", "gratuito", "thrall"}),
+    "pro": frozenset({"pro", "profissional", "drengr", "freyr"}),
+    "trader": frozenset({"trader", "berserkr", "thor"}),
+    "pilot": frozenset({"pilot", "piloto", "einherjar", "odin"}),
+}
+
+
 def _normalize(text: str) -> str:
     folded = unicodedata.normalize("NFKD", text.lower())
     return "".join(char for char in folded if not unicodedata.combining(char))
 
 
-def _tokens(text: str) -> set[str]:
+def _base_tokens(text: str) -> set[str]:
     tokens = {
         _normalize(match.group(0))
         for match in WORD_REGEX.finditer(text or "")
@@ -40,6 +70,24 @@ def _tokens(text: str) -> set[str]:
         token
         for token in tokens
         if token not in STOPWORDS
+    }
+
+
+def _tokens(text: str) -> set[str]:
+    tokens = _base_tokens(text)
+    expanded = set(tokens)
+    for group in TOKEN_ALIASES:
+        if tokens & group:
+            expanded.update(group)
+    return expanded
+
+
+def _mentioned_tiers(text: str) -> set[str]:
+    tokens = _base_tokens(text)
+    return {
+        tier
+        for tier, aliases in TIER_ALIASES.items()
+        if tokens & aliases
     }
 
 
@@ -121,8 +169,20 @@ class KnowledgeBase:
         if not query_tokens:
             return []
 
+        requested_tiers = _mentioned_tiers(query)
+
         scored: list[tuple[float, KnowledgeChunk]] = []
         for chunk in self.chunks:
+            heading_tiers = _mentioned_tiers(chunk.heading)
+            if (
+                requested_tiers
+                and heading_tiers
+                and not requested_tiers.intersection(heading_tiers)
+            ):
+                # An exact tier question must not be grounded primarily by a
+                # different tier merely because both headings contain "plano".
+                continue
+
             chunk_tokens = _tokens(chunk.heading + "\n" + chunk.text)
             overlap = query_tokens & chunk_tokens
             if not overlap:
@@ -131,6 +191,12 @@ class KnowledgeBase:
             score = len(overlap) / max(1, len(query_tokens))
             heading_overlap = query_tokens & _tokens(chunk.heading)
             score += 0.35 * len(heading_overlap)
+            if (
+                requested_tiers
+                and heading_tiers.intersection(requested_tiers)
+                and _normalize(chunk.heading).startswith("plano ")
+            ):
+                score += 0.75
 
             # Reject a weak incidental overlap in long questions. A heading
             # match may still qualify because headings are curated signals.
