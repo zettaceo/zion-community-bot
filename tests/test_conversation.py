@@ -261,6 +261,20 @@ class ConversationTests(unittest.TestCase):
             ConversationRoute.IGNORE,
         )
 
+        moderate_update = make_update(
+            "você é idiota",
+            chat_type="supergroup",
+            message_id=133,
+        )
+        self.assertEqual(
+            conversation_route(
+                moderate_update,
+                self.context,
+                moderate_update.effective_message.text,
+            ),
+            ConversationRoute.MODERATE_ONLY,
+        )
+
     def test_group_product_question_needs_no_command(self) -> None:
         update = make_update(
             "O que é a Z-SWAP?",
