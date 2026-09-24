@@ -32,6 +32,7 @@ class FakeBot:
         self.banned: list[tuple[int, int]] = []
         self.member_statuses: dict[int, str] = {}
         self.fail_restrict_users: set[int] = set()
+        self.delete_results: list[bool | None | Exception] = []
 
     async def get_chat_member(self, chat_id: int, user_id: int):
         return SimpleNamespace(
@@ -43,6 +44,12 @@ class FakeBot:
 
     async def delete_message(self, *, chat_id: int, message_id: int):
         self.deleted.append((chat_id, message_id))
+        if self.delete_results:
+            result = self.delete_results.pop(0)
+            if isinstance(result, Exception):
+                raise result
+            return result
+        return True
 
     async def send_message(self, *, chat_id: int, text: str):
         self.sent.append((chat_id, text))
@@ -58,6 +65,7 @@ class FakeBot:
         if user_id in self.fail_restrict_users:
             raise RuntimeError("synthetic Telegram admin restriction failure")
         self.restricted.append((chat_id, user_id))
+        return True
 
     async def ban_chat_member(
         self,
@@ -67,6 +75,7 @@ class FakeBot:
         revoke_messages: bool,
     ):
         self.banned.append((chat_id, user_id))
+        return True
 
 
 class FakeApplication:
@@ -697,6 +706,167 @@ class ModerationPipelineTests(unittest.TestCase):
             (second.effective_chat.id, second.effective_user.id),
             self.context.bot.restricted,
         )
+
+    def test_explicit_false_delete_is_retried_and_recorded_truthfully(self) -> None:
+        self.context.bot.delete_results = [False, False, False]
+        update = fake_update(
+            user_id=47,
+            text="vai se fuder",
+            message_id=431,
+            update_id=9431,
+        )
+
+        asyncio.run(moderation_handler(update, self.context))
+
+        target = (update.effective_chat.id, update.effective_message.message_id)
+        self.assertEqual(self.context.bot.deleted.count(target), 3)
+        row = self.runtime.db._conn.execute(
+            """
+            SELECT success, reason
+            FROM actions
+            WHERE user_id=? AND action_type='delete'
+            ORDER BY created_at DESC
+            LIMIT 1
+            """,
+            (47,),
+        ).fetchone()
+        self.assertIsNotNone(row)
+        self.assertEqual(int(row["success"]), 0)
+        self.assertEqual(row["reason"], "directed_abuse")
+        self.assertIn(
+            (update.effective_chat.id, update.effective_user.id),
+            self.context.bot.restricted,
+        )
+        public_notices = [
+            text
+            for chat_id, text in self.context.bot.sent
+            if chat_id == update.effective_chat.id
+        ]
+        self.assertTrue(public_notices)
+        self.assertIn("não confirmou a remoção", public_notices[-1])
+        self.assertNotIn("Mensagem removida", public_notices[-1])
+        operator_alerts = [
+            text
+            for chat_id, text in self.context.bot.sent
+            if chat_id == 1
+        ]
+        self.assertTrue(operator_alerts)
+        self.assertIn("action=delete", operator_alerts[-1])
+
+    def test_transient_false_delete_succeeds_on_retry(self) -> None:
+        self.context.bot.delete_results = [False, True]
+        update = fake_update(
+            user_id=48,
+            text="buceta",
+            message_id=432,
+            update_id=9432,
+        )
+
+        asyncio.run(moderation_handler(update, self.context))
+
+        target = (update.effective_chat.id, update.effective_message.message_id)
+        self.assertEqual(self.context.bot.deleted.count(target), 2)
+        row = self.runtime.db._conn.execute(
+            """
+            SELECT success
+            FROM actions
+            WHERE user_id=? AND action_type='delete'
+            ORDER BY created_at DESC
+            LIMIT 1
+            """,
+            (48,),
+        ).fetchone()
+        self.assertIsNotNone(row)
+        self.assertEqual(int(row["success"]), 1)
+        self.assertNotIn(
+            (update.effective_chat.id, update.effective_user.id),
+            self.context.bot.restricted,
+        )
+
+    def test_credential_notice_never_claims_unconfirmed_deletion(self) -> None:
+        self.context.bot.delete_results = [False, False, False]
+        update = fake_update(
+            user_id=50,
+            text="API key: example-secret-value-123456",
+            message_id=433,
+            update_id=9433,
+        )
+
+        asyncio.run(moderation_handler(update, self.context))
+
+        public_notices = [
+            text
+            for chat_id, text in self.context.bot.sent
+            if chat_id == update.effective_chat.id
+        ]
+        self.assertTrue(public_notices)
+        self.assertIn("não confirmou a remoção", public_notices[-1])
+        self.assertNotIn("mensagem removida", public_notices[-1].casefold())
+        row = self.runtime.db._conn.execute(
+            """
+            SELECT success
+            FROM actions
+            WHERE user_id=? AND action_type='delete'
+            ORDER BY created_at DESC
+            LIMIT 1
+            """,
+            (50,),
+        ).fetchone()
+        self.assertIsNotNone(row)
+        self.assertEqual(int(row["success"]), 0)
+
+    def test_abuse_during_active_containment_keeps_abuse_classification(self) -> None:
+        first = fake_update(
+            user_id=49,
+            text="merda",
+            message_id=441,
+            update_id=9441,
+        )
+        second = fake_update(
+            user_id=49,
+            text="vai se fuder",
+            message_id=442,
+            update_id=9442,
+        )
+        third = fake_update(
+            user_id=49,
+            text="pau no cu",
+            message_id=443,
+            update_id=9443,
+        )
+
+        asyncio.run(moderation_handler(first, self.context))
+        asyncio.run(moderation_handler(second, self.context))
+        strikes_before = self.runtime.db.user_summary(
+            third.effective_chat.id,
+            third.effective_user.id,
+        )["active_strikes"]
+        notices_before = len(self.context.bot.sent)
+
+        asyncio.run(moderation_handler(third, self.context))
+
+        action = self.runtime.db._conn.execute(
+            """
+            SELECT reason, success, metadata_json
+            FROM actions
+            WHERE user_id=? AND action_type='delete'
+            ORDER BY created_at DESC
+            LIMIT 1
+            """,
+            (49,),
+        ).fetchone()
+        self.assertIsNotNone(action)
+        self.assertEqual(action["reason"], "prohibited_language")
+        self.assertEqual(int(action["success"]), 1)
+        self.assertIn('"active_containment":true', action["metadata_json"])
+        incidents = self.runtime.db.list_incidents(limit=10)
+        self.assertEqual(incidents[0]["category"], "prohibited_language")
+        strikes_after = self.runtime.db.user_summary(
+            third.effective_chat.id,
+            third.effective_user.id,
+        )["active_strikes"]
+        self.assertEqual(strikes_after, strikes_before)
+        self.assertEqual(len(self.context.bot.sent), notices_before)
 
     def test_abuse_incident_never_persists_full_offending_text(self) -> None:
         raw = "você é idiota e isso nunca deve ir ao incidente"

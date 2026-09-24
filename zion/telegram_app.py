@@ -1206,20 +1206,37 @@ async def delete_message_safe(
     chat_id: int,
     message_id: int,
 ) -> bool:
-    try:
-        await context.bot.delete_message(
-            chat_id=chat_id,
-            message_id=message_id,
-        )
-        return True
-    except Exception as exc:
-        logger.debug(
-            "Falha ao apagar chat=%s message=%s: %s",
-            chat_id,
-            message_id,
-            type(exc).__name__,
-        )
-        return False
+    attempts = 3
+    for attempt in range(1, attempts + 1):
+        try:
+            result = await context.bot.delete_message(
+                chat_id=chat_id,
+                message_id=message_id,
+            )
+            # The Telegram Bot API contract returns the boolean True on
+            # success. Anything else is unconfirmed and must be retried rather
+            # than written to the enforcement ledger as a successful delete.
+            if result is True:
+                return True
+        except Exception as exc:
+            logger.debug(
+                "Falha ao apagar chat=%s message=%s attempt=%s/%s: %s",
+                chat_id,
+                message_id,
+                attempt,
+                attempts,
+                type(exc).__name__,
+            )
+        if attempt < attempts:
+            await asyncio.sleep(0.20 * attempt)
+
+    logger.warning(
+        "Telegram não confirmou exclusão chat=%s message=%s attempts=%s",
+        chat_id,
+        message_id,
+        attempts,
+    )
+    return False
 
 
 async def protect_credential_exposure(
@@ -1282,6 +1299,20 @@ async def protect_credential_exposure(
             actor_id=None,
             reason="possible_credential_exposure",
             success=deleted,
+        )
+
+    if not deleted:
+        await _alert_operators_enforcement_failure(
+            context,
+            chat_id=update.effective_chat.id,
+            target_user_id=user_id,
+            action="delete",
+            reason="possible_credential_exposure",
+        )
+        notice_text = (
+            f"🚨 {user_display_name(update.effective_user)}: possível "
+            "credencial detectada, mas o Telegram não confirmou a remoção. "
+            "Apague a mensagem manualmente e revogue/rotacione a credencial."
         )
 
     try:
@@ -1359,6 +1390,20 @@ async def protect_wallet_secret(
             success=deleted,
         )
 
+    if not deleted:
+        await _alert_operators_enforcement_failure(
+            context,
+            chat_id=update.effective_chat.id,
+            target_user_id=user_id,
+            action="delete",
+            reason=sensitive.kind,
+        )
+        notice_text = (
+            f"🚨 {user_display_name(update.effective_user)}: possível segredo "
+            "de carteira detectado, mas o Telegram não confirmou a remoção. "
+            "Apague a mensagem manualmente e proteja a carteira."
+        )
+
     try:
         await context.bot.send_message(
             chat_id=update.effective_chat.id,
@@ -1411,13 +1456,13 @@ async def mute_user_safe(
 ) -> bool:
     try:
         until_date = datetime.now(timezone.utc) + timedelta(seconds=seconds)
-        await context.bot.restrict_chat_member(
+        result = await context.bot.restrict_chat_member(
             chat_id=chat_id,
             user_id=user_id,
             permissions=ChatPermissions(can_send_messages=False),
             until_date=until_date,
         )
-        return True
+        return result is True
     except Exception as exc:
         logger.warning(
             "Falha ao silenciar chat=%s user=%s: %s",
@@ -1434,12 +1479,12 @@ async def ban_user_safe(
     user_id: int,
 ) -> bool:
     try:
-        await context.bot.ban_chat_member(
+        result = await context.bot.ban_chat_member(
             chat_id=chat_id,
             user_id=user_id,
             revoke_messages=True,
         )
-        return True
+        return result is True
     except Exception as exc:
         logger.warning(
             "Falha ao banir chat=%s user=%s: %s",
@@ -1456,12 +1501,12 @@ async def unban_user_safe(
     user_id: int,
 ) -> bool:
     try:
-        await context.bot.unban_chat_member(
+        result = await context.bot.unban_chat_member(
             chat_id=chat_id,
             user_id=user_id,
             only_if_banned=True,
         )
-        return True
+        return result is True
     except Exception as exc:
         logger.warning(
             "Falha ao desbanir chat=%s user=%s: %s",
@@ -4337,6 +4382,8 @@ async def _enforce_abuse(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
     decision: AbuseDecision,
+    *,
+    active_containment_seconds: int = 0,
 ) -> None:
     if (
         not decision.detected
@@ -4358,6 +4405,7 @@ async def _enforce_abuse(
         message.message_id,
     )
 
+    already_contained = active_containment_seconds > 0
     strike_count = 0
     mute_seconds = 0
     mute_required = False
@@ -4374,6 +4422,7 @@ async def _enforce_abuse(
                 "normalized_hash": decision.normalized_hash,
                 "directed": decision.directed,
                 "reporting_context": decision.reporting_context,
+                "active_containment": already_contained,
                 "content_not_stored": True,
             },
             note=(
@@ -4393,12 +4442,13 @@ async def _enforce_abuse(
             success=deleted,
             metadata={
                 "rule_id": decision.rule_id,
+                "active_containment": already_contained,
                 "content_not_stored": True,
             },
             now=now,
         )
 
-        if decision.should_strike:
+        if decision.should_strike and not already_contained:
             rt.db.add_strike(
                 chat_id=chat.id,
                 user_id=user.id,
@@ -4426,6 +4476,7 @@ async def _enforce_abuse(
             mute_required = (
                 decision.immediate_mute
                 or strike_count >= 2
+                or not deleted
             )
             if mute_required:
                 level_index = min(
@@ -4440,6 +4491,15 @@ async def _enforce_abuse(
                     decision.category,
                     now,
                 )
+
+    if not deleted:
+        await _alert_operators_enforcement_failure(
+            context,
+            chat_id=chat.id,
+            target_user_id=user.id,
+            action="delete",
+            reason=decision.category,
+        )
 
     mute_success: bool | None = None
     if mute_required:
@@ -4473,7 +4533,33 @@ async def _enforce_abuse(
                 reason=decision.category,
             )
 
-    if decision.reporting_context:
+    if already_contained and deleted:
+        # Do not flood the group with repeated notices while the member is
+        # already contained. The incident remains classified as abuse.
+        return
+    if already_contained:
+        outcome = (
+            "Ofensa detectada, mas o Telegram não confirmou a remoção. "
+            "A contenção continua ativa e a equipe foi alertada."
+        )
+    elif not deleted and mute_required and mute_success:
+        outcome = (
+            "Ofensa detectada, mas o Telegram não confirmou a remoção; "
+            f"usuário silenciado por {format_duration(mute_seconds)} e "
+            "equipe alertada."
+        )
+    elif not deleted and mute_required:
+        outcome = (
+            "Ofensa detectada, mas o Telegram não confirmou a remoção nem "
+            "o bloqueio externo. A contenção local foi mantida e a equipe "
+            "foi alertada."
+        )
+    elif not deleted:
+        outcome = (
+            "Conteúdo impróprio detectado, mas o Telegram não confirmou a "
+            "remoção. A equipe foi alertada para revisão."
+        )
+    elif decision.reporting_context:
         outcome = (
             "Mensagem removida pela regra de linguagem; contexto de "
             "citação/relato não recebeu punição automática."
@@ -4528,6 +4614,15 @@ async def _enforce_flood(
     for message_id in flood.message_ids:
         if await delete_message_safe(context, chat.id, message_id):
             deleted_count += 1
+
+    if deleted_count < len(flood.message_ids):
+        await _alert_operators_enforcement_failure(
+            context,
+            chat_id=chat.id,
+            target_user_id=user.id,
+            action="delete",
+            reason=flood.reason,
+        )
 
     incident_id = flood.incident_id
     if not incident_id:
@@ -4854,12 +4949,41 @@ async def command_guard_handler(
         )
         raise ApplicationHandlerStop
 
-    if rt.guardian.containment_remaining(chat.id, user.id) > 0:
-        await delete_message_safe(
+    remaining = rt.guardian.containment_remaining(chat.id, user.id)
+    if remaining > 0:
+        abuse = rt.guardian.evaluate_abuse(text)
+        if abuse.detected:
+            await _enforce_abuse(
+                update,
+                context,
+                abuse,
+                active_containment_seconds=remaining,
+            )
+            raise ApplicationHandlerStop
+        deleted = await delete_message_safe(
             context,
             chat.id,
             message.message_id,
         )
+        rt.db.record_action(
+            incident_id=None,
+            chat_id=chat.id,
+            user_id=user.id,
+            action_type="delete",
+            actor_type="guardian",
+            actor_id=None,
+            reason="active_containment_command",
+            success=deleted,
+            metadata={"remaining_seconds": remaining},
+        )
+        if not deleted:
+            await _alert_operators_enforcement_failure(
+                context,
+                chat_id=chat.id,
+                target_user_id=user.id,
+                action="delete",
+                reason="active_containment_command",
+            )
         raise ApplicationHandlerStop
 
     activity_now = await _evaluate_chat_burst(
@@ -5032,6 +5156,15 @@ async def moderation_handler(
 
     remaining = rt.guardian.containment_remaining(chat.id, user.id)
     if remaining > 0:
+        abuse = rt.guardian.evaluate_abuse(text)
+        if abuse.detected:
+            await _enforce_abuse(
+                update,
+                context,
+                abuse,
+                active_containment_seconds=remaining,
+            )
+            return
         deleted = await delete_message_safe(
             context,
             chat.id,
@@ -5048,6 +5181,14 @@ async def moderation_handler(
             success=deleted,
             metadata={"remaining_seconds": remaining},
         )
+        if not deleted:
+            await _alert_operators_enforcement_failure(
+                context,
+                chat_id=chat.id,
+                target_user_id=user.id,
+                action="delete",
+                reason="active_containment",
+            )
         return
 
     activity_now = await _evaluate_chat_burst(

@@ -22,6 +22,7 @@ class FakeBot:
         if self.fail_delete:
             raise RuntimeError("synthetic delete failure")
         self.deleted.append((chat_id, message_id))
+        return True
 
     async def send_message(self, *, chat_id: int, text: str) -> None:
         self.sent.append((chat_id, text))
