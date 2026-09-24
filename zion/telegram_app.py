@@ -4742,14 +4742,34 @@ async def command_guard_handler(
     if chat.type == "private":
         return
 
-    if await is_admin(
+    admin = await is_admin(
         update,
         context,
         revalidate_cached_admin=True,
-    ):
-        return
+    )
+    command_head = (text.strip().split(maxsplit=1) or [""])[0]
+    command_name = command_head.split("@", 1)[0].lower()
+    lockdown_recovery_command = (
+        admin
+        and command_name
+        in {
+            "/unlock",
+            "/state",
+            "/status",
+            "/health",
+            "/diagnostics",
+            "/guardian",
+            "/incidents",
+            "/incident",
+            "/strikes",
+            "/user",
+        }
+    )
 
-    if rt.db.get_operating_state() == OperatingState.LOCKDOWN:
+    if (
+        rt.db.get_operating_state() == OperatingState.LOCKDOWN
+        and not lockdown_recovery_command
+    ):
         deleted = await delete_message_safe(
             context,
             chat.id,
@@ -4788,6 +4808,11 @@ async def command_guard_handler(
     )
     if flood.triggered:
         await _enforce_flood(update, context, flood)
+        raise ApplicationHandlerStop
+
+    abuse = rt.guardian.evaluate_abuse(text)
+    if abuse.detected:
+        await _enforce_abuse(update, context, abuse)
         raise ApplicationHandlerStop
 
     entity_domains, unsupported_schemes = (
@@ -4920,9 +4945,7 @@ async def moderation_handler(
             )
             return
 
-    admin = await is_admin(update, context)
-
-    if rt.db.get_operating_state() == OperatingState.LOCKDOWN and not admin:
+    if rt.db.get_operating_state() == OperatingState.LOCKDOWN:
         deleted = await delete_message_safe(
             context,
             chat.id,
@@ -4938,12 +4961,6 @@ async def moderation_handler(
             reason="lockdown",
             success=deleted,
         )
-        return
-
-    # Administradores continuam isentos de flood e política de links,
-    # mas somente depois da proteção universal de segredos.
-    if admin:
-        await answer_natural_conversation(update, context, text)
         return
 
     remaining = rt.guardian.containment_remaining(chat.id, user.id)
@@ -4979,6 +4996,11 @@ async def moderation_handler(
     )
     if flood.triggered:
         await _enforce_flood(update, context, flood)
+        return
+
+    abuse = rt.guardian.evaluate_abuse(text)
+    if abuse.detected:
+        await _enforce_abuse(update, context, abuse)
         return
 
     entity_domains, unsupported_schemes = (
