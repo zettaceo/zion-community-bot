@@ -321,13 +321,21 @@ def _bot_identity(context: ContextTypes.DEFAULT_TYPE) -> tuple[int | None, str]:
     return bot_id, username.lstrip("@")
 
 
-def _group_conversation_key(update: Update) -> int | None:
+def _group_conversation_key(
+    update: Update,
+) -> tuple[int, int] | None:
     if (
         not update.effective_chat
         or update.effective_chat.type == "private"
     ):
         return None
-    return int(update.effective_chat.id)
+    message = update.effective_message
+    raw_thread_id = getattr(message, "message_thread_id", None)
+    try:
+        thread_id = int(raw_thread_id) if raw_thread_id is not None else 0
+    except (TypeError, ValueError):
+        thread_id = 0
+    return int(update.effective_chat.id), thread_id
 
 
 def _active_group_conversation(
@@ -364,7 +372,8 @@ def _looks_like_conversation_turn(value: str) -> bool:
             r"porque|posso|pode|tem|existe|me explica|explique|me fala|"
             r"diga|conte|resuma|resume|quero saber|gostaria|e se|e qual|"
             r"e quais|e como|mas|mais eu|eu perguntei|nao foi isso|"
-            r"entao|isso inclui)\b",
+            r"entao|isso inclui|que\b|redes\b|planos\b|taxas\b|cex\b|"
+            r"ordens\b|terminal\b|dca\b|laboratorio\b)\b",
             folded,
         )
     )
@@ -422,14 +431,8 @@ def _conversation_topic_tokens(value: str) -> set[str]:
     }
 
 
-def _continues_active_group_topic(
-    question: str,
-    session: GroupConversationSession | None,
-) -> bool:
-    if session is None:
-        return False
-
-    folded = _fold_conversation_text(question)
+def _is_explicit_active_follow_up(value: str) -> bool:
+    folded = _fold_conversation_text(value)
     if re.match(
         r"^\s*(?:e\b|mas\b|mais\s+eu\b|eu\s+perguntei\b|"
         r"nao\s+foi\s+isso\b|porem\b|entao\b|isso\b|esse\b|essa\b|"
@@ -438,20 +441,40 @@ def _continues_active_group_topic(
         folded,
     ):
         return True
+    return bool(
+        re.search(
+            r"\b(?:nao\s+(?:concordo|faz sentido|acredito|confio)|discordo|"
+            r"duvido|mentira|enganoso|enganosa|golpe|absurdo|errado|errada|"
+            r"ruim|critica|problema)\b",
+            folded,
+        )
+    )
 
-    if re.search(
-        r"\b(?:nao\s+(?:concordo|faz sentido|acredito|confio)|discordo|"
-        r"duvido|mentira|enganoso|enganosa|golpe|absurdo|errado|errada|"
-        r"ruim|critica|problema)\b",
-        folded,
-    ):
+
+def _continues_active_group_topic(
+    question: str,
+    session: GroupConversationSession | None,
+) -> bool:
+    if session is None:
+        return False
+
+    if _is_explicit_active_follow_up(question):
         return True
 
     current_tokens = _conversation_topic_tokens(question)
     previous_tokens = _conversation_topic_tokens(
         session.retrieval_query + "\n" + session.transcript
     )
-    return len(current_tokens & previous_tokens) >= 2
+    if len(current_tokens & previous_tokens) < 2:
+        return False
+
+    # Passive overlap is rate-shaped per chat/thread so ZION does not answer
+    # every line of a fast-moving group discussion. Explicit questions,
+    # corrections and criticism are still handled immediately.
+    return (
+        time.monotonic() - session.last_reply_at
+        >= GROUP_CONVERSATION_PASSIVE_COOLDOWN_SECONDS
+    )
 
 
 def _is_explicit_conversation_correction(value: str) -> bool:
@@ -542,6 +565,7 @@ def _remember_group_conversation(
         expires_at=now + GROUP_CONVERSATION_TTL_SECONDS,
         retrieval_query=retrieval_query,
         transcript=transcript,
+        last_reply_at=now,
     )
 
 
