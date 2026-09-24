@@ -46,6 +46,10 @@ TOKEN_ALIASES = (
     frozenset({"analise", "analises", "cota", "cotas", "limite", "limites"}),
     frozenset({"preco", "precos", "valor", "valores", "custo", "custos"}),
     frozenset({"comparar", "comparacao", "diferenca", "diferencas"}),
+    frozenset({"rede", "redes", "network", "networks", "chain", "chains",
+               "blockchain", "blockchains"}),
+    frozenset({"ordem", "ordens", "order", "orders"}),
+    frozenset({"cex", "corretora", "corretoras", "exchange", "exchanges"}),
 )
 
 TIER_ALIASES = {
@@ -108,6 +112,66 @@ def _tokens(text: str) -> set[str]:
         if tokens & group:
             expanded.update(group)
     return expanded
+
+
+def _canonical_heading_bonus(
+    query_tokens: set[str],
+    heading: str,
+) -> float:
+    normalized_heading = _normalize(heading)
+    if (
+        query_tokens & {"ordem", "ordens", "order", "orders"}
+        and normalized_heading == "painel de ordens"
+    ):
+        return 3.0
+    if (
+        query_tokens
+        & {
+            "rede", "redes", "network", "networks", "chain", "chains",
+            "blockchain", "blockchains",
+        }
+        and (
+            normalized_heading == "redes"
+            or normalized_heading.startswith("redes disponiveis")
+        )
+    ):
+        return 2.5
+    if (
+        query_tokens
+        & {"cex", "corretora", "corretoras", "exchange", "exchanges"}
+        and normalized_heading in {
+            "cex",
+            "corretoras cex suportadas",
+        }
+    ):
+        return 2.5
+    return 0.0
+
+
+def _first_bullet_block(text: str) -> list[str]:
+    items: list[str] = []
+    started = False
+    for raw in text.splitlines():
+        line = raw.strip()
+        if line.startswith("- "):
+            started = True
+            item = line[2:].strip().rstrip(".")
+            if item:
+                items.append(item)
+            continue
+        if started and line:
+            break
+    return items
+
+
+def _join_pt(items: list[str]) -> str:
+    if not items:
+        return ""
+    if len(items) == 1:
+        return items[0]
+    if len(items) == 2:
+        return f"{items[0]} e {items[1]}"
+    return ", ".join(items[:-1]) + f" e {items[-1]}"
 
 
 def _mentioned_tiers(text: str) -> set[str]:
@@ -232,6 +296,10 @@ class KnowledgeBase:
             score = len(overlap) / max(1, len(query_tokens))
             heading_overlap = query_tokens & _tokens(chunk.heading)
             score += 0.35 * len(heading_overlap)
+            score += _canonical_heading_bonus(
+                query_tokens,
+                chunk.heading,
+            )
             if (
                 requested_tiers
                 and heading_tiers.intersection(requested_tiers)
@@ -255,6 +323,86 @@ class KnowledgeBase:
 
         scored.sort(key=lambda item: item[0], reverse=True)
         return [chunk for _, chunk in scored[: max(1, limit)]]
+
+    def canonical_finite_answer(
+        self,
+        query: str,
+    ) -> str | None:
+        folded = _normalize(query)
+        asks_list = bool(
+            re.search(
+                r"\b(?:quais|liste|lista|tipos|existem|suporta|suportadas|"
+                r"suportados|disponiveis|disponivel)\b",
+                folded,
+            )
+        )
+        if not asks_list:
+            return None
+
+        target_heading: str | None = None
+        kind = ""
+        if re.search(r"\b(?:ordem|ordens|order|orders)\b", folded):
+            target_heading = "painel de ordens"
+            kind = "orders"
+        elif re.search(
+            r"\b(?:rede|redes|network|networks|chain|chains|"
+            r"blockchain|blockchains)\b",
+            folded,
+        ):
+            target_heading = "redes"
+            kind = "networks"
+        elif re.search(
+            r"\b(?:cex|corretora|corretoras|exchange|exchanges)\b",
+            folded,
+        ):
+            target_heading = "cex"
+            kind = "cex"
+
+        if target_heading is None:
+            return None
+
+        candidates = [
+            chunk
+            for chunk in self.chunks
+            if _normalize(chunk.heading) == target_heading
+        ]
+        if not candidates and kind == "networks":
+            candidates = [
+                chunk
+                for chunk in self.chunks
+                if _normalize(chunk.heading).startswith(
+                    "redes disponiveis"
+                )
+            ]
+        if not candidates:
+            return None
+
+        items = _first_bullet_block(candidates[0].text)
+        if not items:
+            return None
+
+        joined = _join_pt(items)
+        if kind == "orders":
+            return (
+                "No Terminal Pro, os tipos de ordem documentados são: "
+                f"{joined}."
+            )
+        if kind == "cex":
+            return (
+                "As corretoras CEX suportadas no registro público atual são: "
+                f"{joined}."
+            )
+
+        status = ""
+        if any(
+            "zetta chain" in _normalize(chunk.text)
+            and "coming soon" in _normalize(chunk.text)
+            for chunk in candidates
+        ):
+            status = (
+                " A ZETTA Chain está coming soon e ainda não é uma rede ativa."
+            )
+        return f"As redes ativas são: {joined}.{status}"
 
     def source_labels(
         self,

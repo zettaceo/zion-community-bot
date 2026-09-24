@@ -8,6 +8,7 @@ import unicodedata
 from collections import defaultdict, deque
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from enum import Enum
 from typing import Any
 from urllib.parse import unquote
 
@@ -42,7 +43,7 @@ from .mistral import (
     MistralCredentialInvalid,
     MistralCredentialValidationUnavailable,
 )
-from .models import FloodDecision, OperatingState, Severity
+from .models import AbuseDecision, FloodDecision, OperatingState, Severity
 from .process_lock import ProcessLock
 from .secret_store import (
     SecretStore,
@@ -62,6 +63,15 @@ GROUP_CONVERSATION_TTL_SECONDS = 10 * 60
 GROUP_CONVERSATION_MAX_SESSIONS = 2048
 GROUP_CONVERSATION_CONTEXT_MAX_CHARS = 3000
 GROUP_CONVERSATION_QUERY_MAX_CHARS = 3000
+GROUP_CONVERSATION_PASSIVE_COOLDOWN_SECONDS = 2.0
+
+
+class ConversationRoute(str, Enum):
+    MODERATE_ONLY = "MODERATE_ONLY"
+    LOCAL_HELP = "LOCAL_HELP"
+    AI_SUPPORT = "AI_SUPPORT"
+    FOLLOW_UP = "FOLLOW_UP"
+    IGNORE = "IGNORE"
 
 
 @dataclass(frozen=True)
@@ -69,6 +79,7 @@ class GroupConversationSession:
     expires_at: float
     retrieval_query: str
     transcript: str
+    last_reply_at: float
 
 
 class AskRateLimiter:
@@ -201,7 +212,7 @@ class Runtime:
                 float,
             ] = {}
             self.group_conversation_sessions: dict[
-                int,
+                tuple[int, int],
                 GroupConversationSession,
             ] = {}
             self.group_conversation_sessions_next_prune_at = 0.0
@@ -310,13 +321,21 @@ def _bot_identity(context: ContextTypes.DEFAULT_TYPE) -> tuple[int | None, str]:
     return bot_id, username.lstrip("@")
 
 
-def _group_conversation_key(update: Update) -> int | None:
+def _group_conversation_key(
+    update: Update,
+) -> tuple[int, int] | None:
     if (
         not update.effective_chat
         or update.effective_chat.type == "private"
     ):
         return None
-    return int(update.effective_chat.id)
+    message = update.effective_message
+    raw_thread_id = getattr(message, "message_thread_id", None)
+    try:
+        thread_id = int(raw_thread_id) if raw_thread_id is not None else 0
+    except (TypeError, ValueError):
+        thread_id = 0
+    return int(update.effective_chat.id), thread_id
 
 
 def _active_group_conversation(
@@ -353,7 +372,8 @@ def _looks_like_conversation_turn(value: str) -> bool:
             r"porque|posso|pode|tem|existe|me explica|explique|me fala|"
             r"diga|conte|resuma|resume|quero saber|gostaria|e se|e qual|"
             r"e quais|e como|mas|mais eu|eu perguntei|nao foi isso|"
-            r"entao|isso inclui)\b",
+            r"entao|isso inclui|que\b|redes\b|planos\b|taxas\b|cex\b|"
+            r"ordens\b|terminal\b|dca\b|laboratorio\b)\b",
             folded,
         )
     )
@@ -411,14 +431,8 @@ def _conversation_topic_tokens(value: str) -> set[str]:
     }
 
 
-def _continues_active_group_topic(
-    question: str,
-    session: GroupConversationSession | None,
-) -> bool:
-    if session is None:
-        return False
-
-    folded = _fold_conversation_text(question)
+def _is_explicit_active_follow_up(value: str) -> bool:
+    folded = _fold_conversation_text(value)
     if re.match(
         r"^\s*(?:e\b|mas\b|mais\s+eu\b|eu\s+perguntei\b|"
         r"nao\s+foi\s+isso\b|porem\b|entao\b|isso\b|esse\b|essa\b|"
@@ -427,20 +441,40 @@ def _continues_active_group_topic(
         folded,
     ):
         return True
+    return bool(
+        re.search(
+            r"\b(?:nao\s+(?:concordo|faz sentido|acredito|confio)|discordo|"
+            r"duvido|mentira|enganoso|enganosa|golpe|absurdo|errado|errada|"
+            r"ruim|critica|problema)\b",
+            folded,
+        )
+    )
 
-    if re.search(
-        r"\b(?:nao\s+(?:concordo|faz sentido|acredito|confio)|discordo|"
-        r"duvido|mentira|enganoso|enganosa|golpe|absurdo|errado|errada|"
-        r"ruim|critica|problema)\b",
-        folded,
-    ):
+
+def _continues_active_group_topic(
+    question: str,
+    session: GroupConversationSession | None,
+) -> bool:
+    if session is None:
+        return False
+
+    if _is_explicit_active_follow_up(question):
         return True
 
     current_tokens = _conversation_topic_tokens(question)
     previous_tokens = _conversation_topic_tokens(
         session.retrieval_query + "\n" + session.transcript
     )
-    return len(current_tokens & previous_tokens) >= 2
+    if len(current_tokens & previous_tokens) < 2:
+        return False
+
+    # Passive overlap is rate-shaped per chat/thread so ZION does not answer
+    # every line of a fast-moving group discussion. Explicit questions,
+    # corrections and criticism are still handled immediately.
+    return (
+        time.monotonic() - session.last_reply_at
+        >= GROUP_CONVERSATION_PASSIVE_COOLDOWN_SECONDS
+    )
 
 
 def _is_explicit_conversation_correction(value: str) -> bool:
@@ -531,6 +565,7 @@ def _remember_group_conversation(
         expires_at=now + GROUP_CONVERSATION_TTL_SECONDS,
         retrieval_query=retrieval_query,
         transcript=transcript,
+        last_reply_at=now,
     )
 
 
@@ -616,6 +651,99 @@ def natural_conversation_question(
     return (cleaned or question)[:6000]
 
 
+def _community_help_reply(question: str) -> str | None:
+    folded = _fold_conversation_text(question)
+    if re.search(
+        r"\b(?:que grupo e esse|do que se trata (?:esse|este) grupo|"
+        r"onde estou|onde vim parar|estou perdido|estou perdida|"
+        r"nao estou entendendo(?: nada)?|nao entendo nada|"
+        r"alguem pode (?:me )?(?:explicar|ajudar)|"
+        r"o que faco aqui|como funciona a comunidade)\b",
+        folded,
+    ):
+        return (
+            "Este é o grupo oficial da comunidade Z-SWAP. Aqui você pode "
+            "tirar dúvidas sobre a plataforma, recursos, planos e segurança. "
+            "O que você quer entender primeiro?"
+        )
+    return None
+
+
+def _security_refusal_reply(question: str) -> str | None:
+    folded = _fold_conversation_text(question)
+    internal_target = bool(
+        re.search(
+            r"\b(?:ip(?: do)? servidor|servidor|host|ssh|firewall|tailscale|"
+            r"schema|sql|banco interno|database interno|rota admin|rotas admin|"
+            r"endpoint admin|endpoints admin|api key|chave api|credencial|"
+            r"segredo|secret|prompt do sistema|system prompt|fontes internas|"
+            r"arquivos internos|repositorio|repository|commit|infraestrutura|"
+            r"deploy|variavel de ambiente|env)\b",
+            folded,
+        )
+    )
+    imperative = bool(
+        re.search(
+            r"\b(?:me passe|passe|mostre|revele|forneca|liste|envie|"
+            r"exiba|mostra|revela|mostre-me|give me|show me|reveal)\b",
+            folded,
+        )
+    )
+    prompt_exfiltration = bool(
+        re.search(
+            r"\b(?:ignore (?:todas )?(?:as )?(?:regras|instrucoes)|"
+            r"ignore instrucoes anteriores|modo auditor|"
+            r"revele (?:seu |o )?prompt|mostre (?:seu |o )?prompt|"
+            r"fontes internas|system prompt)\b",
+            folded,
+        )
+    )
+    if (imperative and internal_target) or prompt_exfiltration:
+        return (
+            "Posso explicar o funcionamento público e as proteções em alto "
+            "nível, mas não forneço credenciais, infraestrutura interna, "
+            "rotas administrativas, prompts ou mecanismos que reduzam a "
+            "segurança do sistema."
+        )
+    return None
+
+
+def conversation_route(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    text: str,
+) -> ConversationRoute:
+    raw = (text or "").strip()
+    if not raw or raw.startswith("/"):
+        return ConversationRoute.IGNORE
+
+    if (
+        update.effective_chat
+        and update.effective_chat.type != "private"
+        and runtime(context).guardian.evaluate_abuse(raw).detected
+    ):
+        return ConversationRoute.MODERATE_ONLY
+
+    if (
+        _security_refusal_reply(raw) is not None
+        or _community_help_reply(raw) is not None
+        or _casual_conversation_reply(raw) is not None
+    ):
+        return ConversationRoute.LOCAL_HELP
+
+    question = natural_conversation_question(update, context, raw)
+    if question is None:
+        return ConversationRoute.IGNORE
+
+    session = _active_group_conversation(update, context)
+    if (
+        session is not None
+        and _continues_active_group_topic(question, session)
+    ):
+        return ConversationRoute.FOLLOW_UP
+    return ConversationRoute.AI_SUPPORT
+
+
 def _casual_conversation_reply(question: str) -> str | None:
     folded = _fold_conversation_text(question)
     simple = re.sub(r"[^a-z0-9\s]", "", folded).strip()
@@ -642,12 +770,22 @@ async def answer_natural_conversation(
     ):
         return False
 
-    question = natural_conversation_question(update, context, text)
-    if question is None:
+    raw_question = (text or "").strip()
+    route = conversation_route(
+        update,
+        context,
+        raw_question,
+    )
+    if route == ConversationRoute.IGNORE:
         return False
 
     rt = runtime(context)
-    previous_session = _active_group_conversation(update, context)
+    active_session = _active_group_conversation(update, context)
+    previous_session = (
+        active_session
+        if route == ConversationRoute.FOLLOW_UP
+        else None
+    )
     update_id = getattr(update, "update_id", None)
     if claim_private_update and update_id is not None:
         try:
@@ -664,17 +802,24 @@ async def answer_natural_conversation(
         if not claimed:
             return True
 
-    casual = _casual_conversation_reply(question)
-    if casual is not None:
-        await update.effective_message.reply_text(casual)
-        _remember_group_conversation(
-            rt,
-            update,
-            question,
-            casual,
-            previous_session,
+    if route == ConversationRoute.LOCAL_HELP:
+        local_reply = (
+            _security_refusal_reply(raw_question)
+            or _community_help_reply(raw_question)
+            or _casual_conversation_reply(raw_question)
         )
+        if local_reply is None:
+            return False
+        await update.effective_message.reply_text(local_reply)
         return True
+
+    question = natural_conversation_question(
+        update,
+        context,
+        raw_question,
+    )
+    if question is None:
+        return False
 
     if not rt.ask_limiter.allow(update.effective_user.id):
         await update.effective_message.reply_text(
@@ -1228,6 +1373,36 @@ async def protect_wallet_secret(
     return True
 
 
+async def _alert_operators_enforcement_failure(
+    context: ContextTypes.DEFAULT_TYPE,
+    *,
+    chat_id: int,
+    target_user_id: int,
+    action: str,
+    reason: str,
+) -> None:
+    rt = runtime(context)
+    for operator_id in sorted(rt.settings.admin_user_ids):
+        if operator_id == target_user_id:
+            continue
+        try:
+            await context.bot.send_message(
+                chat_id=operator_id,
+                text=(
+                    "⚠️ ZION enforcement review required. "
+                    f"Chat={chat_id}; target_user={target_user_id}; "
+                    f"action={action}; reason={reason}. "
+                    "Telegram rejected the external action; inspect the "
+                    "sanitized incident/action ledger."
+                ),
+            )
+        except Exception as exc:
+            logger.warning(
+                "Falha ao alertar operador sobre enforcement: %s",
+                type(exc).__name__,
+            )
+
+
 async def mute_user_safe(
     context: ContextTypes.DEFAULT_TYPE,
     chat_id: int,
@@ -1334,18 +1509,24 @@ async def rules_command(
         "⚡ Z-SWAP COMMUNITY RULES\n\n"
         "PT-BR\n"
         "1. Respeite os membros da comunidade.\n"
-        "2. Sem spam ou flood.\n"
-        "3. Sem golpes, phishing ou impersonação.\n"
-        "4. Links dependem da política vigente.\n"
-        "5. Nunca envie seed phrase, chave privada ou credenciais.\n"
-        "6. Administradores nunca pedirão sua seed phrase.\n"
-        "7. Críticas, dúvidas e discordâncias são permitidas.\n"
-        "8. Casos ambíguos não são punidos automaticamente pela IA.\n\n"
+        "2. Sem spam ou flood, inclusive flood sustentado.\n"
+        "3. Linguagem proibida, insultos dirigidos, ameaças e slurs podem "
+        "ser removidos por regra determinística.\n"
+        "4. Sem golpes, phishing ou impersonação.\n"
+        "5. Links dependem da política vigente.\n"
+        "6. Nunca envie seed phrase, chave privada ou credenciais.\n"
+        "7. Administradores nunca pedirão sua seed phrase.\n"
+        "8. Críticas, dúvidas e discordâncias são permitidas.\n"
+        "9. As regras objetivas de conduta valem também para operadores e "
+        "administradores; privilégio de comando não é isenção de conduta.\n"
+        "10. Casos ambíguos não são punidos automaticamente pela IA.\n\n"
         "EN\n"
-        "Be respectful. No spam, flooding, scams, phishing or impersonation. "
+        "Be respectful. No spam or sustained flooding. Deterministic rules "
+        "may remove prohibited language, directed abuse, threats and slurs. "
         "Links follow the active policy. Never share wallet secrets or "
-        "credentials. Criticism and disagreement are allowed. Ambiguous "
-        "moderation decisions are not delegated to AI.\n\n"
+        "credentials. Objective conduct rules also apply to operators/admins. "
+        "Criticism and disagreement are allowed. Ambiguous moderation "
+        "decisions are not delegated to AI.\n\n"
         "AI may interpret or flag; irreversible automatic moderation "
         "requires deterministic policy."
     )
@@ -2353,8 +2534,10 @@ async def guardian_command(
     await update.effective_message.reply_text(
         "ZION GUARDIAN\n"
         f"State: {rt.db.get_operating_state().value}\n"
-        f"Flood: {rt.settings.flood_max_messages} msgs/"
+        f"Flood burst: {rt.settings.flood_max_messages} msgs/"
         f"{rt.settings.flood_window_seconds}s\n"
+        f"Flood sustained: {rt.settings.flood_sustained_max_messages} msgs/"
+        f"{rt.settings.flood_sustained_window_seconds}s\n"
         f"Purge window: {rt.settings.flood_purge_window_seconds}s\n"
         f"Ban after active strikes: {rt.settings.flood_ban_after_strikes}\n"
         f"Links globally enabled: {rt.settings.allow_links}\n"
@@ -4150,6 +4333,181 @@ async def _evaluate_chat_burst(
     return now
 
 
+async def _enforce_abuse(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    decision: AbuseDecision,
+) -> None:
+    if (
+        not decision.detected
+        or not update.effective_message
+        or not update.effective_user
+        or not update.effective_chat
+    ):
+        return
+
+    rt = runtime(context)
+    chat = update.effective_chat
+    user = update.effective_user
+    message = update.effective_message
+    now = time.time()
+
+    deleted = await delete_message_safe(
+        context,
+        chat.id,
+        message.message_id,
+    )
+
+    strike_count = 0
+    mute_seconds = 0
+    mute_required = False
+    with rt.db.transaction():
+        incident_id = rt.db.create_incident(
+            chat_id=chat.id,
+            user_id=user.id,
+            category=decision.category,
+            severity=decision.severity,
+            source="guardian",
+            evidence={
+                "message_id": message.message_id,
+                "rule_id": decision.rule_id,
+                "normalized_hash": decision.normalized_hash,
+                "directed": decision.directed,
+                "reporting_context": decision.reporting_context,
+                "content_not_stored": True,
+            },
+            note=(
+                "Deterministic community-language rule matched; "
+                "offending message body was not persisted."
+            ),
+            now=now,
+        )
+        rt.db.record_action(
+            incident_id=incident_id,
+            chat_id=chat.id,
+            user_id=user.id,
+            action_type="delete",
+            actor_type="guardian",
+            actor_id=None,
+            reason=decision.category,
+            success=deleted,
+            metadata={
+                "rule_id": decision.rule_id,
+                "content_not_stored": True,
+            },
+            now=now,
+        )
+
+        if decision.should_strike:
+            rt.db.add_strike(
+                chat_id=chat.id,
+                user_id=user.id,
+                reason=decision.category,
+                severity=decision.severity,
+                source="guardian",
+                ttl_seconds=rt.settings.flood_strike_reset_seconds,
+                metadata={
+                    "rule_id": decision.rule_id,
+                    "normalized_hash": decision.normalized_hash,
+                    "directed": decision.directed,
+                },
+                now=now,
+            )
+            strike_count = rt.db.count_active_strikes(
+                chat.id,
+                user.id,
+                now,
+                reasons=(
+                    "prohibited_language",
+                    "directed_abuse",
+                    "threat_or_slur",
+                ),
+            )
+            mute_required = (
+                decision.immediate_mute
+                or strike_count >= 2
+            )
+            if mute_required:
+                level_index = min(
+                    max(0, strike_count - 1),
+                    len(rt.settings.flood_mute_levels) - 1,
+                )
+                mute_seconds = rt.settings.flood_mute_levels[level_index]
+                rt.db.set_containment(
+                    chat.id,
+                    user.id,
+                    now + mute_seconds,
+                    decision.category,
+                    now,
+                )
+
+    mute_success: bool | None = None
+    if mute_required:
+        mute_success = await mute_user_safe(
+            context,
+            chat.id,
+            user.id,
+            mute_seconds,
+        )
+        rt.db.record_action(
+            incident_id=incident_id,
+            chat_id=chat.id,
+            user_id=user.id,
+            action_type="mute",
+            actor_type="guardian",
+            actor_id=None,
+            reason=decision.category,
+            success=mute_success,
+            metadata={
+                "duration_seconds": mute_seconds,
+                "strike_count": strike_count,
+                "local_containment": True,
+            },
+        )
+        if not mute_success:
+            await _alert_operators_enforcement_failure(
+                context,
+                chat_id=chat.id,
+                target_user_id=user.id,
+                action="mute",
+                reason=decision.category,
+            )
+
+    if decision.reporting_context:
+        outcome = (
+            "Mensagem removida pela regra de linguagem; contexto de "
+            "citação/relato não recebeu punição automática."
+        )
+    elif mute_required and mute_success:
+        outcome = (
+            f"Mensagem removida e usuário silenciado por "
+            f"{format_duration(mute_seconds)}."
+        )
+    elif mute_required:
+        outcome = (
+            "Mensagem removida. A restrição externa falhou; a contenção "
+            "local foi mantida e um operador autorizado deve revisar."
+        )
+    elif decision.should_strike:
+        outcome = (
+            f"Mensagem removida e ocorrência registrada "
+            f"({strike_count}). Reincidência pode gerar mute."
+        )
+    else:
+        outcome = "Mensagem removida pela política de linguagem."
+
+    try:
+        await context.bot.send_message(
+            chat_id=chat.id,
+            text=f"⚠️ {user_display_name(user)}: {outcome}",
+        )
+    except Exception as exc:
+        logger.warning(
+            "Falha ao publicar aviso de moderação de linguagem: %s",
+            type(exc).__name__,
+        )
+
+
 async def _enforce_flood(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
@@ -4178,7 +4536,7 @@ async def _enforce_flood(
         incident_id = rt.db.create_incident(
             chat_id=chat.id,
             user_id=user.id,
-            category="flood",
+            category=flood.reason,
             severity=(
                 Severity.HIGH
                 if flood.should_ban
@@ -4211,7 +4569,7 @@ async def _enforce_flood(
         action_type=action_type,
         actor_type="guardian",
         actor_id=None,
-        reason="flood",
+        reason=flood.reason,
         success=success,
         metadata={
             "strike_count": flood.strike_count,
@@ -4219,6 +4577,14 @@ async def _enforce_flood(
             "deleted_messages": deleted_count,
         },
     )
+    if not success:
+        await _alert_operators_enforcement_failure(
+            context,
+            chat_id=chat.id,
+            target_user_id=user.id,
+            action=action_type,
+            reason=flood.reason,
+        )
 
     if flood.should_ban and success:
         # Outcome is durably recorded before local cleanup. A DB failure in
@@ -4232,7 +4598,7 @@ async def _enforce_flood(
             chat.id,
             user.id,
             time.time() + flood.mute_seconds,
-            "flood_ban_fallback",
+            f"{flood.reason}_ban_fallback",
         )
         fallback_success = await mute_user_safe(
             context,
@@ -4247,12 +4613,20 @@ async def _enforce_flood(
             action_type="mute",
             actor_type="guardian",
             actor_id=None,
-            reason="flood_ban_fallback",
+            reason=f"{flood.reason}_ban_fallback",
             success=fallback_success,
             metadata={
                 "duration_seconds": flood.mute_seconds,
             },
         )
+        if not fallback_success:
+            await _alert_operators_enforcement_failure(
+                context,
+                chat_id=chat.id,
+                target_user_id=user.id,
+                action="mute",
+                reason=f"{flood.reason}_ban_fallback",
+            )
         action_text = (
             "ban automático falhou; "
             + (
@@ -4265,14 +4639,19 @@ async def _enforce_flood(
         action_text = (
             f"silenciado por {format_duration(flood.mute_seconds)}."
             if success
-            else "mute falhou; contenção local mantida."
+            else (
+                "mute falhou; contenção local mantida e um operador "
+                "autorizado deve revisar."
+            )
         )
 
     try:
         await context.bot.send_message(
             chat_id=chat.id,
             text=(
-                f"⚠️ {user_display_name(user)}: flood detectado.\n"
+                f"⚠️ {user_display_name(user)}: "
+                f"{'flood sustentado' if flood.reason == 'sustained_flood' else 'flood'} "
+                "detectado.\n"
                 f"{deleted_count} mensagens removidas.\n"
                 f"Ocorrência {flood.strike_count}/"
                 f"{rt.settings.flood_ban_after_strikes}.\n"
@@ -4430,14 +4809,34 @@ async def command_guard_handler(
     if chat.type == "private":
         return
 
-    if await is_admin(
+    admin = await is_admin(
         update,
         context,
         revalidate_cached_admin=True,
-    ):
-        return
+    )
+    command_head = (text.strip().split(maxsplit=1) or [""])[0]
+    command_name = command_head.split("@", 1)[0].lower()
+    lockdown_recovery_command = (
+        admin
+        and command_name
+        in {
+            "/unlock",
+            "/state",
+            "/status",
+            "/health",
+            "/diagnostics",
+            "/guardian",
+            "/incidents",
+            "/incident",
+            "/strikes",
+            "/user",
+        }
+    )
 
-    if rt.db.get_operating_state() == OperatingState.LOCKDOWN:
+    if (
+        rt.db.get_operating_state() == OperatingState.LOCKDOWN
+        and not lockdown_recovery_command
+    ):
         deleted = await delete_message_safe(
             context,
             chat.id,
@@ -4476,6 +4875,11 @@ async def command_guard_handler(
     )
     if flood.triggered:
         await _enforce_flood(update, context, flood)
+        raise ApplicationHandlerStop
+
+    abuse = rt.guardian.evaluate_abuse(text)
+    if abuse.detected:
+        await _enforce_abuse(update, context, abuse)
         raise ApplicationHandlerStop
 
     entity_domains, unsupported_schemes = (
@@ -4608,9 +5012,7 @@ async def moderation_handler(
             )
             return
 
-    admin = await is_admin(update, context)
-
-    if rt.db.get_operating_state() == OperatingState.LOCKDOWN and not admin:
+    if rt.db.get_operating_state() == OperatingState.LOCKDOWN:
         deleted = await delete_message_safe(
             context,
             chat.id,
@@ -4626,12 +5028,6 @@ async def moderation_handler(
             reason="lockdown",
             success=deleted,
         )
-        return
-
-    # Administradores continuam isentos de flood e política de links,
-    # mas somente depois da proteção universal de segredos.
-    if admin:
-        await answer_natural_conversation(update, context, text)
         return
 
     remaining = rt.guardian.containment_remaining(chat.id, user.id)
@@ -4667,6 +5063,11 @@ async def moderation_handler(
     )
     if flood.triggered:
         await _enforce_flood(update, context, flood)
+        return
+
+    abuse = rt.guardian.evaluate_abuse(text)
+    if abuse.detected:
+        await _enforce_abuse(update, context, abuse)
         return
 
     entity_domains, unsupported_schemes = (

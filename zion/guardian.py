@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import re
 import time
 import unicodedata
@@ -10,6 +11,7 @@ import idna
 from .config import Settings
 from .db import ZionDB
 from .models import (
+    AbuseDecision,
     ChatBurstDecision,
     FloodDecision,
     LinkDecision,
@@ -277,6 +279,221 @@ def detect_sensitive_content(text: str) -> SensitiveContentDecision:
     return SensitiveContentDecision()
 
 
+# Deterministic community-language policy. These rules are intentionally
+# local/auditable: Mistral may observe context, but it never decides punishment.
+_LEET_SUBSTITUTIONS = str.maketrans({
+    "0": "o",
+    "1": "i",
+    "3": "e",
+    "4": "a",
+    "5": "s",
+    "7": "t",
+    "$": "s",
+})
+
+_PROFANITY_RULES = {
+    "profanity_pt_01": "porra",
+    "profanity_pt_02": "caralho",
+    "profanity_pt_03": "merda",
+    "profanity_pt_04": "foder",
+    "profanity_en_01": "fuck",
+    "profanity_en_02": "shit",
+}
+
+_INSULT_RULES = {
+    "insult_pt_01": "idiota",
+    "insult_pt_02": "imbecil",
+    "insult_pt_03": "otario",
+    "insult_pt_04": "burro",
+    "insult_pt_05": "babaca",
+    "insult_pt_06": "fdp",
+    "insult_pt_07": "filho da puta",
+    "insult_pt_08": "vai se foder",
+    "insult_pt_09": "vai tomar no cu",
+    "sexual_insult_pt_01": "sua puta",
+    "sexual_insult_pt_02": "sua vadia",
+    "sexual_insult_pt_03": "sua piranha",
+    "insult_en_01": "fuck you",
+    "insult_en_02": "moron",
+    "insult_en_03": "stupid",
+}
+
+_SLUR_RULES = {
+    "slur_01": "nigger",
+    "slur_02": "faggot",
+    "slur_03": "traveco",
+}
+
+_THREAT_RULES = {
+    "threat_pt_01": "vou te matar",
+    "threat_pt_02": "eu vou te matar",
+    "threat_pt_03": "te mato",
+    "threat_pt_04": "matar voce",
+    "threat_en_01": "kill you",
+    "threat_en_02": "i will kill you",
+}
+
+_INHERENTLY_DIRECT_RULES = frozenset({
+    "insult_pt_07",
+    "insult_pt_08",
+    "insult_pt_09",
+    "sexual_insult_pt_01",
+    "sexual_insult_pt_02",
+    "sexual_insult_pt_03",
+    "insult_en_01",
+})
+
+_REPORTING_CONTEXT_REGEX = re.compile(
+    r"\b(?:ele|ela|alguem|membro|usuario|user)\s+"
+    r"(?:disse|falou|escreveu|mandou|me chamou)\b|"
+    r"\b(?:citando|reportando|denunciando|quote|quoted)\b"
+)
+
+_DIRECTED_MARKER_REGEX = re.compile(
+    r"\b(?:voce|vc|tu|te|teu|tua|seu|sua|ele|ela)\b"
+)
+
+
+def _normalize_abuse_text(value: str) -> tuple[str, str]:
+    text = _normalize_security_text(value).casefold().translate(
+        _LEET_SUBSTITUTIONS
+    )
+    folded = unicodedata.normalize("NFKD", text)
+    folded = "".join(
+        char for char in folded if not unicodedata.combining(char)
+    )
+    # "caaaaraaalho" and similar bypass attempts collapse to a stable form.
+    folded = re.sub(r"([a-z])\1{2,}", r"\1", folded)
+    spaced = re.sub(r"[^a-z0-9@]+", " ", folded)
+    spaced = re.sub(r"\s+", " ", spaced).strip()
+    compact = re.sub(r"[^a-z0-9]+", "", folded)
+    return spaced, compact
+
+
+def _abuse_term_present(
+    spaced: str,
+    compact: str,
+    term: str,
+) -> bool:
+    term_spaced, term_compact = _normalize_abuse_text(term)
+    if not term_compact:
+        return False
+    if " " in term_spaced:
+        return (
+            term_spaced in spaced
+            or term_compact in compact
+        )
+    tokens = set(spaced.split())
+    if term_spaced in tokens:
+        return True
+    # Compact matching catches bounded separator/leet obfuscation such as
+    # "i.d.i.o.t.a". Short terms are excluded to avoid incidental substrings.
+    return len(term_compact) >= 5 and term_compact in compact
+
+
+def detect_abusive_content(text: str) -> AbuseDecision:
+    original = text or ""
+    spaced, compact = _normalize_abuse_text(original)
+    if not spaced and not compact:
+        return AbuseDecision()
+
+    reporting_context = bool(
+        _REPORTING_CONTEXT_REGEX.search(spaced)
+        or any(mark in original for mark in ('"', "“", "”"))
+    )
+    directed_marker = bool(
+        _DIRECTED_MARKER_REGEX.search(spaced)
+        or re.search(r"(?<!\w)@[A-Za-z0-9_]{2,}", original)
+    )
+
+    for rule_id, term in _THREAT_RULES.items():
+        if _abuse_term_present(spaced, compact, term):
+            return AbuseDecision(
+                detected=True,
+                category="threat_or_slur",
+                severity=Severity.HIGH,
+                rule_id=rule_id,
+                normalized_hash=hashlib.sha256(
+                    spaced.encode("utf-8", errors="ignore")
+                ).hexdigest()[:24],
+                directed=True,
+                reporting_context=reporting_context,
+                should_delete=True,
+                should_strike=not reporting_context,
+                immediate_mute=not reporting_context,
+            )
+
+    for rule_id, term in _SLUR_RULES.items():
+        if _abuse_term_present(spaced, compact, term):
+            return AbuseDecision(
+                detected=True,
+                category="threat_or_slur",
+                severity=Severity.HIGH,
+                rule_id=rule_id,
+                normalized_hash=hashlib.sha256(
+                    spaced.encode("utf-8", errors="ignore")
+                ).hexdigest()[:24],
+                directed=directed_marker,
+                reporting_context=reporting_context,
+                should_delete=True,
+                should_strike=not reporting_context,
+                immediate_mute=not reporting_context,
+            )
+
+    for rule_id, term in _INSULT_RULES.items():
+        if _abuse_term_present(spaced, compact, term):
+            directed = (
+                directed_marker
+                or rule_id in _INHERENTLY_DIRECT_RULES
+            )
+            return AbuseDecision(
+                detected=True,
+                category=(
+                    "directed_abuse"
+                    if directed
+                    else "prohibited_language"
+                ),
+                severity=(
+                    Severity.MEDIUM if directed else Severity.LOW
+                ),
+                rule_id=rule_id,
+                normalized_hash=hashlib.sha256(
+                    spaced.encode("utf-8", errors="ignore")
+                ).hexdigest()[:24],
+                directed=directed,
+                reporting_context=reporting_context,
+                should_delete=True,
+                should_strike=not reporting_context,
+                immediate_mute=False,
+            )
+
+    for rule_id, term in _PROFANITY_RULES.items():
+        if _abuse_term_present(spaced, compact, term):
+            directed = directed_marker
+            return AbuseDecision(
+                detected=True,
+                category=(
+                    "directed_abuse"
+                    if directed
+                    else "prohibited_language"
+                ),
+                severity=(
+                    Severity.MEDIUM if directed else Severity.LOW
+                ),
+                rule_id=rule_id,
+                normalized_hash=hashlib.sha256(
+                    spaced.encode("utf-8", errors="ignore")
+                ).hexdigest()[:24],
+                directed=directed,
+                reporting_context=reporting_context,
+                should_delete=True,
+                should_strike=not reporting_context,
+                immediate_mute=False,
+            )
+
+    return AbuseDecision()
+
+
 class Guardian:
     def __init__(self, settings: Settings, db: ZionDB):
         self.settings = settings
@@ -302,49 +519,98 @@ class Guardian:
     ) -> FloodDecision:
         with self.db.transaction():
             ts = time.time() if now is None else now
-            self.db.prune_recent_messages(
-                ts - self.settings.flood_purge_window_seconds
+            purge_window = max(
+                self.settings.flood_purge_window_seconds,
+                self.settings.flood_sustained_window_seconds,
             )
+            self.db.prune_recent_messages(ts - purge_window)
             self.db.record_recent_message(
                 chat_id,
                 user_id,
                 message_id,
                 ts,
             )
-            count = self.db.count_recent_messages(
+
+            short_since = ts - self.settings.flood_window_seconds
+            sustained_since = (
+                ts - self.settings.flood_sustained_window_seconds
+            )
+            short_count = self.db.count_recent_messages(
                 chat_id,
                 user_id,
-                ts - self.settings.flood_window_seconds,
+                short_since,
+            )
+            sustained_count = self.db.count_recent_messages(
+                chat_id,
+                user_id,
+                sustained_since,
             )
 
             state = self.db.get_operating_state()
             base_threshold = self.settings.flood_max_messages
-            threshold = base_threshold
+            short_threshold = base_threshold
             if state == OperatingState.ELEVATED:
-                threshold = min(base_threshold, max(2, base_threshold - 2))
+                short_threshold = min(
+                    base_threshold,
+                    max(2, base_threshold - 2),
+                )
             elif state == OperatingState.ATTACK:
-                threshold = min(base_threshold, max(2, base_threshold // 2))
+                short_threshold = min(
+                    base_threshold,
+                    max(2, base_threshold // 2),
+                )
 
-            if count < threshold:
+            reason = ""
+            trigger_since = short_since
+            trigger_count = short_count
+            trigger_threshold = short_threshold
+            window_seconds = self.settings.flood_window_seconds
+
+            if short_count >= short_threshold:
+                reason = "flood"
+            elif (
+                sustained_count
+                >= self.settings.flood_sustained_max_messages
+            ):
+                reason = "sustained_flood"
+                trigger_since = sustained_since
+                trigger_count = sustained_count
+                trigger_threshold = (
+                    self.settings.flood_sustained_max_messages
+                )
+                window_seconds = (
+                    self.settings.flood_sustained_window_seconds
+                )
+
+            if not reason:
                 return FloodDecision()
 
             message_ids = self.db.recent_message_ids(
                 chat_id,
                 user_id,
-                ts - self.settings.flood_window_seconds,
+                trigger_since,
             )
-            self.db.clear_recent_messages(chat_id, user_id)
+            # Keep older legitimate activity intact. Only the triggering
+            # short/sustained window is cleared.
+            self.db.clear_recent_messages_since(
+                chat_id,
+                user_id,
+                trigger_since,
+            )
 
             self.db.add_strike(
                 chat_id=chat_id,
                 user_id=user_id,
-                reason="flood",
+                reason=reason,
                 severity=Severity.MEDIUM,
                 source="guardian",
                 ttl_seconds=self.settings.flood_strike_reset_seconds,
                 metadata={
-                    "messages_in_window": count,
-                    "threshold": threshold,
+                    "messages_in_window": trigger_count,
+                    "threshold": trigger_threshold,
+                    "window_seconds": window_seconds,
+                    "short_messages": short_count,
+                    "sustained_messages": sustained_count,
                     "operating_state": state.value,
                 },
                 now=ts,
@@ -353,7 +619,11 @@ class Guardian:
                 chat_id,
                 user_id,
                 ts,
-                reasons=("flood", "legacy_flood"),
+                reasons=(
+                    "flood",
+                    "sustained_flood",
+                    "legacy_flood",
+                ),
             )
             level_index = min(
                 max(0, strike_count - 1),
@@ -369,18 +639,25 @@ class Guardian:
                 chat_id,
                 user_id,
                 ts + mute_seconds,
-                "flood_pending_ban" if should_ban else "flood",
+                (
+                    f"{reason}_pending_ban"
+                    if should_ban
+                    else reason
+                ),
                 ts,
             )
             incident_id = self.db.create_incident(
                 chat_id=chat_id,
                 user_id=user_id,
-                category="flood",
+                category=reason,
                 severity=Severity.HIGH if should_ban else Severity.MEDIUM,
                 source="guardian",
                 evidence={
                     "strike_count": strike_count,
                     "tracked_messages": len(message_ids),
+                    "messages_in_window": trigger_count,
+                    "threshold": trigger_threshold,
+                    "window_seconds": window_seconds,
                     "planned_action": "ban" if should_ban else "mute",
                     "enforcement_pending": True,
                 },
@@ -393,7 +670,12 @@ class Guardian:
                 should_ban=should_ban,
                 message_ids=message_ids,
                 incident_id=incident_id,
+                reason=reason,
+                window_seconds=window_seconds,
             )
+
+    def evaluate_abuse(self, text: str) -> AbuseDecision:
+        return detect_abusive_content(text)
 
     def evaluate_chat_burst(
         self,

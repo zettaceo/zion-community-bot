@@ -274,6 +274,66 @@ class ZSwapKnowledgeCorpusTests(unittest.TestCase):
         self.assertIn("MACD 12/26/9", context)
         self.assertIn("Bollinger Bands", context)
 
+    def test_terminal_pro_order_query_ranks_canonical_section_first(self) -> None:
+        results = self.kb.search(
+            "Quais tipos de ordem existem no Terminal Pro?"
+        )
+        self.assertTrue(results)
+        self.assertEqual(results[0].heading, "Painel de ordens")
+
+    def test_terminal_pro_order_list_is_exact_and_complete(self) -> None:
+        answer = self.kb.canonical_finite_answer(
+            "Quais tipos de ordem existem no Terminal Pro?"
+        )
+        self.assertIsNotNone(answer)
+        self.assertIn("Market", answer)
+        self.assertIn("Limit", answer)
+        self.assertIn("Stop", answer)
+        self.assertIn("OCO", answer)
+        self.assertNotIn("Stop-Loss", answer)
+        self.assertNotIn("Take-Profit", answer)
+        self.assertNotIn("Stop-Limit", answer)
+
+    def test_network_finite_answer_is_complete_and_preserves_zetta_status(self) -> None:
+        answer = self.kb.canonical_finite_answer(
+            "Quais redes a Z-SWAP suporta atualmente?"
+        )
+        self.assertIsNotNone(answer)
+        for network in (
+            "Ethereum",
+            "BNB Chain",
+            "Polygon",
+            "Base",
+            "Arbitrum",
+            "Optimism",
+            "Avalanche",
+            "Solana",
+        ):
+            with self.subTest(network=network):
+                self.assertIn(network, answer)
+        self.assertIn("ZETTA Chain", answer)
+        self.assertIn("coming soon", answer)
+
+    def test_cex_finite_answer_is_complete(self) -> None:
+        answer = self.kb.canonical_finite_answer(
+            "Quais corretoras CEX são suportadas?"
+        )
+        self.assertIsNotNone(answer)
+        for venue in (
+            "Binance",
+            "Coinbase Advanced",
+            "OKX",
+            "Bybit",
+            "Kraken",
+            "KuCoin",
+            "Bitfinex",
+            "MEXC",
+            "Gate.io",
+            "HTX",
+        ):
+            with self.subTest(venue=venue):
+                self.assertIn(venue, answer)
+
     def test_order_types_are_retrievable(self) -> None:
         context = self.kb.render_context(
             "quais tipos de ordem Market Limit Stop OCO existem"

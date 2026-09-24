@@ -103,6 +103,30 @@ This flow intentionally sends the secret through Telegram private chat before ZI
 
 Observe-only mode never punishes users.
 
+## Guardian moderation profile
+
+Default deterministic per-user flood profile:
+
+```text
+FLOOD_MAX_MESSAGES=6
+FLOOD_WINDOW_SECONDS=10
+FLOOD_SUSTAINED_MAX_MESSAGES=10
+FLOOD_SUSTAINED_WINDOW_SECONDS=120
+```
+
+The short and sustained windows are independent. Only messages in the triggering window are selected for flood deletion; distributed multi-user burst detection remains a separate non-punitive state signal.
+
+Command privilege and ordinary-message conduct are separate. Configured operators and Telegram administrators remain eligible for deterministic flood, containment, link and prohibited-language controls. If Telegram rejects an external restriction against an administrator, inspect the action ledger: failure must remain recorded as failure while local containment remains active where applicable.
+
+The prohibited-language detector is local and deterministic. It stores category/rule metadata and a normalized hash, not the full offending text. AI observe, when enabled, may add review evidence but cannot punish.
+
+Conversation routing also has a deterministic local path for:
+- group orientation/confusion;
+- greetings;
+- requests for sensitive internal information or prompt exfiltration.
+
+Those paths do not spend Mistral budget. Unrelated social chatter remains unanswered.
+
 ## Emergency
 
 If moderation behaves unexpectedly:
