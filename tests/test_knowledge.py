@@ -4,6 +4,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
+
+ROOT = Path(__file__).resolve().parent.parent
+
 from zion.knowledge import KnowledgeBase
 
 
@@ -21,6 +24,27 @@ class KnowledgeTests(unittest.TestCase):
             self.assertTrue(results)
             self.assertEqual(results[0].heading, "Security")
 
+
+    def test_maintainer_readme_is_not_loaded_as_public_context(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "README.md").write_text(
+                "# Maintainer\ninternal maintenance instructions\n",
+                encoding="utf-8",
+            )
+            (root / "public.md").write_text(
+                "# Product\npublic product fact\n",
+                encoding="utf-8",
+            )
+            kb = KnowledgeBase(root)
+            self.assertNotIn(
+                "internal maintenance instructions",
+                kb.render_context("maintainer internal maintenance"),
+            )
+            self.assertIn(
+                "public product fact",
+                kb.render_context("product public fact"),
+            )
 
     def test_stopword_only_query_returns_no_context(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -179,7 +203,7 @@ class KnowledgeTests(unittest.TestCase):
             "US$ 159 por mês",
             "taxa de swap do Pro nas redes EVM é 0,5%",
             "taxa de swap do Trader nas redes EVM é 0,25%",
-            "taxa de swap do Pilot nas redes EVM é 0,1%",
+            "taxa de swap do Pilot nas redes EVM é 0,10%",
             "decisão atual do produto é não cobrar taxa de integração",
         )
         for fact in expected:
@@ -188,6 +212,63 @@ class KnowledgeTests(unittest.TestCase):
 
         self.assertNotIn("/home/", text)
         self.assertNotIn("src/", text)
+
+
+
+class ZSwapKnowledgeCorpusTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.kb = KnowledgeBase(ROOT / "knowledge")
+
+    def test_zswap_networks_are_retrievable(self) -> None:
+        context = self.kb.render_context(
+            "quais redes blockchains a Z-SWAP suporta"
+        )
+        self.assertIn("Ethereum", context)
+        self.assertIn("Solana", context)
+        self.assertIn("ZETTA Chain", context)
+        self.assertIn("coming soon", context)
+
+    def test_zswap_tier_fee_is_retrievable(self) -> None:
+        context = self.kb.render_context(
+            "qual a taxa de swap do plano Pilot em EVM"
+        )
+        self.assertIn("Pilot", context)
+        self.assertIn("0,10%", context)
+        self.assertIn("EVM", context)
+
+    def test_zswap_cex_list_is_retrievable(self) -> None:
+        context = self.kb.render_context(
+            "quais corretoras CEX exchanges são suportadas"
+        )
+        self.assertIn("Binance", context)
+        self.assertIn("Coinbase Advanced", context)
+        self.assertIn("Gate.io", context)
+        self.assertIn("HTX", context)
+
+    def test_zswap_future_surface_is_not_presented_as_live(self) -> None:
+        context = self.kb.render_context(
+            "launchpad governance já estão lançados disponíveis"
+        )
+        self.assertIn("pre-launch", context)
+
+    def test_public_corpus_omits_known_internal_operational_literals(self) -> None:
+        corpus = "\n".join(
+            path.read_text(encoding="utf-8")
+            for path in sorted((ROOT / "knowledge").glob("*.md"))
+        )
+        forbidden = (
+            "0x904126D219dC6c1f7c019303EC743Ad45F473c1F",
+            "EWPtaW726VUcs2DA7q73b9vAJyyXJLynE8pH6TZGvd5L",
+            "vuvvftdsfmagmtbovzgq",
+            "SWAP_FEE_RECIPIENT",
+            "SWAP_FEE_ACCOUNT_SOLANA",
+            "creds_cipher",
+            "autopilot_sessions",
+            "/admin/api/",
+        )
+        for literal in forbidden:
+            with self.subTest(literal=literal):
+                self.assertNotIn(literal, corpus)
 
 if __name__ == "__main__":
     unittest.main()
