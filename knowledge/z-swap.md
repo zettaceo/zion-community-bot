@@ -14,7 +14,7 @@ O explorador de risco consulta sinais de segurança de tokens, incluindo indíci
 
 # Redes disponíveis, redes suportadas, chains e blockchains
 
-A experiência atual inclui Ethereum, BNB Chain, Polygon, Base, Arbitrum, Optimism, Avalanche e Solana. A ZETTA Chain aparece como uma rede futura e ainda não deve ser tratada como disponível.
+A experiência atual inclui Ethereum, BNB Chain, Polygon, Base, Arbitrum, Optimism, Avalanche e Solana. A ZETTA Chain aparece como coming soon (rede futura) e ainda não deve ser tratada como disponível.
 
 A disponibilidade de uma rota depende do par de ativos, da rede, da liquidez e da resposta dos provedores no momento da consulta.
 
