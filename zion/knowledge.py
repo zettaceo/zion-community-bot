@@ -55,6 +55,34 @@ TIER_ALIASES = {
     "pilot": frozenset({"pilot", "piloto", "einherjar", "odin"}),
 }
 
+TOPIC_ALIASES = (
+    frozenset({
+        "rede", "redes", "network", "networks", "chain", "chains",
+        "blockchain", "blockchains",
+    }),
+    frozenset({
+        "cex", "corretora", "corretoras", "exchange", "exchanges",
+    }),
+    frozenset({
+        "terminal", "indicador", "indicadores", "ema", "rsi", "macd",
+        "vwap", "bollinger", "stochastic", "obv", "timeframe",
+    }),
+    frozenset({
+        "ordem", "ordens", "market", "limit", "stop", "oco",
+    }),
+    frozenset({
+        "launchpad", "governance", "buy", "on-ramp", "otc", "p2p",
+        "nft", "soon", "pre-launch", "coming",
+    }),
+    frozenset({
+        "taxa", "taxas", "fee", "fees", "evm", "solana",
+    }),
+    frozenset({
+        "plano", "planos", "tier", "tiers", "free", "pro", "trader",
+        "pilot",
+    }),
+)
+
 
 def _normalize(text: str) -> str:
     folded = unicodedata.normalize("NFKD", text.lower())
@@ -87,6 +115,15 @@ def _mentioned_tiers(text: str) -> set[str]:
     return {
         tier
         for tier, aliases in TIER_ALIASES.items()
+        if tokens & aliases
+    }
+
+
+def _mentioned_topics(text: str) -> set[int]:
+    tokens = _base_tokens(text)
+    return {
+        index
+        for index, aliases in enumerate(TOPIC_ALIASES)
         if tokens & aliases
     }
 
@@ -172,10 +209,12 @@ class KnowledgeBase:
             return []
 
         requested_tiers = _mentioned_tiers(query)
+        requested_topics = _mentioned_topics(query)
 
         scored: list[tuple[float, KnowledgeChunk]] = []
         for chunk in self.chunks:
             heading_tiers = _mentioned_tiers(chunk.heading)
+            heading_topics = _mentioned_topics(chunk.heading)
             if (
                 requested_tiers
                 and heading_tiers
@@ -199,6 +238,13 @@ class KnowledgeBase:
                 and _normalize(chunk.heading).startswith("plano ")
             ):
                 score += 0.75
+
+            topic_overlap = requested_topics & heading_topics
+            if topic_overlap:
+                # Curated headings are a stronger signal than incidental body
+                # mentions. This prevents broad product chunks from outranking
+                # the canonical section for requests such as "quais redes?".
+                score += 1.5 * len(topic_overlap)
 
             # Reject a weak incidental overlap in long questions. A heading
             # match may still qualify because headings are curated signals.
