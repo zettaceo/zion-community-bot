@@ -8,6 +8,7 @@ import unicodedata
 from collections import defaultdict, deque
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from enum import Enum
 from typing import Any
 from urllib.parse import unquote
 
@@ -42,7 +43,7 @@ from .mistral import (
     MistralCredentialInvalid,
     MistralCredentialValidationUnavailable,
 )
-from .models import FloodDecision, OperatingState, Severity
+from .models import AbuseDecision, FloodDecision, OperatingState, Severity
 from .process_lock import ProcessLock
 from .secret_store import (
     SecretStore,
@@ -62,6 +63,15 @@ GROUP_CONVERSATION_TTL_SECONDS = 10 * 60
 GROUP_CONVERSATION_MAX_SESSIONS = 2048
 GROUP_CONVERSATION_CONTEXT_MAX_CHARS = 3000
 GROUP_CONVERSATION_QUERY_MAX_CHARS = 3000
+GROUP_CONVERSATION_PASSIVE_COOLDOWN_SECONDS = 2.0
+
+
+class ConversationRoute(str, Enum):
+    MODERATE_ONLY = "MODERATE_ONLY"
+    LOCAL_HELP = "LOCAL_HELP"
+    AI_SUPPORT = "AI_SUPPORT"
+    FOLLOW_UP = "FOLLOW_UP"
+    IGNORE = "IGNORE"
 
 
 @dataclass(frozen=True)
@@ -69,6 +79,7 @@ class GroupConversationSession:
     expires_at: float
     retrieval_query: str
     transcript: str
+    last_reply_at: float
 
 
 class AskRateLimiter:
@@ -201,7 +212,7 @@ class Runtime:
                 float,
             ] = {}
             self.group_conversation_sessions: dict[
-                int,
+                tuple[int, int],
                 GroupConversationSession,
             ] = {}
             self.group_conversation_sessions_next_prune_at = 0.0
