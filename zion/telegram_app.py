@@ -718,6 +718,13 @@ def conversation_route(
         return ConversationRoute.IGNORE
 
     if (
+        update.effective_chat
+        and update.effective_chat.type != "private"
+        and runtime(context).guardian.evaluate_abuse(raw).detected
+    ):
+        return ConversationRoute.MODERATE_ONLY
+
+    if (
         _security_refusal_reply(raw) is not None
         or _community_help_reply(raw) is not None
         or _casual_conversation_reply(raw) is not None
