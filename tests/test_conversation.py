@@ -169,6 +169,7 @@ class ConversationTests(unittest.TestCase):
                     phrase,
                     chat_type="supergroup",
                     message_id=index,
+                    user_id=index,
                 )
                 self.runtime.ai.answer.reset_mock()
 
@@ -286,33 +287,30 @@ class ConversationTests(unittest.TestCase):
 
         self.assertEqual(question, "Pode explicar de forma mais simples?")
 
-    def test_group_follow_up_without_command_keeps_recent_context(self) -> None:
+    def test_new_product_question_does_not_inherit_unrelated_topic(self) -> None:
         first = make_update(
             "O que é a Z-SWAP?",
             chat_type="supergroup",
             message_id=10,
         )
-        follow_up = make_update(
+        next_question = make_update(
             "Me fala em uma frase quais os benefícios do plano Pilot",
             chat_type="supergroup",
             message_id=11,
         )
 
         asyncio.run(moderation_handler(first, self.context))
-        asyncio.run(moderation_handler(follow_up, self.context))
+        asyncio.run(moderation_handler(next_question, self.context))
 
         self.assertEqual(self.runtime.ai.answer.await_count, 2)
-        follow_up_call = self.runtime.ai.answer.await_args_list[1]
+        call = self.runtime.ai.answer.await_args_list[1]
         self.assertEqual(
-            follow_up_call.kwargs["question"],
+            call.kwargs["question"],
             "Me fala em uma frase quais os benefícios do plano Pilot",
         )
-        self.assertIn("O que é a Z-SWAP?", follow_up_call.kwargs["context_query"])
-        self.assertIn(
-            "ZION: Resposta clara sobre a Z-SWAP.",
-            follow_up_call.kwargs["conversation_context"],
-        )
-        self.assertEqual(len(follow_up.effective_message.replies), 1)
+        self.assertNotIn("context_query", call.kwargs)
+        self.assertNotIn("conversation_context", call.kwargs)
+        self.assertEqual(len(next_question.effective_message.replies), 1)
 
     def test_group_pilot_question_needs_no_prior_context(self) -> None:
         update = make_update(
