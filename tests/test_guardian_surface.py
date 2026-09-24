@@ -193,6 +193,7 @@ class FakeBot:
 
     async def delete_message(self, *, chat_id: int, message_id: int):
         self.deleted.append((chat_id, message_id))
+        return True
 
     async def send_message(self, *, chat_id: int, text: str):
         self.sent.append((chat_id, text))
@@ -201,16 +202,19 @@ class FakeBot:
         self, *, chat_id: int, user_id: int, permissions, until_date
     ):
         self.restricted.append((chat_id, user_id))
+        return True
 
     async def ban_chat_member(
         self, *, chat_id: int, user_id: int, revoke_messages: bool
     ):
         self.banned.append((chat_id, user_id))
+        return True
 
     async def unban_chat_member(
         self, *, chat_id: int, user_id: int, only_if_banned: bool
     ):
         self.unbanned.append((chat_id, user_id))
+        return True
 
 
 class FakeApplication:

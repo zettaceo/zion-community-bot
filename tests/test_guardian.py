@@ -369,6 +369,31 @@ class GuardianTests(unittest.TestCase):
         self.assertEqual(isolated.severity.value, "low")
         self.assertEqual(directed.severity.value, "medium")
 
+    def test_practical_portuguese_abuse_vocabulary_is_covered(self) -> None:
+        samples = (
+            "putaria",
+            "karalho",
+            "buceta",
+            "pau no cu",
+            "zé ruela",
+            "puta",
+            "vadia",
+            "vai se fuder",
+            "foda-se",
+        )
+
+        for sample in samples:
+            with self.subTest(sample=sample):
+                decision = detect_abusive_content(sample)
+                self.assertTrue(decision.detected)
+                self.assertTrue(decision.should_delete)
+                self.assertTrue(decision.should_strike)
+
+    def test_expanded_vocabulary_does_not_match_inside_ordinary_words(self) -> None:
+        for sample in ("computação", "disputada", "faculdade"):
+            with self.subTest(sample=sample):
+                self.assertFalse(detect_abusive_content(sample).detected)
+
     def test_quoted_or_reported_abuse_does_not_strike_automatically(self) -> None:
         decision = detect_abusive_content(
             'Estou denunciando: ele disse "você é idiota".'
