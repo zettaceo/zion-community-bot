@@ -30,13 +30,13 @@ ZION é a camada de inteligência e apoio da Z-SWAP. Ele ajuda a explicar o prod
 
 Na comunidade, ZION também trabalha com o Guardian para proteção, moderação determinística e suporte. A IA pode orientar e sinalizar situações para revisão, mas não recebe autoridade punitiva automática.
 
-# Plano Pilot ou plano piloto
+# Planos da Z-SWAP
 
-Pilot, também chamado de plano piloto, é o nível mais alto de acesso da Z-SWAP. Ele reúne a maior cota diária de análises do ZION, bancada de testes, papel adiante, autopilot CEX, feed de arbitragem entre corretoras, suporte direto prioritário e status Founder.
+A Z-SWAP tem quatro níveis diferentes: Free, Pro, Trader e Pilot, nessa ordem. Pro não é outro nome para Pilot. Trader fica entre Pro e Pilot. O nível gratuito também pode aparecer com o nome Thrall.
 
-O Access Pass Pilot é anunciado com referência de 30 SOL. Os benefícios premium duram três anos ou até a versão 3 da plataforma, o que acontecer primeiro. O status Founder permanece depois dessa janela. O mint ainda não está aberto; no momento existe uma lista de espera. A assinatura recorrente também está anunciada como uma opção futura, ainda não disponível para contratação.
+As diferenças oficiais incluem cotas de análises do ZION, limites da Bancada, acesso ao papel adiante, feed de arbitragem, suporte prioritário e taxa de swap em redes EVM. O modelo de IA é o mesmo para todos; o nível muda cotas e recursos, não o modelo.
 
-O modelo de IA é o mesmo entre os planos pagos. O Pilot se diferencia pela cota e pelo conjunto de recursos, e não por receber um modelo exclusivo. Nenhum plano promete lucro, rendimento ou resultado financeiro.
+Há duas formas planejadas de acesso pago: a assinatura mensal Hird e o Access Pass do Panteão. A assinatura recorrente e o mint dos Access Pass ainda aparecem como futuros; no momento não devem ser apresentados como compra já aberta. Os detalhes completos de cada nível estão na matriz oficial de planos da base do ZION.
 
 # Segurança e responsabilidade
 
