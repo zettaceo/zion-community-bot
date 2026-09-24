@@ -99,6 +99,8 @@ class Settings:
 
     flood_max_messages: int
     flood_window_seconds: int
+    flood_sustained_max_messages: int
+    flood_sustained_window_seconds: int
     flood_purge_window_seconds: int
     flood_mute_levels: tuple[int, ...]
     flood_strike_reset_seconds: int
@@ -266,6 +268,16 @@ class Settings:
             allowed_domains=allowed_domains,
             flood_max_messages=_int("FLOOD_MAX_MESSAGES", 6, 2),
             flood_window_seconds=_int("FLOOD_WINDOW_SECONDS", 10, 2),
+            flood_sustained_max_messages=_int(
+                "FLOOD_SUSTAINED_MAX_MESSAGES",
+                10,
+                3,
+            ),
+            flood_sustained_window_seconds=_int(
+                "FLOOD_SUSTAINED_WINDOW_SECONDS",
+                120,
+                30,
+            ),
             flood_purge_window_seconds=_int(
                 "FLOOD_PURGE_WINDOW_SECONDS",
                 300,
