@@ -223,9 +223,17 @@ class AITests(unittest.TestCase):
 
             def __init__(self) -> None:
                 self.context = ""
+                self.conversation_context = ""
 
-            async def answer(self, *, question: str, context: str):
+            async def answer(
+                self,
+                *,
+                question: str,
+                context: str,
+                conversation_context: str = "",
+            ):
                 self.context = context
+                self.conversation_context = conversation_context
                 return AIAnswer(
                     text="Você recebe suporte prioritário.",
                     model="fake-model",
@@ -242,11 +250,16 @@ class AITests(unittest.TestCase):
                 user_id=2,
                 question="E o que eu ganho com isso?",
                 context_query="Quais são os benefícios do plano Pilot?",
+                conversation_context=(
+                    "Membro: Quais são os benefícios do plano Pilot?\n"
+                    "ZION: O plano oferece benefícios adicionais."
+                ),
             )
         )
 
         self.assertEqual(answer.text, "Você recebe suporte prioritário.")
         self.assertIn("suporte prioritário", client.context)
+        self.assertIn("plano oferece", client.conversation_context)
 
     def test_lockdown_blocks_provider_before_any_call(self) -> None:
         (self.root / "knowledge" / "official.md").write_text(
