@@ -24,6 +24,21 @@ A private-chat admin must be explicitly listed in `ZION_ADMIN_USER_IDS`.
 
 Inside a group, Telegram group administrators/owners are accepted as admins. Explicit allowlisted IDs are also accepted.
 
+Administrator/operator status authorizes privileged commands; it is **not** an exemption from ordinary-message conduct controls. Universal secret protection, per-user flood/containment, deterministic prohibited-language/abuse rules and link policy apply consistently to members, configured operators and Telegram administrators. If Telegram refuses an external mute/ban against an administrator, ZION records that external action as failed, preserves local containment when applicable and never reports the external restriction as successful.
+
+## Deterministic community conduct
+
+Per-user flood protection has two independent windows by default:
+
+- short burst: 6 messages / 10 seconds;
+- sustained stream: 10 messages / 120 seconds.
+
+The sustained window prevents a sender from evading flood protection merely by spacing messages outside the short burst interval. Chat-wide distributed burst detection remains separate and non-punitive.
+
+Prohibited language, directed abuse, threats and slurs are evaluated locally after NFKC/case folding, invisible-character removal, bounded leetspeak normalization, repeated-character normalization and separator handling. Incidents retain only sanitized rule/category metadata and a normalized hash; the offending message body is not persisted. Quotation/reporting contexts may be removed when they contain a prohibited term, but they do not receive irreversible punishment automatically.
+
+Mistral remains outside this punishment boundary.
+
 ## Mistral private provisioning
 
 Only an explicit operator listed in `ZION_ADMIN_USER_IDS` may start `/setmistralkey`, and only in a private chat with ZION. Group-admin status alone does not grant this capability.

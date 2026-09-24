@@ -10,6 +10,7 @@ from zion.db import ZionDB
 from zion.models import OperatingState
 from zion.guardian import (
     Guardian,
+    detect_abusive_content,
     detect_sensitive_content,
     extract_domains,
     normalize_link_target,
@@ -278,6 +279,104 @@ class GuardianTests(unittest.TestCase):
     def test_unlabeled_base58_material_is_not_deleted(self) -> None:
         value = "1" * 88
         self.assertFalse(detect_sensitive_content(value).detected)
+
+    def test_short_burst_still_triggers_at_six_in_ten_seconds(self) -> None:
+        settings = replace(
+            self.settings,
+            flood_max_messages=6,
+            flood_window_seconds=10,
+            flood_sustained_max_messages=50,
+            flood_sustained_window_seconds=120,
+        )
+        guardian = Guardian(settings, self.db)
+        result = None
+        for index in range(6):
+            result = guardian.record_message(
+                chat_id=20,
+                user_id=70,
+                message_id=100 + index,
+                now=1000.0 + index,
+            )
+        self.assertIsNotNone(result)
+        self.assertTrue(result.triggered)
+        self.assertEqual(result.reason, "flood")
+        self.assertEqual(result.window_seconds, 10)
+
+    def test_sustained_sequence_matching_reported_shape_triggers(self) -> None:
+        settings = replace(
+            self.settings,
+            flood_max_messages=6,
+            flood_window_seconds=10,
+            flood_sustained_max_messages=10,
+            flood_sustained_window_seconds=120,
+        )
+        guardian = Guardian(settings, self.db)
+
+        result = None
+        # 8.6s spacing keeps the 10-second peak far below the short threshold
+        # while reproducing a sustained stream comparable to 12 msgs / 95s.
+        for index in range(10):
+            result = guardian.record_message(
+                chat_id=21,
+                user_id=71,
+                message_id=200 + index,
+                now=2000.0 + (index * 8.6),
+            )
+            if index < 9:
+                self.assertFalse(result.triggered)
+
+        self.assertTrue(result.triggered)
+        self.assertEqual(result.reason, "sustained_flood")
+        self.assertEqual(result.window_seconds, 120)
+        self.assertEqual(len(result.message_ids), 10)
+
+    def test_slow_legitimate_conversation_below_both_windows_passes(self) -> None:
+        settings = replace(
+            self.settings,
+            flood_max_messages=6,
+            flood_window_seconds=10,
+            flood_sustained_max_messages=10,
+            flood_sustained_window_seconds=120,
+        )
+        guardian = Guardian(settings, self.db)
+
+        results = [
+            guardian.record_message(
+                chat_id=22,
+                user_id=72,
+                message_id=300 + index,
+                now=3000.0 + (index * 16.0),
+            )
+            for index in range(9)
+        ]
+        self.assertTrue(all(not item.triggered for item in results))
+
+    def test_obfuscated_directed_insult_is_detected_deterministically(self) -> None:
+        decision = detect_abusive_content(
+            "v0cê é i.d.i.0.t.a"
+        )
+        self.assertTrue(decision.detected)
+        self.assertEqual(decision.category, "directed_abuse")
+        self.assertTrue(decision.directed)
+        self.assertTrue(decision.should_strike)
+        self.assertTrue(decision.normalized_hash)
+
+    def test_directed_abuse_has_higher_severity_than_isolated_profanity(self) -> None:
+        isolated = detect_abusive_content("que merda")
+        directed = detect_abusive_content("você é idiota")
+        self.assertTrue(isolated.detected)
+        self.assertTrue(directed.detected)
+        self.assertEqual(isolated.severity.value, "low")
+        self.assertEqual(directed.severity.value, "medium")
+
+    def test_quoted_or_reported_abuse_does_not_strike_automatically(self) -> None:
+        decision = detect_abusive_content(
+            'Estou denunciando: ele disse "você é idiota".'
+        )
+        self.assertTrue(decision.detected)
+        self.assertTrue(decision.reporting_context)
+        self.assertFalse(decision.should_strike)
+        self.assertFalse(decision.immediate_mute)
 
     def test_elevated_threshold_never_becomes_weaker_than_normal(self) -> None:
         settings = replace(

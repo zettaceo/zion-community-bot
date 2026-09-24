@@ -43,6 +43,22 @@ class FloodDecision:
     should_ban: bool = False
     message_ids: list[int] = field(default_factory=list)
     incident_id: str | None = None
+    reason: str = "flood"
+    window_seconds: int = 0
+
+
+@dataclass(slots=True)
+class AbuseDecision:
+    detected: bool = False
+    category: str = ""
+    severity: Severity = Severity.LOW
+    rule_id: str = ""
+    normalized_hash: str = ""
+    directed: bool = False
+    reporting_context: bool = False
+    should_delete: bool = False
+    should_strike: bool = False
+    immediate_mute: bool = False
 
 
 @dataclass(slots=True)

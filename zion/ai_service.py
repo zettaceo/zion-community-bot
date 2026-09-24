@@ -448,6 +448,30 @@ class AIService:
         context = self.knowledge.render_context(safe_context_query)
         question_hash = self._hash_text(safe_question)
 
+        canonical_answer = self.knowledge.canonical_finite_answer(
+            safe_question
+        )
+        if canonical_answer is not None:
+            self._record_ai_event(
+                chat_id=chat_id,
+                user_id=user_id,
+                purpose="support_answer",
+                model="zion-local",
+                success=True,
+                input_hash=question_hash,
+                metadata={
+                    "knowledge_hits": len(
+                        self.knowledge.search(safe_context_query)
+                    ),
+                    "provider_called": False,
+                    "canonical_finite_list": True,
+                },
+            )
+            return AIAnswer(
+                text=canonical_answer,
+                model="zion-local",
+            )
+
         if not context.strip():
             self._record_knowledge_gap(
                 question_hash=question_hash,

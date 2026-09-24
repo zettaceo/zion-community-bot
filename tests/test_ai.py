@@ -154,6 +154,43 @@ class AITests(unittest.TestCase):
         self.assertIsNotNone(result)
         self.assertEqual(self.db.ai_tokens_since(0), 25)
 
+    def test_canonical_order_list_bypasses_provider_and_is_exact(self) -> None:
+        (self.root / "knowledge" / "orders.md").write_text(
+            "# Painel de ordens\n"
+            "A interface documenta suporte a:\n\n"
+            "- Market\n"
+            "- Limit\n"
+            "- Stop\n"
+            "- OCO\n",
+            encoding="utf-8",
+        )
+        knowledge = KnowledgeBase(self.settings.knowledge_dir)
+        ai = AIService(self.settings, self.db, knowledge)
+
+        class NeverCallClient:
+            configured = True
+
+            async def answer(self, **kwargs):
+                raise AssertionError("provider must not be called")
+
+        ai.client = NeverCallClient()
+        answer = asyncio.run(
+            ai.answer(
+                chat_id=1,
+                user_id=2,
+                question="Quais tipos de ordem existem no Terminal Pro?",
+            )
+        )
+
+        self.assertEqual(answer.model, "zion-local")
+        self.assertEqual(
+            answer.text,
+            (
+                "No Terminal Pro, os tipos de ordem documentados são: "
+                "Market, Limit, Stop e OCO."
+            ),
+        )
+
     def test_no_knowledge_records_gap_without_provider_call(self) -> None:
         answer = asyncio.run(
             self.ai.answer(

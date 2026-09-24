@@ -24,6 +24,8 @@ def make_settings(root: Path) -> Settings:
         allowed_domains=frozenset({"z-swap.example"}),
         flood_max_messages=3,
         flood_window_seconds=10,
+        flood_sustained_max_messages=10,
+        flood_sustained_window_seconds=120,
         flood_purge_window_seconds=300,
         flood_mute_levels=(60, 300, 900),
         flood_strike_reset_seconds=3600,
