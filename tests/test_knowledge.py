@@ -25,6 +25,27 @@ class KnowledgeTests(unittest.TestCase):
             self.assertEqual(results[0].heading, "Security")
 
 
+    def test_maintainer_readme_is_not_loaded_as_public_context(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "README.md").write_text(
+                "# Maintainer\ninternal maintenance instructions\n",
+                encoding="utf-8",
+            )
+            (root / "public.md").write_text(
+                "# Product\npublic product fact\n",
+                encoding="utf-8",
+            )
+            kb = KnowledgeBase(root)
+            self.assertNotIn(
+                "internal maintenance instructions",
+                kb.render_context("maintainer internal maintenance"),
+            )
+            self.assertIn(
+                "public product fact",
+                kb.render_context("product public fact"),
+            )
+
     def test_stopword_only_query_returns_no_context(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -182,7 +203,7 @@ class KnowledgeTests(unittest.TestCase):
             "US$ 159 por mês",
             "taxa de swap do Pro nas redes EVM é 0,5%",
             "taxa de swap do Trader nas redes EVM é 0,25%",
-            "taxa de swap do Pilot nas redes EVM é 0,1%",
+            "taxa de swap do Pilot nas redes EVM é 0,10%",
             "decisão atual do produto é não cobrar taxa de integração",
         )
         for fact in expected:
