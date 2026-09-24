@@ -651,6 +651,92 @@ def natural_conversation_question(
     return (cleaned or question)[:6000]
 
 
+def _community_help_reply(question: str) -> str | None:
+    folded = _fold_conversation_text(question)
+    if re.search(
+        r"\b(?:que grupo e esse|do que se trata (?:esse|este) grupo|"
+        r"onde estou|onde vim parar|estou perdido|estou perdida|"
+        r"nao estou entendendo(?: nada)?|nao entendo nada|"
+        r"alguem pode (?:me )?(?:explicar|ajudar)|"
+        r"o que faco aqui|como funciona a comunidade)\b",
+        folded,
+    ):
+        return (
+            "Este é o grupo oficial da comunidade Z-SWAP. Aqui você pode "
+            "tirar dúvidas sobre a plataforma, recursos, planos e segurança. "
+            "O que você quer entender primeiro?"
+        )
+    return None
+
+
+def _security_refusal_reply(question: str) -> str | None:
+    folded = _fold_conversation_text(question)
+    internal_target = bool(
+        re.search(
+            r"\b(?:ip(?: do)? servidor|servidor|host|ssh|firewall|tailscale|"
+            r"schema|sql|banco interno|database interno|rota admin|rotas admin|"
+            r"endpoint admin|endpoints admin|api key|chave api|credencial|"
+            r"segredo|secret|prompt do sistema|system prompt|fontes internas|"
+            r"arquivos internos|repositorio|repository|commit|infraestrutura|"
+            r"deploy|variavel de ambiente|env)\b",
+            folded,
+        )
+    )
+    imperative = bool(
+        re.search(
+            r"\b(?:me passe|passe|mostre|revele|forneca|liste|envie|"
+            r"exiba|mostra|revela|mostre-me|give me|show me|reveal)\b",
+            folded,
+        )
+    )
+    prompt_exfiltration = bool(
+        re.search(
+            r"\b(?:ignore (?:todas )?(?:as )?(?:regras|instrucoes)|"
+            r"ignore instrucoes anteriores|modo auditor|"
+            r"revele (?:seu |o )?prompt|mostre (?:seu |o )?prompt|"
+            r"fontes internas|system prompt)\b",
+            folded,
+        )
+    )
+    if (imperative and internal_target) or prompt_exfiltration:
+        return (
+            "Posso explicar o funcionamento público e as proteções em alto "
+            "nível, mas não forneço credenciais, infraestrutura interna, "
+            "rotas administrativas, prompts ou mecanismos que reduzam a "
+            "segurança do sistema."
+        )
+    return None
+
+
+def conversation_route(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    text: str,
+) -> ConversationRoute:
+    raw = (text or "").strip()
+    if not raw or raw.startswith("/"):
+        return ConversationRoute.IGNORE
+
+    if (
+        _security_refusal_reply(raw) is not None
+        or _community_help_reply(raw) is not None
+        or _casual_conversation_reply(raw) is not None
+    ):
+        return ConversationRoute.LOCAL_HELP
+
+    question = natural_conversation_question(update, context, raw)
+    if question is None:
+        return ConversationRoute.IGNORE
+
+    session = _active_group_conversation(update, context)
+    if (
+        session is not None
+        and _continues_active_group_topic(question, session)
+    ):
+        return ConversationRoute.FOLLOW_UP
+    return ConversationRoute.AI_SUPPORT
+
+
 def _casual_conversation_reply(question: str) -> str | None:
     folded = _fold_conversation_text(question)
     simple = re.sub(r"[^a-z0-9\s]", "", folded).strip()
@@ -677,8 +763,13 @@ async def answer_natural_conversation(
     ):
         return False
 
-    question = natural_conversation_question(update, context, text)
-    if question is None:
+    raw_question = (text or "").strip()
+    route = conversation_route(
+        update,
+        context,
+        raw_question,
+    )
+    if route == ConversationRoute.IGNORE:
         return False
 
     rt = runtime(context)
@@ -699,17 +790,31 @@ async def answer_natural_conversation(
         if not claimed:
             return True
 
-    casual = _casual_conversation_reply(question)
-    if casual is not None:
-        await update.effective_message.reply_text(casual)
+    if route == ConversationRoute.LOCAL_HELP:
+        local_reply = (
+            _security_refusal_reply(raw_question)
+            or _community_help_reply(raw_question)
+            or _casual_conversation_reply(raw_question)
+        )
+        if local_reply is None:
+            return False
+        await update.effective_message.reply_text(local_reply)
         _remember_group_conversation(
             rt,
             update,
-            question,
-            casual,
+            raw_question,
+            local_reply,
             previous_session,
         )
         return True
+
+    question = natural_conversation_question(
+        update,
+        context,
+        raw_question,
+    )
+    if question is None:
+        return False
 
     if not rt.ask_limiter.allow(update.effective_user.id):
         await update.effective_message.reply_text(
