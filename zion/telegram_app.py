@@ -4290,6 +4290,173 @@ async def _evaluate_chat_burst(
     return now
 
 
+async def _enforce_abuse(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    decision: AbuseDecision,
+) -> None:
+    if (
+        not decision.detected
+        or not update.effective_message
+        or not update.effective_user
+        or not update.effective_chat
+    ):
+        return
+
+    rt = runtime(context)
+    chat = update.effective_chat
+    user = update.effective_user
+    message = update.effective_message
+    now = time.time()
+
+    deleted = await delete_message_safe(
+        context,
+        chat.id,
+        message.message_id,
+    )
+
+    strike_count = 0
+    mute_seconds = 0
+    mute_required = False
+    with rt.db.transaction():
+        incident_id = rt.db.create_incident(
+            chat_id=chat.id,
+            user_id=user.id,
+            category=decision.category,
+            severity=decision.severity,
+            source="guardian",
+            evidence={
+                "message_id": message.message_id,
+                "rule_id": decision.rule_id,
+                "normalized_hash": decision.normalized_hash,
+                "directed": decision.directed,
+                "reporting_context": decision.reporting_context,
+                "content_not_stored": True,
+            },
+            note=(
+                "Deterministic community-language rule matched; "
+                "offending message body was not persisted."
+            ),
+            now=now,
+        )
+        rt.db.record_action(
+            incident_id=incident_id,
+            chat_id=chat.id,
+            user_id=user.id,
+            action_type="delete",
+            actor_type="guardian",
+            actor_id=None,
+            reason=decision.category,
+            success=deleted,
+            metadata={
+                "rule_id": decision.rule_id,
+                "content_not_stored": True,
+            },
+            now=now,
+        )
+
+        if decision.should_strike:
+            rt.db.add_strike(
+                chat_id=chat.id,
+                user_id=user.id,
+                reason=decision.category,
+                severity=decision.severity,
+                source="guardian",
+                ttl_seconds=rt.settings.flood_strike_reset_seconds,
+                metadata={
+                    "rule_id": decision.rule_id,
+                    "normalized_hash": decision.normalized_hash,
+                    "directed": decision.directed,
+                },
+                now=now,
+            )
+            strike_count = rt.db.count_active_strikes(
+                chat.id,
+                user.id,
+                now,
+                reasons=(
+                    "prohibited_language",
+                    "directed_abuse",
+                    "threat_or_slur",
+                ),
+            )
+            mute_required = (
+                decision.immediate_mute
+                or strike_count >= 2
+            )
+            if mute_required:
+                level_index = min(
+                    max(0, strike_count - 1),
+                    len(rt.settings.flood_mute_levels) - 1,
+                )
+                mute_seconds = rt.settings.flood_mute_levels[level_index]
+                rt.db.set_containment(
+                    chat.id,
+                    user.id,
+                    now + mute_seconds,
+                    decision.category,
+                    now,
+                )
+
+    mute_success: bool | None = None
+    if mute_required:
+        mute_success = await mute_user_safe(
+            context,
+            chat.id,
+            user.id,
+            mute_seconds,
+        )
+        rt.db.record_action(
+            incident_id=incident_id,
+            chat_id=chat.id,
+            user_id=user.id,
+            action_type="mute",
+            actor_type="guardian",
+            actor_id=None,
+            reason=decision.category,
+            success=mute_success,
+            metadata={
+                "duration_seconds": mute_seconds,
+                "strike_count": strike_count,
+                "local_containment": True,
+            },
+        )
+
+    if decision.reporting_context:
+        outcome = (
+            "Mensagem removida pela regra de linguagem; contexto de "
+            "citação/relato não recebeu punição automática."
+        )
+    elif mute_required and mute_success:
+        outcome = (
+            f"Mensagem removida e usuário silenciado por "
+            f"{format_duration(mute_seconds)}."
+        )
+    elif mute_required:
+        outcome = (
+            "Mensagem removida. A restrição externa falhou; a contenção "
+            "local foi mantida e um operador autorizado deve revisar."
+        )
+    elif decision.should_strike:
+        outcome = (
+            f"Mensagem removida e ocorrência registrada "
+            f"({strike_count}). Reincidência pode gerar mute."
+        )
+    else:
+        outcome = "Mensagem removida pela política de linguagem."
+
+    try:
+        await context.bot.send_message(
+            chat_id=chat.id,
+            text=f"⚠️ {user_display_name(user)}: {outcome}",
+        )
+    except Exception as exc:
+        logger.warning(
+            "Falha ao publicar aviso de moderação de linguagem: %s",
+            type(exc).__name__,
+        )
+
+
 async def _enforce_flood(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
@@ -4318,7 +4485,7 @@ async def _enforce_flood(
         incident_id = rt.db.create_incident(
             chat_id=chat.id,
             user_id=user.id,
-            category="flood",
+            category=flood.reason,
             severity=(
                 Severity.HIGH
                 if flood.should_ban
@@ -4351,7 +4518,7 @@ async def _enforce_flood(
         action_type=action_type,
         actor_type="guardian",
         actor_id=None,
-        reason="flood",
+        reason=flood.reason,
         success=success,
         metadata={
             "strike_count": flood.strike_count,
@@ -4372,7 +4539,7 @@ async def _enforce_flood(
             chat.id,
             user.id,
             time.time() + flood.mute_seconds,
-            "flood_ban_fallback",
+            f"{flood.reason}_ban_fallback",
         )
         fallback_success = await mute_user_safe(
             context,
@@ -4387,7 +4554,7 @@ async def _enforce_flood(
             action_type="mute",
             actor_type="guardian",
             actor_id=None,
-            reason="flood_ban_fallback",
+            reason=f"{flood.reason}_ban_fallback",
             success=fallback_success,
             metadata={
                 "duration_seconds": flood.mute_seconds,
@@ -4405,14 +4572,19 @@ async def _enforce_flood(
         action_text = (
             f"silenciado por {format_duration(flood.mute_seconds)}."
             if success
-            else "mute falhou; contenção local mantida."
+            else (
+                "mute falhou; contenção local mantida e um operador "
+                "autorizado deve revisar."
+            )
         )
 
     try:
         await context.bot.send_message(
             chat_id=chat.id,
             text=(
-                f"⚠️ {user_display_name(user)}: flood detectado.\n"
+                f"⚠️ {user_display_name(user)}: "
+                f"{'flood sustentado' if flood.reason == 'sustained_flood' else 'flood'} "
+                "detectado.\n"
                 f"{deleted_count} mensagens removidas.\n"
                 f"Ocorrência {flood.strike_count}/"
                 f"{rt.settings.flood_ban_after_strikes}.\n"
