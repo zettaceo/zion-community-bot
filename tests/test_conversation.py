@@ -212,6 +212,54 @@ class ConversationTests(unittest.TestCase):
         )
         self.assertEqual(len(update.effective_message.replies), 1)
 
+    def test_group_pro_question_needs_no_prior_context(self) -> None:
+        update = make_update(
+            "Quais as vantagens do plano Pro?",
+            chat_type="supergroup",
+            message_id=13,
+        )
+
+        asyncio.run(moderation_handler(update, self.context))
+
+        self.runtime.ai.answer.assert_awaited_once_with(
+            chat_id=-10020,
+            user_id=2,
+            question="Quais as vantagens do plano Pro?",
+        )
+        self.assertEqual(len(update.effective_message.replies), 1)
+
+    def test_user_correction_about_pro_continues_active_topic(self) -> None:
+        first = make_update(
+            "Quais as vantagens do plano Pilot?",
+            chat_type="supergroup",
+            message_id=14,
+        )
+        correction = make_update(
+            "Mais eu perguntei pelo Pro",
+            chat_type="supergroup",
+            message_id=15,
+        )
+
+        asyncio.run(moderation_handler(first, self.context))
+        self.runtime.ai.answer.reset_mock()
+        asyncio.run(moderation_handler(correction, self.context))
+
+        self.runtime.ai.answer.assert_awaited_once()
+        call = self.runtime.ai.answer.await_args
+        self.assertEqual(
+            call.kwargs["question"],
+            "Mais eu perguntei pelo Pro",
+        )
+        self.assertIn(
+            "Quais as vantagens do plano Pilot?",
+            call.kwargs["conversation_context"],
+        )
+        self.assertEqual(
+            call.kwargs["context_query"],
+            "Mais eu perguntei pelo Pro",
+        )
+        self.assertEqual(len(correction.effective_message.replies), 1)
+
     def test_recent_conversation_does_not_capture_unrelated_chatter(self) -> None:
         first = make_update(
             "O que é a Z-SWAP?",

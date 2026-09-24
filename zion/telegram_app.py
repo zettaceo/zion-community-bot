@@ -352,7 +352,8 @@ def _looks_like_conversation_turn(value: str) -> bool:
             r"^\s*(?:o que|qual|quais|como|onde|quando|quem|por que|"
             r"porque|posso|pode|tem|existe|me explica|explique|me fala|"
             r"diga|conte|resuma|resume|quero saber|gostaria|e se|e qual|"
-            r"e quais|e como|mas|entao|isso inclui)\b",
+            r"e quais|e como|mas|mais eu|eu perguntei|nao foi isso|"
+            r"entao|isso inclui)\b",
             folded,
         )
     )
@@ -419,7 +420,8 @@ def _continues_active_group_topic(
 
     folded = _fold_conversation_text(question)
     if re.match(
-        r"^\s*(?:e\b|mas\b|porem\b|entao\b|isso\b|esse\b|essa\b|"
+        r"^\s*(?:e\b|mas\b|mais\s+eu\b|eu\s+perguntei\b|"
+        r"nao\s+foi\s+isso\b|porem\b|entao\b|isso\b|esse\b|essa\b|"
         r"esses\b|essas\b|ele\b|ela\b|tambem\b|sobre isso\b|"
         r"quanto a isso\b|discordo\b|nao concordo\b)",
         folded,
@@ -439,6 +441,17 @@ def _continues_active_group_topic(
         session.retrieval_query + "\n" + session.transcript
     )
     return len(current_tokens & previous_tokens) >= 2
+
+
+def _is_explicit_conversation_correction(value: str) -> bool:
+    folded = _fold_conversation_text(value)
+    return bool(
+        re.match(
+            r"^\s*(?:mas\s+eu|mais\s+eu|eu\s+perguntei|"
+            r"nao\s+foi\s+isso)\b",
+            folded,
+        )
+    )
 
 
 def _looks_like_project_question(
@@ -563,7 +576,9 @@ def natural_conversation_question(
     )
     product_topic = bool(
         re.search(
-            r"\b(?:z[\s-]?swap|zion|guardian|pilot|plano\s+piloto)\b",
+            r"\b(?:z[\s-]?swap|zion|guardian|pilot|trader|thrall|hird|"
+            r"panteao|access\s+pass|plano\s+(?:free|gratis|gratuito|pro|"
+            r"profissional|trader|pilot|piloto)|terminal\s+pro)\b",
             folded,
         )
     )
@@ -674,9 +689,15 @@ async def answer_natural_conversation(
         "question": question,
     }
     if previous_session is not None:
-        answer_kwargs["context_query"] = (
-            previous_session.retrieval_query + "\n" + question
-        )[-6000:]
+        if _is_explicit_conversation_correction(question):
+            # Keep the transcript so the model understands and acknowledges
+            # the correction, but retrieve official facts from the corrected
+            # subject instead of allowing the old, mistaken subject to win.
+            answer_kwargs["context_query"] = question
+        else:
+            answer_kwargs["context_query"] = (
+                previous_session.retrieval_query + "\n" + question
+            )[-6000:]
         answer_kwargs["conversation_context"] = (
             previous_session.transcript
         )

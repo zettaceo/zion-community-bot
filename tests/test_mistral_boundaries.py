@@ -314,6 +314,10 @@ class MistralBoundaryTests(unittest.TestCase):
             self.assertIn("user_question", system)
             self.assertIn("texto simples", system)
             self.assertIn("nomes de arquivos", system)
+            self.assertIn("até 120 palavras", system)
+            self.assertIn("Free, Pro, Trader e Pilot", system)
+            self.assertIn("plano Pro com o Pilot", system)
+            self.assertIn("usuário corrigir", system)
 
 
 if __name__ == "__main__":
