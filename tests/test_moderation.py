@@ -612,6 +612,16 @@ class ModerationPipelineTests(unittest.TestCase):
         ).fetchone()
         self.assertIsNotNone(row)
         self.assertEqual(int(row["success"]), 0)
+        operator_alerts = [
+            text
+            for chat_id, text in self.context.bot.sent
+            if chat_id == 1
+        ]
+        self.assertTrue(operator_alerts)
+        self.assertIn(
+            "enforcement review required",
+            operator_alerts[-1],
+        )
 
     def test_reported_sustained_member_sequence_is_contained(self) -> None:
         settings = replace(
