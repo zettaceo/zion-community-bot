@@ -40,7 +40,7 @@ Pilot é o nível mais alto. Ele não é outro nome para Pro e também não sign
 
 Na Bancada, o Pilot permite 5.000 backtests em janela móvel de 24 horas, capital simulado de até US$ 100.000.000, 200 estratégias salvas, janela histórica de até 730 dias e até 10 símbolos por teste.
 
-A taxa de swap do Pilot nas redes EVM é 0,1%. Na Solana, a decisão atual do produto é não cobrar taxa de integração.
+A taxa de swap do Pilot nas redes EVM é 0,10%. Na Solana, a decisão atual do produto é não cobrar taxa de integração.
 
 Na assinatura mensal Hird, o Pilot recebe o nome Einherjar e tem preço oficial de US$ 159 por mês. No Access Pass do Panteão, ele é representado por Odin, tem status Founder, alvo oficial de US$ 4.350 em pagamento único, referência inicial de 30 SOL e oferta planejada de 50 passes.
 

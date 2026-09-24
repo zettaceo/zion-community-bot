@@ -114,6 +114,8 @@ class KnowledgeBase:
         root = self.directory.resolve()
 
         for path in sorted(self.directory.glob("*.md")):
+            if path.name.lower() == "readme.md":
+                continue
             try:
                 if path.is_symlink():
                     raise ValueError("symlink_not_allowed")

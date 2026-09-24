@@ -15,3 +15,18 @@ Rules:
    paid tier as though it represented the others.
 
 The retrieval implementation is deliberately local and simple in v1. It can later be replaced by embeddings/vector search without changing the safety contract.
+
+
+# Public-authority boundary for Z-SWAP
+
+The Z-SWAP product corpus is a curated public derivative of a pinned source snapshot. It is intentionally not a repository mirror.
+
+Rules for maintainers:
+
+1. Prefer current code-backed public behavior over stale marketing counts or historical documents.
+2. When two source files disagree, do not silently choose the more attractive claim. Reconcile it first or omit the claim.
+3. Never copy secrets, credentials, infrastructure identifiers, internal endpoints, admin routes, database internals, logs, incident evidence, pentest findings, unannounced roadmap or private business metrics into this directory.
+4. Publicly visible source code can still contain operational details that are inappropriate for community support. Public repository visibility is not the same as approval for disclosure.
+5. Record the source snapshot in each derived Z-SWAP knowledge file.
+6. If a fact depends on runtime environment or a user's account, describe the general rule and avoid claiming current account-specific state.
+7. ZION may know more internally than it is allowed to reveal. The knowledge directory contains only the revealable subset.
