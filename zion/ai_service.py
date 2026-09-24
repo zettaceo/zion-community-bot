@@ -428,6 +428,7 @@ class AIService:
         user_id: int | None,
         question: str,
         context_query: str | None = None,
+        conversation_context: str | None = None,
     ) -> AIAnswer:
         if not self.state_allows_ai():
             return AIAnswer(
@@ -441,6 +442,9 @@ class AIService:
 
         safe_question = sanitize_for_ai(question)
         safe_context_query = sanitize_for_ai(context_query or question)
+        safe_conversation_context = sanitize_for_ai(
+            conversation_context or ""
+        )[:6000]
         context = self.knowledge.render_context(safe_context_query)
         question_hash = self._hash_text(safe_question)
 
@@ -501,7 +505,11 @@ class AIService:
 
         reservation = self._reserve_budget(
             self._estimate_tokens(
-                safe_question + "\n" + context,
+                safe_question
+                + "\n"
+                + context
+                + "\n"
+                + safe_conversation_context,
                 self.settings.mistral_max_tokens,
             )
         )
@@ -517,10 +525,15 @@ class AIService:
         try:
             try:
                 async with self._semaphore:
-                    answer = await self.client.answer(
-                        question=safe_question,
-                        context=context,
-                    )
+                    client_kwargs: dict[str, str] = {
+                        "question": safe_question,
+                        "context": context,
+                    }
+                    if safe_conversation_context:
+                        client_kwargs["conversation_context"] = (
+                            safe_conversation_context
+                        )
+                    answer = await self.client.answer(**client_kwargs)
             finally:
                 self._release_budget(reservation)
 
