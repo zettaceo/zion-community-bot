@@ -322,6 +322,9 @@ class MistralBoundaryTests(unittest.TestCase):
             self.assertIn("endpoints administrativos", system)
             self.assertIn("achados de segurança", system)
             self.assertIn("Nunca infira um detalhe interno", system)
+            self.assertIn("responda com TODOS", system)
+            self.assertIn("outras compatíveis", system)
+            self.assertIn("linguagem natural e concreta", system)
 
 
 if __name__ == "__main__":
