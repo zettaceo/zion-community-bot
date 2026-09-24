@@ -220,11 +220,25 @@ class ZSwapKnowledgeCorpusTests(unittest.TestCase):
         self.kb = KnowledgeBase(ROOT / "knowledge")
 
     def test_zswap_networks_are_retrievable(self) -> None:
-        context = self.kb.render_context(
-            "quais redes blockchains a Z-SWAP suporta"
-        )
-        self.assertIn("Ethereum", context)
-        self.assertIn("Solana", context)
+        query = "Quais redes a Z-SWAP suporta atualmente?"
+        results = self.kb.search(query)
+        context = self.kb.render_context(query)
+
+        self.assertTrue(results)
+        self.assertIn("redes", results[0].heading.lower())
+        for network in (
+            "Ethereum",
+            "BNB Chain",
+            "Polygon",
+            "Base",
+            "Arbitrum",
+            "Optimism",
+            "Avalanche",
+            "Solana",
+        ):
+            with self.subTest(network=network):
+                self.assertIn(network, context)
+
         self.assertIn("ZETTA Chain", context)
         self.assertIn("coming soon", context)
 
