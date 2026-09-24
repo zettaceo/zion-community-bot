@@ -324,6 +324,7 @@ class MistralBoundaryTests(unittest.TestCase):
             self.assertIn("Nunca infira um detalhe interno", system)
             self.assertIn("responda com TODOS", system)
             self.assertIn("outras compatíveis", system)
+            self.assertIn("não acrescente tipos", system)
             self.assertIn("linguagem natural e concreta", system)
 
 
