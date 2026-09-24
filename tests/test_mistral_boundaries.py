@@ -318,6 +318,10 @@ class MistralBoundaryTests(unittest.TestCase):
             self.assertIn("Free, Pro, Trader e Pilot", system)
             self.assertIn("plano Pro com o Pilot", system)
             self.assertIn("usuário corrigir", system)
+            self.assertIn("Conhecimento interno", system)
+            self.assertIn("endpoints administrativos", system)
+            self.assertIn("achados de segurança", system)
+            self.assertIn("Nunca infira um detalhe interno", system)
 
 
 if __name__ == "__main__":
