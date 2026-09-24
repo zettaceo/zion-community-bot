@@ -773,7 +773,12 @@ async def answer_natural_conversation(
         return False
 
     rt = runtime(context)
-    previous_session = _active_group_conversation(update, context)
+    active_session = _active_group_conversation(update, context)
+    previous_session = (
+        active_session
+        if route == ConversationRoute.FOLLOW_UP
+        else None
+    )
     update_id = getattr(update, "update_id", None)
     if claim_private_update and update_id is not None:
         try:
@@ -799,13 +804,6 @@ async def answer_natural_conversation(
         if local_reply is None:
             return False
         await update.effective_message.reply_text(local_reply)
-        _remember_group_conversation(
-            rt,
-            update,
-            raw_question,
-            local_reply,
-            previous_session,
-        )
         return True
 
     question = natural_conversation_question(
