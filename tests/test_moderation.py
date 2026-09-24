@@ -594,11 +594,6 @@ class ModerationPipelineTests(unittest.TestCase):
             (second.effective_chat.id, second.effective_user.id),
             self.context.bot.restricted,
         )
-        self.assertGreater(
-            self.runtime.db.containment_remaining
-            if False else 0,
-            -1,
-        )
         summary = self.runtime.db.user_summary(
             second.effective_chat.id,
             second.effective_user.id,
