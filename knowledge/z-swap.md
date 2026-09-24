@@ -12,7 +12,7 @@ O Terminal Pro reúne gráficos de mercado, indicadores técnicos, leitura de te
 
 O explorador de risco consulta sinais de segurança de tokens, incluindo indícios de honeypot e outros alertas. Uma verificação sem alerta não elimina todos os riscos de um ativo ou contrato.
 
-# Redes disponíveis
+# Redes disponíveis, redes suportadas, chains e blockchains
 
 A experiência atual inclui Ethereum, BNB Chain, Polygon, Base, Arbitrum, Optimism, Avalanche e Solana. A ZETTA Chain aparece como uma rede futura e ainda não deve ser tratada como disponível.
 
