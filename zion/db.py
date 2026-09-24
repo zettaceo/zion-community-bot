@@ -1369,6 +1369,21 @@ class ZionDB:
             ).fetchall()
         return [int(row["message_id"]) for row in rows]
 
+    def clear_recent_messages_since(
+        self,
+        chat_id: int,
+        user_id: int,
+        since: float,
+    ) -> None:
+        with self._lock:
+            self._conn.execute(
+                """
+                DELETE FROM recent_messages
+                WHERE chat_id=? AND user_id=? AND created_at >= ?
+                """,
+                (chat_id, user_id, since),
+            )
+
     def clear_recent_messages(self, chat_id: int, user_id: int) -> None:
         with self._lock:
             self._conn.execute(
