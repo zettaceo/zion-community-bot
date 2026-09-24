@@ -1366,6 +1366,36 @@ async def protect_wallet_secret(
     return True
 
 
+async def _alert_operators_enforcement_failure(
+    context: ContextTypes.DEFAULT_TYPE,
+    *,
+    chat_id: int,
+    target_user_id: int,
+    action: str,
+    reason: str,
+) -> None:
+    rt = runtime(context)
+    for operator_id in sorted(rt.settings.admin_user_ids):
+        if operator_id == target_user_id:
+            continue
+        try:
+            await context.bot.send_message(
+                chat_id=operator_id,
+                text=(
+                    "⚠️ ZION enforcement review required. "
+                    f"Chat={chat_id}; target_user={target_user_id}; "
+                    f"action={action}; reason={reason}. "
+                    "Telegram rejected the external action; inspect the "
+                    "sanitized incident/action ledger."
+                ),
+            )
+        except Exception as exc:
+            logger.warning(
+                "Falha ao alertar operador sobre enforcement: %s",
+                type(exc).__name__,
+            )
+
+
 async def mute_user_safe(
     context: ContextTypes.DEFAULT_TYPE,
     chat_id: int,
@@ -4427,6 +4457,14 @@ async def _enforce_abuse(
                 "local_containment": True,
             },
         )
+        if not mute_success:
+            await _alert_operators_enforcement_failure(
+                context,
+                chat_id=chat.id,
+                target_user_id=user.id,
+                action="mute",
+                reason=decision.category,
+            )
 
     if decision.reporting_context:
         outcome = (
@@ -4532,6 +4570,14 @@ async def _enforce_flood(
             "deleted_messages": deleted_count,
         },
     )
+    if not success:
+        await _alert_operators_enforcement_failure(
+            context,
+            chat_id=chat.id,
+            target_user_id=user.id,
+            action=action_type,
+            reason=flood.reason,
+        )
 
     if flood.should_ban and success:
         # Outcome is durably recorded before local cleanup. A DB failure in
@@ -4566,6 +4612,14 @@ async def _enforce_flood(
                 "duration_seconds": flood.mute_seconds,
             },
         )
+        if not fallback_success:
+            await _alert_operators_enforcement_failure(
+                context,
+                chat_id=chat.id,
+                target_user_id=user.id,
+                action="mute",
+                reason=f"{flood.reason}_ban_fallback",
+            )
         action_text = (
             "ban automático falhou; "
             + (
