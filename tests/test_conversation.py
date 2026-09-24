@@ -56,15 +56,16 @@ class FakeBot:
 
     async def delete_message(self, *, chat_id: int, message_id: int):
         self.deleted.append((chat_id, message_id))
+        return True
 
     async def send_message(self, *, chat_id: int, text: str):
         self.sent.append((chat_id, text))
 
     async def restrict_chat_member(self, **kwargs):
-        return None
+        return True
 
     async def ban_chat_member(self, **kwargs):
-        return None
+        return True
 
 
 class FakeApplication:
