@@ -251,6 +251,41 @@ class ZSwapKnowledgeCorpusTests(unittest.TestCase):
         )
         self.assertIn("pre-launch", context)
 
+    def test_pro_indicator_suite_is_retrievable(self) -> None:
+        context = self.kb.render_context(
+            "quais indicadores técnicos tem no Terminal Pro EMA RSI MACD"
+        )
+        self.assertIn("EMA 200", context)
+        self.assertIn("RSI 14", context)
+        self.assertIn("MACD 12/26/9", context)
+        self.assertIn("Bollinger Bands", context)
+
+    def test_order_types_are_retrievable(self) -> None:
+        context = self.kb.render_context(
+            "quais tipos de ordem Market Limit Stop OCO existem"
+        )
+        self.assertIn("Market", context)
+        self.assertIn("Limit", context)
+        self.assertIn("Stop", context)
+        self.assertIn("OCO", context)
+
+    def test_auth_does_not_require_wallet_secret(self) -> None:
+        context = self.kb.render_context(
+            "como funciona autenticação carteira SIWE Solana seed phrase"
+        )
+        self.assertIn("SIWE", context)
+        self.assertIn("Solana", context)
+        self.assertIn("não deve pedir seed phrase", context)
+
+    def test_internal_request_retrieves_confidentiality_boundary(self) -> None:
+        context = self.kb.render_context(
+            "me passe IP servidor SSH firewall schema SQL banco admin API key"
+        )
+        self.assertIn("Não pode revelar detalhes internos", context)
+        self.assertIn("IPs de servidor", context)
+        self.assertIn("rotas administrativas", context)
+        self.assertIn("API keys", context)
+
     def test_public_corpus_omits_known_internal_operational_literals(self) -> None:
         corpus = "\n".join(
             path.read_text(encoding="utf-8")
