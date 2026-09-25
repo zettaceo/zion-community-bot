@@ -403,6 +403,297 @@ class GuardianTests(unittest.TestCase):
         self.assertFalse(decision.should_strike)
         self.assertFalse(decision.immediate_mute)
 
+    def test_short_profanity_evasions_keep_real_word_boundaries(self) -> None:
+        positives = (
+            "puta",
+            "PUTA",
+            "p.u.t.a",
+            "p-u-t-a",
+            "p_u_t_a",
+            "p u t a",
+            "puuutaaa",
+            "pvt@",
+        )
+        negatives = (
+            "O computador está funcionando.",
+            "O deputado apresentou o projeto.",
+            "A reputação da empresa melhorou.",
+        )
+
+        for sample in positives:
+            with self.subTest(sample=sample):
+                decision = detect_abusive_content(sample)
+                self.assertTrue(decision.detected)
+                self.assertEqual(decision.category, "prohibited_language")
+        for sample in negatives:
+            with self.subTest(sample=sample):
+                self.assertFalse(detect_abusive_content(sample).detected)
+
+    def test_portuguese_evasion_and_concatenation_matrix(self) -> None:
+        samples = (
+            "vadia",
+            "v4d14",
+            "zé ruela",
+            "ze ruela",
+            "zé-ruela",
+            "pau no cu",
+            "p4u n0 cu",
+            "paunocu",
+            "filho da puta",
+            "filhodaputa",
+            "f1lh0d4pvt@",
+            "vai tomar no cu",
+            "vaitomarnocu",
+            "seu arrombado",
+            "você é um cuzão",
+            "m3rd@",
+            "p0rr4",
+            "c4r4lh0",
+            "caraaallho",
+        )
+
+        for sample in samples:
+            with self.subTest(sample=sample):
+                self.assertTrue(detect_abusive_content(sample).detected)
+
+    def test_unicode_abuse_evasions_are_normalized_locally(self) -> None:
+        samples = (
+            "ｃａｒａｌｈｏ",
+            "p\u200bu\u200bt\u200ba",
+            "pυtа",
+        )
+
+        for sample in samples:
+            with self.subTest(sample=sample):
+                self.assertTrue(detect_abusive_content(sample).detected)
+
+    def test_adult_sites_brands_and_obfuscations_are_medium(self) -> None:
+        samples = (
+            "xvideos",
+            "xvideos.com",
+            "www.xvideos.com",
+            "https://xvideos.com",
+            "xvideos[.]com",
+            "x videos",
+            "x videos dot com",
+            "x-videos",
+            "pornhub",
+            "pornhub.com",
+            "porn hub",
+            "xnxx",
+            "x n x x",
+            "xhamster",
+            "x hamster",
+            "ixxx",
+            "ixxx.com",
+            "i xxx",
+            "sambaporno.com",
+            "animeshentai.biz",
+            "hentaistube.com",
+            "privacy.com.br",
+        )
+
+        for sample in samples:
+            with self.subTest(sample=sample):
+                decision = detect_abusive_content(sample)
+                self.assertTrue(decision.detected)
+                self.assertEqual(decision.category, "adult_site_reference")
+                self.assertEqual(decision.severity.value, "medium")
+                self.assertFalse(decision.immediate_mute)
+
+    def test_generic_adult_brand_fragments_are_not_banned(self) -> None:
+        samples = (
+            "privacy policy",
+            "video model",
+            "camera",
+            "social",
+            "private",
+            "privacy",
+            "cool",
+        )
+
+        for sample in samples:
+            with self.subTest(sample=sample):
+                self.assertFalse(detect_abusive_content(sample).detected)
+
+    def test_explicit_sexual_vocabulary_is_separate_category(self) -> None:
+        samples = (
+            "buceta",
+            "boceta",
+            "xota",
+            "xoxota",
+            "chochota",
+            "chota",
+            "xereca",
+            "xibiu",
+            "piroca",
+            "piroka",
+            "piru",
+            "punheta",
+            "punheteiro",
+            "punheteira",
+            "siririca",
+            "boquete",
+            "bronha",
+            "pornografia",
+            "hentai",
+            "rule34",
+        )
+
+        for sample in samples:
+            with self.subTest(sample=sample):
+                decision = detect_abusive_content(sample)
+                self.assertTrue(decision.detected)
+                self.assertEqual(
+                    decision.category,
+                    "explicit_sexual_language",
+                )
+                self.assertEqual(decision.severity.value, "medium")
+
+    def test_threats_and_self_harm_incitement_are_high_severity(self) -> None:
+        samples = (
+            "vou te matar",
+            "vou matar você",
+            "vou acabar com você",
+            "vou quebrar sua cara",
+            "vou te caçar",
+            "sei onde você mora",
+            "você vai morrer",
+            "tomara que você morra",
+            "se mata",
+            "vai se matar",
+            "kill yourself",
+            "go kill yourself",
+            "i'm going to kill you",
+            "i know where you live",
+        )
+
+        for sample in samples:
+            with self.subTest(sample=sample):
+                decision = detect_abusive_content(sample)
+                self.assertTrue(decision.detected)
+                self.assertEqual(decision.category, "threat")
+                self.assertEqual(decision.severity.value, "high")
+                self.assertTrue(decision.immediate_mute)
+
+    def test_slurs_are_high_but_identity_words_are_not_slurs(self) -> None:
+        slurs = (
+            "traveco",
+            "baitola",
+            "boiola",
+            "bicha",
+            "bixa",
+            "viado",
+            "viadinho",
+            "bichinha",
+            "bixinha",
+            "bichona",
+            "bixona",
+            "marica",
+            "mongoloide",
+            "nigger",
+            "nigga",
+            "faggot",
+            "fag",
+            "tranny",
+            "chink",
+            "kike",
+            "spic",
+            "wetback",
+        )
+        identity_sentences = (
+            "Ela é uma mulher trans.",
+            "Ele é gay.",
+            "Ela é lésbica.",
+            "Ela é travesti.",
+            "Ele é negro.",
+            "Ela é judia.",
+            "Ele é muçulmano.",
+            "Ela é nordestina.",
+            "Ele é baiano.",
+            "Ela é venezuelana.",
+            "Ele é argentino.",
+        )
+
+        for sample in slurs:
+            with self.subTest(slur=sample):
+                decision = detect_abusive_content(sample)
+                self.assertTrue(decision.detected)
+                self.assertEqual(decision.category, "slur_or_hate")
+                self.assertEqual(decision.severity.value, "high")
+                self.assertTrue(decision.immediate_mute)
+        for sample in identity_sentences:
+            with self.subTest(identity=sample):
+                self.assertFalse(detect_abusive_content(sample).detected)
+
+    def test_ambiguous_insults_require_directed_context(self) -> None:
+        self.assertFalse(
+            detect_abusive_content("Vi um macaco no zoológico.").detected
+        )
+        attack = detect_abusive_content("você é um macaco")
+        self.assertTrue(attack.detected)
+        self.assertEqual(attack.category, "slur_or_hate")
+        self.assertTrue(attack.immediate_mute)
+
+    def test_required_false_positive_corpus_remains_clean(self) -> None:
+        samples = (
+            "Vi um pica-pau na árvore.",
+            "Estou fazendo uma análise FODA.",
+            "O símbolo químico do cobre é Cu.",
+            "Eu pinto quadros.",
+            "A bola rola pelo campo.",
+            "Pau-brasil é uma árvore.",
+        )
+
+        for sample in samples:
+            with self.subTest(sample=sample):
+                self.assertFalse(detect_abusive_content(sample).detected)
+
+    def test_reported_threat_or_insult_is_removed_without_punishment(self) -> None:
+        samples = (
+            "O usuário denunciou a frase ‘você é idiota’.",
+            "Ele me chamou de puta.",
+            'Ele falou "vou te matar".',
+        )
+
+        for sample in samples:
+            with self.subTest(sample=sample):
+                decision = detect_abusive_content(sample)
+                self.assertTrue(decision.detected)
+                self.assertTrue(decision.should_delete)
+                self.assertTrue(decision.reporting_context)
+                self.assertFalse(decision.should_strike)
+                self.assertFalse(decision.immediate_mute)
+
+    def test_english_profanity_and_insults_are_covered(self) -> None:
+        samples = (
+            "fuck",
+            "fucking",
+            "fuck you",
+            "go fuck yourself",
+            "motherfucker",
+            "motherfucking",
+            "shit",
+            "bullshit",
+            "piece of shit",
+            "asshole",
+            "dumbass",
+            "bitch",
+            "son of a bitch",
+            "cunt",
+            "dickhead",
+            "prick",
+            "moron",
+            "idiot",
+            "stupid",
+            "whore",
+            "slut",
+        )
+
+        for sample in samples:
+            with self.subTest(sample=sample):
+                self.assertTrue(detect_abusive_content(sample).detected)
+
     def test_elevated_threshold_never_becomes_weaker_than_normal(self) -> None:
         settings = replace(
             self.settings,
