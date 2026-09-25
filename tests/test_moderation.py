@@ -589,6 +589,182 @@ class ModerationPipelineTests(unittest.TestCase):
             self.context.bot.restricted,
         )
 
+    def test_configured_operator_is_subject_to_language_policy(self) -> None:
+        update = fake_update(
+            user_id=1,
+            text="PUTA",
+            message_id=213,
+            update_id=9213,
+        )
+
+        asyncio.run(moderation_handler(update, self.context))
+
+        self.assertIn(
+            (update.effective_chat.id, update.effective_message.message_id),
+            self.context.bot.deleted,
+        )
+        self.assertEqual(
+            self.runtime.db.list_incidents(limit=1)[0]["category"],
+            "prohibited_language",
+        )
+        self.assertEqual(
+            self.runtime.db.user_summary(
+                update.effective_chat.id,
+                update.effective_user.id,
+            )["active_strikes"],
+            1,
+        )
+
+    def test_telegram_administrator_is_subject_to_language_policy(self) -> None:
+        self.context.bot.member_statuses[9] = ChatMemberStatus.ADMINISTRATOR
+        update = fake_update(
+            user_id=9,
+            text="p.u.t.a",
+            message_id=214,
+            update_id=9214,
+        )
+
+        asyncio.run(moderation_handler(update, self.context))
+
+        self.assertIn(
+            (update.effective_chat.id, update.effective_message.message_id),
+            self.context.bot.deleted,
+        )
+        self.assertEqual(
+            self.runtime.db.user_summary(
+                update.effective_chat.id,
+                update.effective_user.id,
+            )["active_strikes"],
+            1,
+        )
+
+    def test_threat_causes_immediate_mute(self) -> None:
+        update = fake_update(
+            user_id=34,
+            text="vou quebrar sua cara",
+            message_id=215,
+            update_id=9215,
+        )
+
+        asyncio.run(moderation_handler(update, self.context))
+
+        self.assertIn(
+            (update.effective_chat.id, update.effective_user.id),
+            self.context.bot.restricted,
+        )
+        self.assertEqual(
+            self.runtime.db.list_incidents(limit=1)[0]["category"],
+            "threat",
+        )
+
+    def test_repeated_adult_references_use_existing_escalation(self) -> None:
+        first = fake_update(
+            user_id=35,
+            text="xvideos[.]com",
+            message_id=216,
+            update_id=9216,
+        )
+        second = fake_update(
+            user_id=35,
+            text="porn hub",
+            message_id=217,
+            update_id=9217,
+        )
+
+        asyncio.run(moderation_handler(first, self.context))
+        asyncio.run(moderation_handler(second, self.context))
+
+        self.assertIn(
+            (second.effective_chat.id, second.effective_user.id),
+            self.context.bot.restricted,
+        )
+        incidents = self.runtime.db.list_incidents(limit=2)
+        self.assertTrue(
+            all(
+                item["category"] == "adult_site_reference"
+                for item in incidents
+            )
+        )
+
+    def test_plain_insult_in_reply_is_directed_abuse(self) -> None:
+        update = fake_update(
+            user_id=36,
+            text="idiota",
+            message_id=218,
+            update_id=9218,
+        )
+        update.effective_message.reply_to_message = SimpleNamespace(
+            from_user=SimpleNamespace(id=37),
+        )
+
+        asyncio.run(moderation_handler(update, self.context))
+
+        incident = self.runtime.db.list_incidents(limit=1)[0]
+        self.assertEqual(incident["category"], "directed_abuse")
+        self.assertEqual(incident["severity"], "medium")
+
+    def test_reply_to_self_does_not_invent_directed_target(self) -> None:
+        update = fake_update(
+            user_id=38,
+            text="idiota",
+            message_id=219,
+            update_id=9219,
+        )
+        update.effective_message.reply_to_message = SimpleNamespace(
+            from_user=SimpleNamespace(id=38),
+        )
+
+        asyncio.run(moderation_handler(update, self.context))
+
+        incident = self.runtime.db.list_incidents(limit=1)[0]
+        self.assertEqual(incident["category"], "prohibited_language")
+        self.assertEqual(incident["severity"], "low")
+
+    def test_hidden_adult_link_uses_adult_site_category(self) -> None:
+        update = fake_update(
+            user_id=39,
+            text="clique aqui",
+            message_id=220,
+            update_id=9220,
+        )
+        update.effective_message.entities = [
+            SimpleNamespace(
+                type="text_link",
+                url="https://xvideos.com/watch/example",
+            )
+        ]
+
+        asyncio.run(moderation_handler(update, self.context))
+
+        self.assertIn(
+            (update.effective_chat.id, update.effective_message.message_id),
+            self.context.bot.deleted,
+        )
+        incident = self.runtime.db.list_incidents(limit=1)[0]
+        self.assertEqual(incident["category"], "adult_site_reference")
+        stored = str(incident)
+        self.assertNotIn("xvideos", stored.casefold())
+        self.assertNotIn("/watch/example", stored.casefold())
+
+    def test_quoted_threat_still_causes_immediate_mute(self) -> None:
+        update = fake_update(
+            user_id=40,
+            text='"vou te matar"',
+            message_id=221,
+            update_id=9221,
+        )
+
+        asyncio.run(moderation_handler(update, self.context))
+
+        self.assertIn(
+            (update.effective_chat.id, update.effective_user.id),
+            self.context.bot.restricted,
+        )
+        self.assertEqual(
+            self.runtime.db.list_incidents(limit=1)[0]["category"],
+            "threat",
+        )
+
     def test_failed_admin_restriction_is_recorded_and_contained(self) -> None:
         self._tight_flood_settings()
         self.context.bot.member_statuses[9] = ChatMemberStatus.ADMINISTRATOR
@@ -856,11 +1032,11 @@ class ModerationPipelineTests(unittest.TestCase):
             (49,),
         ).fetchone()
         self.assertIsNotNone(action)
-        self.assertEqual(action["reason"], "prohibited_language")
+        self.assertEqual(action["reason"], "directed_abuse")
         self.assertEqual(int(action["success"]), 1)
         self.assertIn('"active_containment":true', action["metadata_json"])
         incidents = self.runtime.db.list_incidents(limit=10)
-        self.assertEqual(incidents[0]["category"], "prohibited_language")
+        self.assertEqual(incidents[0]["category"], "directed_abuse")
         strikes_after = self.runtime.db.user_summary(
             third.effective_chat.id,
             third.effective_user.id,
