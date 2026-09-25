@@ -686,6 +686,85 @@ class ModerationPipelineTests(unittest.TestCase):
             )
         )
 
+    def test_plain_insult_in_reply_is_directed_abuse(self) -> None:
+        update = fake_update(
+            user_id=36,
+            text="idiota",
+            message_id=218,
+            update_id=9218,
+        )
+        update.effective_message.reply_to_message = SimpleNamespace(
+            from_user=SimpleNamespace(id=37),
+        )
+
+        asyncio.run(moderation_handler(update, self.context))
+
+        incident = self.runtime.db.list_incidents(limit=1)[0]
+        self.assertEqual(incident["category"], "directed_abuse")
+        self.assertEqual(incident["severity"], "medium")
+
+    def test_reply_to_self_does_not_invent_directed_target(self) -> None:
+        update = fake_update(
+            user_id=38,
+            text="idiota",
+            message_id=219,
+            update_id=9219,
+        )
+        update.effective_message.reply_to_message = SimpleNamespace(
+            from_user=SimpleNamespace(id=38),
+        )
+
+        asyncio.run(moderation_handler(update, self.context))
+
+        incident = self.runtime.db.list_incidents(limit=1)[0]
+        self.assertEqual(incident["category"], "prohibited_language")
+        self.assertEqual(incident["severity"], "low")
+
+    def test_hidden_adult_link_uses_adult_site_category(self) -> None:
+        update = fake_update(
+            user_id=39,
+            text="clique aqui",
+            message_id=220,
+            update_id=9220,
+        )
+        update.effective_message.entities = [
+            SimpleNamespace(
+                type="text_link",
+                url="https://xvideos.com/watch/example",
+            )
+        ]
+
+        asyncio.run(moderation_handler(update, self.context))
+
+        self.assertIn(
+            (update.effective_chat.id, update.effective_message.message_id),
+            self.context.bot.deleted,
+        )
+        incident = self.runtime.db.list_incidents(limit=1)[0]
+        self.assertEqual(incident["category"], "adult_site_reference")
+        stored = str(incident)
+        self.assertNotIn("xvideos", stored.casefold())
+        self.assertNotIn("/watch/example", stored.casefold())
+
+    def test_quoted_threat_still_causes_immediate_mute(self) -> None:
+        update = fake_update(
+            user_id=40,
+            text='"vou te matar"',
+            message_id=221,
+            update_id=9221,
+        )
+
+        asyncio.run(moderation_handler(update, self.context))
+
+        self.assertIn(
+            (update.effective_chat.id, update.effective_user.id),
+            self.context.bot.restricted,
+        )
+        self.assertEqual(
+            self.runtime.db.list_incidents(limit=1)[0]["category"],
+            "threat",
+        )
+
     def test_failed_admin_restriction_is_recorded_and_contained(self) -> None:
         self._tight_flood_settings()
         self.context.bot.member_statuses[9] = ChatMemberStatus.ADMINISTRATOR

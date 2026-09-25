@@ -665,6 +665,77 @@ class GuardianTests(unittest.TestCase):
                 self.assertFalse(decision.should_strike)
                 self.assertFalse(decision.immediate_mute)
 
+    def test_quotes_alone_cannot_bypass_punishment(self) -> None:
+        samples = (
+            ('você é "idiota"', "directed_abuse", False),
+            ('"vou te matar"', "threat", True),
+            ('"nigger"', "slur_or_hate", True),
+        )
+
+        for sample, category, immediate_mute in samples:
+            with self.subTest(sample=sample):
+                decision = detect_abusive_content(sample)
+                self.assertTrue(decision.detected)
+                self.assertEqual(decision.category, category)
+                self.assertFalse(decision.reporting_context)
+                self.assertTrue(decision.should_strike)
+                self.assertEqual(decision.immediate_mute, immediate_mute)
+
+    def test_explicit_citation_context_still_suppresses_punishment(self) -> None:
+        decision = detect_abusive_content('citando “nigger”')
+        self.assertTrue(decision.detected)
+        self.assertTrue(decision.reporting_context)
+        self.assertTrue(decision.should_delete)
+        self.assertFalse(decision.should_strike)
+        self.assertFalse(decision.immediate_mute)
+
+    def test_reporting_words_appended_to_abuse_do_not_bypass_policy(self) -> None:
+        samples = (
+            "você é idiota, estou denunciando",
+            "vou te matar relato",
+            "nigger quote",
+            "puta denuncia",
+            "idiota citando",
+        )
+
+        for sample in samples:
+            with self.subTest(sample=sample):
+                decision = detect_abusive_content(sample)
+                self.assertTrue(decision.detected)
+                self.assertFalse(decision.reporting_context)
+                self.assertTrue(decision.should_strike)
+
+    def test_symbol_leetspeak_is_bounded_and_detected(self) -> None:
+        for sample in ("!d!0t@", "|d|0t@", "você é !d!0t@"):
+            with self.subTest(sample=sample):
+                self.assertTrue(detect_abusive_content(sample).detected)
+
+        self.assertFalse(detect_abusive_content("atenção!").detected)
+
+    def test_adult_domains_written_with_dot_or_ponto_are_detected(self) -> None:
+        samples = (
+            "privacy dot com dot br",
+            "privacy ponto com ponto br",
+            "privacy[dot]com[dot]br",
+            "hiper dot cool",
+        )
+
+        for sample in samples:
+            with self.subTest(sample=sample):
+                decision = detect_abusive_content(sample)
+                self.assertTrue(decision.detected)
+                self.assertEqual(decision.category, "adult_site_reference")
+
+    def test_reply_hint_makes_plain_insult_directed(self) -> None:
+        isolated = detect_abusive_content("idiota")
+        reply = detect_abusive_content("idiota", directed_hint=True)
+
+        self.assertEqual(isolated.category, "prohibited_language")
+        self.assertEqual(isolated.severity.value, "low")
+        self.assertEqual(reply.category, "directed_abuse")
+        self.assertEqual(reply.severity.value, "medium")
+        self.assertTrue(reply.directed)
+
     def test_english_profanity_and_insults_are_covered(self) -> None:
         samples = (
             "fuck",

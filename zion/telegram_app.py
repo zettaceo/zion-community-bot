@@ -720,7 +720,13 @@ def conversation_route(
     if (
         update.effective_chat
         and update.effective_chat.type != "private"
-        and runtime(context).guardian.evaluate_abuse(raw).detected
+        and runtime(context).guardian.evaluate_abuse(
+            telegram_abuse_surface(update.effective_message, raw),
+            directed_hint=telegram_reply_targets_other_user(
+                update.effective_message,
+                getattr(update.effective_user, "id", None),
+            ),
+        ).detected
     ):
         return ConversationRoute.MODERATE_ONLY
 
@@ -944,6 +950,27 @@ def _telegram_link_candidates(
 def telegram_external_urls(message: Any) -> list[str]:
     targets, _, _ = _telegram_link_candidates(message)
     return targets
+
+
+def telegram_abuse_surface(message: Any, visible_text: str) -> str:
+    # Hidden Telegram links and button URLs are user-supplied content too.
+    # The returned surface is evaluated in memory and is never persisted.
+    return "\n".join((visible_text or "", *telegram_external_urls(message)))
+
+
+def telegram_reply_targets_other_user(
+    message: Any,
+    user_id: int | None,
+) -> bool:
+    replied = getattr(message, "reply_to_message", None)
+    target = getattr(replied, "from_user", None)
+    target_id = getattr(target, "id", None)
+    if target_id is None or user_id is None:
+        return False
+    try:
+        return int(target_id) != int(user_id)
+    except (TypeError, ValueError):
+        return False
 
 
 def telegram_entity_link_evidence(
@@ -4878,6 +4905,8 @@ async def command_guard_handler(
     record_user(update, context, increment_messages=True)
 
     text = message.text or message.caption or ""
+    abuse_surface = telegram_abuse_surface(message, text)
+    directed_hint = telegram_reply_targets_other_user(message, user.id)
     sensitive_surface = telegram_sensitive_surface(message, text)
     if await protect_credential_exposure(
         update,
@@ -4956,7 +4985,10 @@ async def command_guard_handler(
 
     remaining = rt.guardian.containment_remaining(chat.id, user.id)
     if remaining > 0:
-        abuse = rt.guardian.evaluate_abuse(text)
+        abuse = rt.guardian.evaluate_abuse(
+            abuse_surface,
+            directed_hint=directed_hint,
+        )
         if abuse.detected:
             await _enforce_abuse(
                 update,
@@ -5006,7 +5038,10 @@ async def command_guard_handler(
         await _enforce_flood(update, context, flood)
         raise ApplicationHandlerStop
 
-    abuse = rt.guardian.evaluate_abuse(text)
+    abuse = rt.guardian.evaluate_abuse(
+        abuse_surface,
+        directed_hint=directed_hint,
+    )
     if abuse.detected:
         await _enforce_abuse(update, context, abuse)
         raise ApplicationHandlerStop
@@ -5080,6 +5115,8 @@ async def moderation_handler(
     # Segredos são protegidos para TODOS, inclusive administradores.
     # Admin não deve perder esta camada por causa da isenção de moderação.
     text = message.text or message.caption or ""
+    abuse_surface = telegram_abuse_surface(message, text)
+    directed_hint = telegram_reply_targets_other_user(message, user.id)
     sensitive_surface = telegram_sensitive_surface(message, text)
     if await protect_credential_exposure(
         update,
@@ -5161,7 +5198,10 @@ async def moderation_handler(
 
     remaining = rt.guardian.containment_remaining(chat.id, user.id)
     if remaining > 0:
-        abuse = rt.guardian.evaluate_abuse(text)
+        abuse = rt.guardian.evaluate_abuse(
+            abuse_surface,
+            directed_hint=directed_hint,
+        )
         if abuse.detected:
             await _enforce_abuse(
                 update,
@@ -5211,7 +5251,10 @@ async def moderation_handler(
         await _enforce_flood(update, context, flood)
         return
 
-    abuse = rt.guardian.evaluate_abuse(text)
+    abuse = rt.guardian.evaluate_abuse(
+        abuse_surface,
+        directed_hint=directed_hint,
+    )
     if abuse.detected:
         await _enforce_abuse(update, context, abuse)
         return
