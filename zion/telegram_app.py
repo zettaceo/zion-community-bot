@@ -4470,6 +4470,11 @@ async def _enforce_abuse(
                 reasons=(
                     "prohibited_language",
                     "directed_abuse",
+                    "explicit_sexual_language",
+                    "adult_site_reference",
+                    "threat",
+                    "slur_or_hate",
+                    # Count strikes recorded before the categories were split.
                     "threat_or_slur",
                 ),
             )
