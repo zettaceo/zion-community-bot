@@ -1,0 +1,12 @@
+[Unit]
+Description=Run ZION Wi-Fi Guardian every minute
+
+[Timer]
+OnBootSec=60
+OnUnitActiveSec=60
+AccuracySec=5
+Persistent=true
+Unit=zion-wifi-guardian.service
+
+[Install]
+WantedBy=timers.target

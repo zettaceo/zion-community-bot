@@ -1,0 +1,243 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+export PATH
+
+SCRIPT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+EXPECTED_USER="zetta"
+SRC="$SCRIPT_ROOT/ops/sshd/00-zion-remote.conf"
+DST="/etc/ssh/sshd_config.d/00-zion-remote.conf"
+SSH_DIR="/home/zetta/.ssh"
+AUTHORIZED_KEYS="/home/zetta/.ssh/authorized_keys"
+BACKUP_PARENT="/var/lib/zion-community-bot"
+BACKUP_DIR="$BACKUP_PARENT/ssh-hardening-backups"
+
+if [[ "${ZION_REMOTE_ACCESS_PROVEN:-}" != "YES" ]]; then
+  echo "ERRO: defina ZION_REMOTE_ACCESS_PROVEN=YES somente após login por chave validado." >&2
+  exit 2
+fi
+if [[ "${ZION_HOSTKEY_PROVEN:-}" != "YES" ]]; then
+  echo "ERRO: defina ZION_HOSTKEY_PROVEN=YES somente após comparar o fingerprint ED25519 fora de banda." >&2
+  exit 2
+fi
+
+if [[ "$(id -un)" != "$EXPECTED_USER" ]]; then
+  echo "ERRO: execute como $EXPECTED_USER, não como root." >&2
+  exit 2
+fi
+
+if [[ ! -f "$SRC" || -L "$SRC" ]]; then
+  echo "ERRO: template sshd ausente ou symlink: $SRC" >&2
+  exit 2
+fi
+
+if ! command -v tailscale >/dev/null 2>&1; then
+  echo "ERRO: Tailscale não está instalado." >&2
+  exit 2
+fi
+
+tailscale_ip="$(tailscale ip -4 2>/dev/null | head -n1 || true)"
+if [[ -z "$tailscale_ip" ]]; then
+  echo "ERRO: Tailscale não possui IPv4 ativo." >&2
+  exit 2
+fi
+
+/usr/bin/python3 -I - "$tailscale_ip" <<'PY'
+import ipaddress
+import sys
+address = ipaddress.ip_address(sys.argv[1])
+if address not in ipaddress.ip_network("100.64.0.0/10"):
+    raise SystemExit("Tailscale IPv4 fora de 100.64.0.0/10")
+PY
+
+if [[ -n "${SSH_CONNECTION:-}" ]]; then
+  source_ip="${SSH_CONNECTION%% *}"
+elif [[ "${ZION_PHYSICAL_CONSOLE:-}" == "YES" && -n "${ZION_TAILSCALE_CLIENT_IP:-}" ]]; then
+  source_ip="$ZION_TAILSCALE_CLIENT_IP"
+else
+  echo "ERRO: é necessário um contexto real de cliente Tailscale. Use uma sessão SSH Tailscale ou, no console físico, informe ZION_TAILSCALE_CLIENT_IP." >&2
+  exit 2
+fi
+
+/usr/bin/python3 -I - "$source_ip" <<'PY'
+import ipaddress
+import sys
+address = ipaddress.ip_address(sys.argv[1])
+tailscale_v4 = ipaddress.ip_network("100.64.0.0/10")
+tailscale_v6 = ipaddress.ip_network("fd7a:115c:a1e0::/48")
+if address not in tailscale_v4 and address not in tailscale_v6:
+    raise SystemExit(
+        "Cliente informado não pertence ao espaço de endereços Tailscale."
+    )
+PY
+
+if [[ ! -d "$SSH_DIR" || -L "$SSH_DIR" ]]; then
+  echo "ERRO: $SSH_DIR ausente ou symlink." >&2
+  exit 2
+fi
+if [[ "$(stat -c '%a' "$SSH_DIR")" != "700" ]]; then
+  echo "ERRO: $SSH_DIR deve ter modo 700." >&2
+  exit 2
+fi
+if [[ "$(stat -c '%U' "$SSH_DIR")" != "$EXPECTED_USER" ]]; then
+  echo "ERRO: $SSH_DIR deve pertencer a $EXPECTED_USER." >&2
+  exit 2
+fi
+
+if [[ ! -f "$AUTHORIZED_KEYS" || -L "$AUTHORIZED_KEYS" ]]; then
+  echo "ERRO: authorized_keys ausente ou symlink." >&2
+  exit 2
+fi
+if [[ "$(stat -c '%h' "$AUTHORIZED_KEYS")" != "1" ]]; then
+  echo "ERRO: authorized_keys hard-linked; abortando." >&2
+  exit 2
+fi
+if [[ "$(stat -c '%a' "$AUTHORIZED_KEYS")" != "600" ]]; then
+  echo "ERRO: authorized_keys deve ter modo 600." >&2
+  exit 2
+fi
+if [[ "$(stat -c '%U' "$AUTHORIZED_KEYS")" != "$EXPECTED_USER" ]]; then
+  echo "ERRO: authorized_keys deve pertencer a $EXPECTED_USER." >&2
+  exit 2
+fi
+if ! grep -Eq '^[[:space:]]*(ssh-ed25519|sk-ssh-ed25519@openssh.com|ecdsa-sha2-nistp(256|384|521)|sk-ecdsa-sha2-nistp256@openssh.com|ssh-rsa)[[:space:]]+' "$AUTHORIZED_KEYS"; then
+  echo "ERRO: nenhuma chave pública reconhecida em authorized_keys." >&2
+  exit 2
+fi
+
+if [[ -e "$DST" || -L "$DST" ]]; then
+  if [[ ! -f "$DST" || -L "$DST" ]]; then
+    echo "ERRO: drop-in SSH existente não é arquivo regular: $DST" >&2
+    exit 2
+  fi
+  if [[ "$(stat -c '%h' "$DST")" != "1" ]]; then
+    echo "ERRO: drop-in SSH existente possui hard links." >&2
+    exit 2
+  fi
+  if [[ "$(stat -c '%U:%G' "$DST")" != "root:root" ]]; then
+    echo "ERRO: drop-in SSH existente deve pertencer a root:root." >&2
+    exit 2
+  fi
+fi
+
+if [[ -L "$BACKUP_PARENT" || -L "$BACKUP_DIR" ]]; then
+  echo "ERRO: diretório de backup SSH não pode ser symlink." >&2
+  exit 2
+fi
+
+sudo /usr/bin/install -d -o root -g root -m 0755 "$BACKUP_PARENT"
+sudo /usr/bin/install -d -o root -g root -m 0700 "$BACKUP_DIR"
+
+if [[ "$(sudo /usr/bin/stat -c '%U:%G:%a' "$BACKUP_PARENT")" != "root:root:755" ]]; then
+  echo "ERRO: diretório pai de backup SSH possui ownership/mode inesperado." >&2
+  exit 2
+fi
+if [[ "$(sudo /usr/bin/stat -c '%U:%G:%a' "$BACKUP_DIR")" != "root:root:700" ]]; then
+  echo "ERRO: diretório de backup SSH deve ser root:root 0700." >&2
+  exit 2
+fi
+
+stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+backup=""
+had_previous=false
+mutated=false
+
+rollback() {
+  if [[ "$mutated" != true ]]; then
+    return
+  fi
+  echo "Falha após mutação; restaurando configuração SSH anterior..." >&2
+  if [[ "$had_previous" == true && -n "$backup" ]]; then
+    sudo /usr/bin/install -o root -g root -m 0644 "$backup" "$DST"
+  else
+    sudo /usr/bin/rm -f "$DST"
+  fi
+  sudo /usr/sbin/sshd -t
+  sudo /usr/bin/systemctl reload ssh.service 2>/dev/null \
+    || sudo /usr/bin/systemctl reload sshd.service 2>/dev/null \
+    || true
+}
+trap rollback ERR
+
+if [[ -f "$DST" ]]; then
+  backup="$BACKUP_DIR/00-zion-remote.$stamp.$BASHPID.conf"
+  sudo /usr/bin/install \
+    -o root \
+    -g root \
+    -m 0600 \
+    "$DST" \
+    "$backup"
+  had_previous=true
+  if [[ "$(sudo /usr/bin/stat -c '%U:%G:%a' "$backup")" != "root:root:600" ]]; then
+    echo "ERRO: backup SSH não ficou root:root 0600." >&2
+    exit 2
+  fi
+fi
+
+sudo /usr/bin/install -o root -g root -m 0644 "$SRC" "$DST"
+mutated=true
+
+sudo /usr/sbin/sshd -t
+
+sudo /usr/bin/systemctl reload ssh.service 2>/dev/null \
+  || sudo /usr/bin/systemctl reload sshd.service
+
+if ! /usr/bin/systemctl is-active --quiet ssh.service 2>/dev/null \
+  && ! /usr/bin/systemctl is-active --quiet sshd.service 2>/dev/null; then
+  echo "ERRO: serviço SSH não está ativo após reload." >&2
+  exit 1
+fi
+
+context="user=$EXPECTED_USER,host=zion-server,addr=$source_ip,laddr=$tailscale_ip,lport=22"
+effective="$(sudo /usr/sbin/sshd -T -C "$context")"
+declare -a required=(
+  "passwordauthentication no"
+  "kbdinteractiveauthentication no"
+  "permitrootlogin no"
+  "pubkeyauthentication yes"
+  "authenticationmethods publickey"
+  "permitemptypasswords no"
+  "strictmodes yes"
+  "authorizedkeyscommand none"
+  "trustedusercakeys none"
+  "authorizedprincipalsfile none"
+  "allowagentforwarding no"
+  "allowtcpforwarding no"
+  "allowstreamlocalforwarding no"
+  "x11forwarding no"
+  "gatewayports no"
+  "permittunnel no"
+  "permituserenvironment no"
+  "maxauthtries 3"
+  "maxsessions 4"
+  "logingracetime 30"
+  "loglevel VERBOSE"
+)
+for item in "${required[@]}"; do
+  if ! grep -Fqx "$item" <<<"$effective"; then
+    echo "ERRO: sshd efetivo não contém '$item'." >&2
+    exit 1
+  fi
+done
+
+if ! grep -Eq '^authorizedkeysfile .*\.ssh/authorized_keys( |$)' <<<"$effective"; then
+  echo "ERRO: AuthorizedKeysFile efetivo não inclui .ssh/authorized_keys." >&2
+  exit 1
+fi
+if ! grep -Eq "^allowusers( .*)? $EXPECTED_USER( |$)|^allowusers $EXPECTED_USER$" <<<"$effective"; then
+  echo "ERRO: AllowUsers efetivo não inclui $EXPECTED_USER." >&2
+  exit 1
+fi
+
+trap - ERR
+mutated=false
+
+echo "SSH hardening aplicado e validado com sshd -t."
+if [[ -r /etc/ssh/ssh_host_ed25519_key.pub ]]; then
+  echo "Fingerprint do host para conferir no segundo cliente:"
+  ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub
+fi
+echo "MANTENHA ESTA SESSÃO ABERTA."
+echo "Abra uma segunda sessão via Tailscale e valide public-key auth antes de encerrar a sessão atual."
+echo "Firewall/roteador não foram alterados por este script."

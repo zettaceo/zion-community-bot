@@ -1,0 +1,1133 @@
+from __future__ import annotations
+
+import asyncio
+import tempfile
+import unittest
+from dataclasses import replace
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
+
+from telegram.constants import ChatMemberStatus
+from telegram.ext import ApplicationHandlerStop
+
+from tests.helpers import make_settings
+from zion.guardian import Guardian
+from zion.telegram_app import (
+    Runtime,
+    command_guard_handler,
+    command_idempotency_guard_handler,
+    is_operator,
+    moderation_handler,
+    telegram_entity_domains,
+    telegram_entity_link_evidence,
+)
+
+
+class FakeBot:
+    def __init__(self) -> None:
+        self.deleted: list[tuple[int, int]] = []
+        self.sent: list[tuple[int, str]] = []
+        self.restricted: list[tuple[int, int]] = []
+        self.banned: list[tuple[int, int]] = []
+        self.member_statuses: dict[int, str] = {}
+        self.fail_restrict_users: set[int] = set()
+        self.delete_results: list[bool | None | Exception] = []
+
+    async def get_chat_member(self, chat_id: int, user_id: int):
+        return SimpleNamespace(
+            status=self.member_statuses.get(
+                user_id,
+                ChatMemberStatus.MEMBER,
+            )
+        )
+
+    async def delete_message(self, *, chat_id: int, message_id: int):
+        self.deleted.append((chat_id, message_id))
+        if self.delete_results:
+            result = self.delete_results.pop(0)
+            if isinstance(result, Exception):
+                raise result
+            return result
+        return True
+
+    async def send_message(self, *, chat_id: int, text: str):
+        self.sent.append((chat_id, text))
+
+    async def restrict_chat_member(
+        self,
+        *,
+        chat_id: int,
+        user_id: int,
+        permissions,
+        until_date,
+    ):
+        if user_id in self.fail_restrict_users:
+            raise RuntimeError("synthetic Telegram admin restriction failure")
+        self.restricted.append((chat_id, user_id))
+        return True
+
+    async def ban_chat_member(
+        self,
+        *,
+        chat_id: int,
+        user_id: int,
+        revoke_messages: bool,
+    ):
+        self.banned.append((chat_id, user_id))
+        return True
+
+
+class FakeApplication:
+    def __init__(self, runtime: Runtime) -> None:
+        self.bot_data = {"zion_runtime": runtime}
+        self.tasks = []
+
+    def create_task(self, coro, *, update=None):
+        task = asyncio.create_task(coro)
+        self.tasks.append(task)
+        return task
+
+
+class FakeContext:
+    def __init__(self, runtime: Runtime) -> None:
+        self.bot = FakeBot()
+        self.application = FakeApplication(runtime)
+
+
+def fake_update(
+    *,
+    user_id: int,
+    text: str | None,
+    message_id: int = 10,
+    update_id: int | None = None,
+):
+    user = SimpleNamespace(
+        id=user_id,
+        username=f"user{user_id}",
+        first_name=f"User {user_id}",
+        language_code="pt",
+    )
+    chat = SimpleNamespace(
+        id=-100123,
+        type="supergroup",
+    )
+    message = SimpleNamespace(
+        message_id=message_id,
+        text=text,
+        caption=None,
+    )
+    return SimpleNamespace(
+        update_id=message_id if update_id is None else update_id,
+        effective_message=message,
+        effective_user=user,
+        effective_chat=chat,
+    )
+
+
+class ModerationPipelineTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temp = tempfile.TemporaryDirectory()
+        self.root = Path(self.temp.name)
+        (self.root / "knowledge").mkdir()
+        self.settings = make_settings(self.root)
+        self.runtime = Runtime(self.settings)
+        self.context = FakeContext(self.runtime)
+
+    def tearDown(self) -> None:
+        self.runtime.close()
+        self.temp.cleanup()
+
+    def test_duplicate_command_update_is_suppressed(self) -> None:
+        update = fake_update(
+            user_id=1,
+            text="/status",
+            message_id=77,
+            update_id=9001,
+        )
+
+        asyncio.run(
+            command_idempotency_guard_handler(
+                update,
+                self.context,
+            )
+        )
+
+        with self.assertRaises(ApplicationHandlerStop):
+            asyncio.run(
+                command_idempotency_guard_handler(
+                    update,
+                    self.context,
+                )
+            )
+
+    def test_command_idempotency_db_failure_is_fail_closed(self) -> None:
+        update = fake_update(
+            user_id=1,
+            text="/status",
+            message_id=78,
+            update_id=9002,
+        )
+        original = self.runtime.db.claim_idempotency_key
+
+        def fail(*args, **kwargs):
+            raise RuntimeError("forced idempotency failure")
+
+        self.runtime.db.claim_idempotency_key = fail
+        try:
+            with self.assertRaises(ApplicationHandlerStop):
+                asyncio.run(
+                    command_idempotency_guard_handler(
+                        update,
+                        self.context,
+                    )
+                )
+        finally:
+            self.runtime.db.claim_idempotency_key = original
+
+    def test_command_idempotency_failure_still_deletes_secret(self) -> None:
+        update = fake_update(
+            user_id=1,
+            text="/status API key: example-secret-value-123456",
+            message_id=89,
+            update_id=9003,
+        )
+        original = self.runtime.db.claim_idempotency_key
+        claim_attempted = False
+
+        def fail(*args, **kwargs):
+            nonlocal claim_attempted
+            claim_attempted = True
+            raise RuntimeError("forced idempotency failure")
+
+        self.runtime.db.claim_idempotency_key = fail
+        try:
+            with self.assertRaises(ApplicationHandlerStop):
+                asyncio.run(
+                    command_idempotency_guard_handler(
+                        update,
+                        self.context,
+                    )
+                )
+        finally:
+            self.runtime.db.claim_idempotency_key = original
+
+        self.assertFalse(claim_attempted)
+        self.assertIn(
+            (update.effective_chat.id, update.effective_message.message_id),
+            self.context.bot.deleted,
+        )
+
+    def test_telegram_url_entities_are_extracted(self) -> None:
+        url_entity = SimpleNamespace(
+            type="url",
+            url=None,
+        )
+        hidden_entity = SimpleNamespace(
+            type="text_link",
+            url="https://hidden.example/path",
+        )
+        message = SimpleNamespace(
+            entities=[url_entity, hidden_entity],
+            caption_entities=[],
+            parse_entity=lambda entity: "bare.example",
+            parse_caption_entity=lambda entity: "",
+        )
+
+        domains = telegram_entity_domains(message)
+
+        self.assertIn("bare.example", domains)
+        self.assertIn("hidden.example", domains)
+
+    def test_hidden_tg_scheme_is_blocked(self) -> None:
+        hidden_entity = SimpleNamespace(
+            type="text_link",
+            url="tg://resolve?domain=example",
+        )
+        update = fake_update(
+            user_id=2,
+            text="clique aqui",
+            message_id=79,
+        )
+        update.effective_message.entities = [hidden_entity]
+        update.effective_message.caption_entities = []
+        update.effective_message.parse_entity = lambda entity: ""
+        update.effective_message.parse_caption_entity = lambda entity: ""
+
+        domains, schemes = telegram_entity_link_evidence(
+            update.effective_message
+        )
+        self.assertEqual(domains, [])
+        self.assertEqual(schemes, ["tg"])
+
+        asyncio.run(moderation_handler(update, self.context))
+
+        self.assertIn(
+            (update.effective_chat.id, update.effective_message.message_id),
+            self.context.bot.deleted,
+        )
+        incidents = self.runtime.db.list_incidents()
+        self.assertEqual(incidents[0]["category"], "unauthorized_link")
+        self.assertEqual(incidents[0]["severity"], "medium")
+
+    def test_caption_hidden_link_is_checked(self) -> None:
+        hidden_entity = SimpleNamespace(
+            type="text_link",
+            url="https://hidden.example/path",
+        )
+        update = fake_update(
+            user_id=2,
+            text=None,
+            message_id=80,
+        )
+        update.effective_message.caption = "imagem"
+        update.effective_message.entities = []
+        update.effective_message.caption_entities = [hidden_entity]
+        update.effective_message.parse_entity = lambda entity: ""
+        update.effective_message.parse_caption_entity = lambda entity: ""
+
+        asyncio.run(moderation_handler(update, self.context))
+
+        self.assertIn(
+            (update.effective_chat.id, update.effective_message.message_id),
+            self.context.bot.deleted,
+        )
+
+    def test_fullwidth_obfuscated_link_is_deleted(self) -> None:
+        update = fake_update(
+            user_id=2,
+            text="veja ｈｔｔｐｓ：／／evil.example/path",
+            message_id=81,
+        )
+        asyncio.run(moderation_handler(update, self.context))
+
+        self.assertIn(
+            (update.effective_chat.id, update.effective_message.message_id),
+            self.context.bot.deleted,
+        )
+
+    def test_link_entity_overflow_fails_closed(self) -> None:
+        entities = [
+            SimpleNamespace(
+                type="text_link",
+                url=f"https://host{index}.example/path",
+            )
+            for index in range(21)
+        ]
+        message = SimpleNamespace(
+            entities=entities,
+            caption_entities=[],
+            parse_entity=lambda entity: "",
+            parse_caption_entity=lambda entity: "",
+        )
+
+        domains, schemes = telegram_entity_link_evidence(message)
+
+        self.assertEqual(len(domains), 20)
+        self.assertIn("too-many-link-entities", schemes)
+
+    def test_unparseable_url_entity_fails_closed(self) -> None:
+        url_entity = SimpleNamespace(
+            type="url",
+            url=None,
+        )
+        update = fake_update(
+            user_id=2,
+            text="clique",
+            message_id=83,
+            update_id=5083,
+        )
+        update.effective_message.entities = [url_entity]
+        update.effective_message.caption_entities = []
+
+        def broken_parser(entity):
+            raise ValueError("forced parser failure")
+
+        update.effective_message.parse_entity = broken_parser
+        update.effective_message.parse_caption_entity = lambda entity: ""
+
+        domains, schemes = telegram_entity_link_evidence(
+            update.effective_message
+        )
+        self.assertEqual(domains, [])
+        self.assertIn("unparseable-url-entity", schemes)
+
+        asyncio.run(moderation_handler(update, self.context))
+
+        self.assertIn(
+            (update.effective_chat.id, update.effective_message.message_id),
+            self.context.bot.deleted,
+        )
+
+    def test_explicit_operator_allowlist(self) -> None:
+        operator = fake_update(
+            user_id=1,
+            text="/status",
+        )
+        member = fake_update(
+            user_id=2,
+            text="/status",
+        )
+
+        self.assertTrue(is_operator(operator, self.context))
+        self.assertFalse(is_operator(member, self.context))
+
+    def test_duplicate_moderation_update_does_not_repeat_action(self) -> None:
+        first = fake_update(
+            user_id=2,
+            text="veja https://duplicate.example/path",
+            message_id=88,
+            update_id=5001,
+        )
+        duplicate = fake_update(
+            user_id=2,
+            text="veja https://duplicate.example/path",
+            message_id=88,
+            update_id=5001,
+        )
+
+        asyncio.run(moderation_handler(first, self.context))
+        asyncio.run(moderation_handler(duplicate, self.context))
+
+        self.assertEqual(
+            self.context.bot.deleted.count(
+                (first.effective_chat.id, first.effective_message.message_id)
+            ),
+            1,
+        )
+        incidents = [
+            item
+            for item in self.runtime.db.list_incidents(limit=10)
+            if item["category"] == "unauthorized_link"
+        ]
+        self.assertEqual(len(incidents), 1)
+
+    def test_unicode_lookalike_link_is_medium_severity_incident(self) -> None:
+        update = fake_update(
+            user_id=2,
+            text="https://еxample.com/login",
+            message_id=84,
+            update_id=5084,
+        )
+        asyncio.run(moderation_handler(update, self.context))
+
+        incidents = self.runtime.db.list_incidents(limit=10)
+        self.assertEqual(incidents[0]["category"], "unauthorized_link")
+        self.assertEqual(incidents[0]["severity"], "medium")
+
+    def test_member_unauthorized_link_is_deleted(self) -> None:
+        update = fake_update(
+            user_id=2,
+            text="veja https://example.com/agora",
+        )
+        asyncio.run(moderation_handler(update, self.context))
+
+        self.assertIn(
+            (update.effective_chat.id, update.effective_message.message_id),
+            self.context.bot.deleted,
+        )
+
+    def test_admin_hidden_entity_credential_is_still_protected(self) -> None:
+        hidden_entity = SimpleNamespace(
+            type="text_link",
+            url=(
+                "https://trusted.example/path?"
+                "api_key=example-secret-value-123456"
+            ),
+        )
+        update = fake_update(
+            user_id=1,
+            text="documentação",
+            message_id=82,
+            update_id=5082,
+        )
+        update.effective_message.entities = [hidden_entity]
+        update.effective_message.caption_entities = []
+        update.effective_message.parse_entity = lambda entity: ""
+        update.effective_message.parse_caption_entity = lambda entity: ""
+
+        asyncio.run(moderation_handler(update, self.context))
+
+        self.assertIn(
+            (update.effective_chat.id, update.effective_message.message_id),
+            self.context.bot.deleted,
+        )
+        incidents = self.runtime.db.list_incidents()
+        self.assertEqual(
+            incidents[0]["category"],
+            "possible_credential_exposure",
+        )
+
+    def test_configured_operator_link_is_not_exempt_from_policy(self) -> None:
+        update = fake_update(
+            user_id=1,
+            text="admin https://example.com/status",
+        )
+        asyncio.run(moderation_handler(update, self.context))
+
+        self.assertIn(
+            (update.effective_chat.id, update.effective_message.message_id),
+            self.context.bot.deleted,
+        )
+
+    def test_admin_wallet_secret_is_still_protected(self) -> None:
+        update = fake_update(
+            user_id=1,
+            text=(
+                "seed phrase: alpha beta gamma delta epsilon zeta "
+                "eta theta iota kappa lambda mu"
+            ),
+        )
+        asyncio.run(moderation_handler(update, self.context))
+
+        self.assertIn(
+            (update.effective_chat.id, update.effective_message.message_id),
+            self.context.bot.deleted,
+        )
+        incidents = self.runtime.db.list_incidents()
+        self.assertEqual(incidents[0]["category"], "possible_wallet_secret")
+
+    def test_admin_credential_exposure_is_still_protected(self) -> None:
+        update = fake_update(
+            user_id=1,
+            text="API key: example-secret-value-123456",
+            message_id=19,
+        )
+        asyncio.run(moderation_handler(update, self.context))
+
+        self.assertIn(
+            (update.effective_chat.id, update.effective_message.message_id),
+            self.context.bot.deleted,
+        )
+        incidents = self.runtime.db.list_incidents()
+        self.assertEqual(
+            incidents[0]["category"],
+            "possible_credential_exposure",
+        )
+
+    def test_admin_command_credential_is_protected(self) -> None:
+        update = fake_update(
+            user_id=1,
+            text="/announce API key: example-secret-value-123456",
+            message_id=20,
+        )
+        with self.assertRaises(ApplicationHandlerStop):
+            asyncio.run(command_guard_handler(update, self.context))
+
+        self.assertIn(
+            (update.effective_chat.id, update.effective_message.message_id),
+            self.context.bot.deleted,
+        )
+
+    def test_command_link_cannot_bypass_link_policy(self) -> None:
+        update = fake_update(
+            user_id=2,
+            text="/ask veja https://example.com/agora",
+            message_id=20,
+        )
+
+        with self.assertRaises(ApplicationHandlerStop):
+            asyncio.run(command_guard_handler(update, self.context))
+
+        self.assertIn(
+            (update.effective_chat.id, update.effective_message.message_id),
+            self.context.bot.deleted,
+        )
+
+    def test_admin_command_wallet_secret_is_protected(self) -> None:
+        update = fake_update(
+            user_id=1,
+            text=(
+                "/ask seed phrase: alpha beta gamma delta epsilon zeta "
+                "eta theta iota kappa lambda mu"
+            ),
+            message_id=21,
+        )
+
+        with self.assertRaises(ApplicationHandlerStop):
+            asyncio.run(command_guard_handler(update, self.context))
+
+        self.assertIn(
+            (update.effective_chat.id, update.effective_message.message_id),
+            self.context.bot.deleted,
+        )
+
+    def _tight_flood_settings(self):
+        settings = replace(
+            self.settings,
+            flood_max_messages=2,
+            flood_sustained_max_messages=100,
+        )
+        self.runtime.settings = settings
+        self.runtime.guardian = Guardian(settings, self.runtime.db)
+        return settings
+
+    def test_configured_operator_is_subject_to_flood_policy(self) -> None:
+        self._tight_flood_settings()
+        first = fake_update(user_id=1, text="um", message_id=201)
+        second = fake_update(user_id=1, text="dois", message_id=202)
+
+        asyncio.run(moderation_handler(first, self.context))
+        asyncio.run(moderation_handler(second, self.context))
+
+        self.assertIn(
+            (second.effective_chat.id, second.effective_user.id),
+            self.context.bot.restricted,
+        )
+
+    def test_telegram_administrator_is_subject_to_flood_policy(self) -> None:
+        self._tight_flood_settings()
+        self.context.bot.member_statuses[9] = ChatMemberStatus.ADMINISTRATOR
+        first = fake_update(user_id=9, text="um", message_id=211)
+        second = fake_update(user_id=9, text="dois", message_id=212)
+
+        asyncio.run(moderation_handler(first, self.context))
+        asyncio.run(moderation_handler(second, self.context))
+
+        self.assertIn(
+            (second.effective_chat.id, second.effective_user.id),
+            self.context.bot.restricted,
+        )
+
+    def test_configured_operator_is_subject_to_language_policy(self) -> None:
+        update = fake_update(
+            user_id=1,
+            text="PUTA",
+            message_id=213,
+            update_id=9213,
+        )
+
+        asyncio.run(moderation_handler(update, self.context))
+
+        self.assertIn(
+            (update.effective_chat.id, update.effective_message.message_id),
+            self.context.bot.deleted,
+        )
+        self.assertEqual(
+            self.runtime.db.list_incidents(limit=1)[0]["category"],
+            "prohibited_language",
+        )
+        self.assertEqual(
+            self.runtime.db.user_summary(
+                update.effective_chat.id,
+                update.effective_user.id,
+            )["active_strikes"],
+            1,
+        )
+
+    def test_telegram_administrator_is_subject_to_language_policy(self) -> None:
+        self.context.bot.member_statuses[9] = ChatMemberStatus.ADMINISTRATOR
+        update = fake_update(
+            user_id=9,
+            text="p.u.t.a",
+            message_id=214,
+            update_id=9214,
+        )
+
+        asyncio.run(moderation_handler(update, self.context))
+
+        self.assertIn(
+            (update.effective_chat.id, update.effective_message.message_id),
+            self.context.bot.deleted,
+        )
+        self.assertEqual(
+            self.runtime.db.user_summary(
+                update.effective_chat.id,
+                update.effective_user.id,
+            )["active_strikes"],
+            1,
+        )
+
+    def test_threat_causes_immediate_mute(self) -> None:
+        update = fake_update(
+            user_id=34,
+            text="vou quebrar sua cara",
+            message_id=215,
+            update_id=9215,
+        )
+
+        asyncio.run(moderation_handler(update, self.context))
+
+        self.assertIn(
+            (update.effective_chat.id, update.effective_user.id),
+            self.context.bot.restricted,
+        )
+        self.assertEqual(
+            self.runtime.db.list_incidents(limit=1)[0]["category"],
+            "threat",
+        )
+
+    def test_repeated_adult_references_use_existing_escalation(self) -> None:
+        first = fake_update(
+            user_id=35,
+            text="xvideos[.]com",
+            message_id=216,
+            update_id=9216,
+        )
+        second = fake_update(
+            user_id=35,
+            text="porn hub",
+            message_id=217,
+            update_id=9217,
+        )
+
+        asyncio.run(moderation_handler(first, self.context))
+        asyncio.run(moderation_handler(second, self.context))
+
+        self.assertIn(
+            (second.effective_chat.id, second.effective_user.id),
+            self.context.bot.restricted,
+        )
+        incidents = self.runtime.db.list_incidents(limit=2)
+        self.assertTrue(
+            all(
+                item["category"] == "adult_site_reference"
+                for item in incidents
+            )
+        )
+
+    def test_plain_insult_in_reply_is_directed_abuse(self) -> None:
+        update = fake_update(
+            user_id=36,
+            text="idiota",
+            message_id=218,
+            update_id=9218,
+        )
+        update.effective_message.reply_to_message = SimpleNamespace(
+            from_user=SimpleNamespace(id=37),
+        )
+
+        asyncio.run(moderation_handler(update, self.context))
+
+        incident = self.runtime.db.list_incidents(limit=1)[0]
+        self.assertEqual(incident["category"], "directed_abuse")
+        self.assertEqual(incident["severity"], "medium")
+
+    def test_reply_to_self_does_not_invent_directed_target(self) -> None:
+        update = fake_update(
+            user_id=38,
+            text="idiota",
+            message_id=219,
+            update_id=9219,
+        )
+        update.effective_message.reply_to_message = SimpleNamespace(
+            from_user=SimpleNamespace(id=38),
+        )
+
+        asyncio.run(moderation_handler(update, self.context))
+
+        incident = self.runtime.db.list_incidents(limit=1)[0]
+        self.assertEqual(incident["category"], "prohibited_language")
+        self.assertEqual(incident["severity"], "low")
+
+    def test_hidden_adult_link_uses_adult_site_category(self) -> None:
+        update = fake_update(
+            user_id=39,
+            text="clique aqui",
+            message_id=220,
+            update_id=9220,
+        )
+        update.effective_message.entities = [
+            SimpleNamespace(
+                type="text_link",
+                url="https://xvideos.com/watch/example",
+            )
+        ]
+
+        asyncio.run(moderation_handler(update, self.context))
+
+        self.assertIn(
+            (update.effective_chat.id, update.effective_message.message_id),
+            self.context.bot.deleted,
+        )
+        incident = self.runtime.db.list_incidents(limit=1)[0]
+        self.assertEqual(incident["category"], "adult_site_reference")
+        stored = str(incident)
+        self.assertNotIn("xvideos", stored.casefold())
+        self.assertNotIn("/watch/example", stored.casefold())
+
+    def test_quoted_threat_still_causes_immediate_mute(self) -> None:
+        update = fake_update(
+            user_id=40,
+            text='"vou te matar"',
+            message_id=221,
+            update_id=9221,
+        )
+
+        asyncio.run(moderation_handler(update, self.context))
+
+        self.assertIn(
+            (update.effective_chat.id, update.effective_user.id),
+            self.context.bot.restricted,
+        )
+        self.assertEqual(
+            self.runtime.db.list_incidents(limit=1)[0]["category"],
+            "threat",
+        )
+
+    def test_failed_admin_restriction_is_recorded_and_contained(self) -> None:
+        self._tight_flood_settings()
+        self.context.bot.member_statuses[9] = ChatMemberStatus.ADMINISTRATOR
+        self.context.bot.fail_restrict_users.add(9)
+        first = fake_update(user_id=9, text="um", message_id=221)
+        second = fake_update(user_id=9, text="dois", message_id=222)
+
+        asyncio.run(moderation_handler(first, self.context))
+        asyncio.run(moderation_handler(second, self.context))
+
+        self.assertNotIn(
+            (second.effective_chat.id, second.effective_user.id),
+            self.context.bot.restricted,
+        )
+        summary = self.runtime.db.user_summary(
+            second.effective_chat.id,
+            second.effective_user.id,
+        )
+        self.assertGreater(summary["contained_until"], 0)
+
+        row = self.runtime.db._conn.execute(
+            """
+            SELECT success
+            FROM actions
+            WHERE user_id=? AND action_type='mute'
+            ORDER BY created_at DESC
+            LIMIT 1
+            """,
+            (9,),
+        ).fetchone()
+        self.assertIsNotNone(row)
+        self.assertEqual(int(row["success"]), 0)
+        operator_alerts = [
+            text
+            for chat_id, text in self.context.bot.sent
+            if chat_id == 1
+        ]
+        self.assertTrue(operator_alerts)
+        self.assertIn(
+            "enforcement review required",
+            operator_alerts[-1],
+        )
+
+    def test_reported_sustained_member_sequence_is_contained(self) -> None:
+        settings = replace(
+            self.settings,
+            flood_max_messages=6,
+            flood_window_seconds=10,
+            flood_sustained_max_messages=10,
+            flood_sustained_window_seconds=120,
+        )
+        self.runtime.settings = settings
+        self.runtime.guardian = Guardian(settings, self.runtime.db)
+        base = 2_000_000_000.0
+        clock = [
+            base + (index * 8.6)
+            for index in range(10)
+        ]
+
+        updates = [
+            fake_update(
+                user_id=33,
+                text=f"mensagem {index}",
+                message_id=300 + index,
+                update_id=9300 + index,
+            )
+            for index in range(12)
+        ]
+
+        with patch(
+            "zion.telegram_app._evaluate_chat_burst",
+            new=AsyncMock(side_effect=clock),
+        ):
+            for update in updates:
+                asyncio.run(moderation_handler(update, self.context))
+
+        incidents = self.runtime.db.list_incidents(limit=20)
+        self.assertTrue(
+            any(
+                item["category"] == "sustained_flood"
+                for item in incidents
+            )
+        )
+        self.assertIn(
+            (updates[9].effective_chat.id, updates[9].effective_user.id),
+            self.context.bot.restricted,
+        )
+
+    def test_prohibited_language_stream_is_deleted_and_escalated(self) -> None:
+        first = fake_update(
+            user_id=44,
+            text="que merda",
+            message_id=401,
+            update_id=9401,
+        )
+        second = fake_update(
+            user_id=44,
+            text="você é idiota",
+            message_id=402,
+            update_id=9402,
+        )
+
+        asyncio.run(moderation_handler(first, self.context))
+        asyncio.run(moderation_handler(second, self.context))
+
+        self.assertIn(
+            (first.effective_chat.id, first.effective_message.message_id),
+            self.context.bot.deleted,
+        )
+        self.assertIn(
+            (second.effective_chat.id, second.effective_message.message_id),
+            self.context.bot.deleted,
+        )
+        self.assertIn(
+            (second.effective_chat.id, second.effective_user.id),
+            self.context.bot.restricted,
+        )
+
+    def test_explicit_false_delete_is_retried_and_recorded_truthfully(self) -> None:
+        self.context.bot.delete_results = [False, False, False]
+        update = fake_update(
+            user_id=47,
+            text="vai se fuder",
+            message_id=431,
+            update_id=9431,
+        )
+
+        asyncio.run(moderation_handler(update, self.context))
+
+        target = (update.effective_chat.id, update.effective_message.message_id)
+        self.assertEqual(self.context.bot.deleted.count(target), 3)
+        row = self.runtime.db._conn.execute(
+            """
+            SELECT success, reason
+            FROM actions
+            WHERE user_id=? AND action_type='delete'
+            ORDER BY created_at DESC
+            LIMIT 1
+            """,
+            (47,),
+        ).fetchone()
+        self.assertIsNotNone(row)
+        self.assertEqual(int(row["success"]), 0)
+        self.assertEqual(row["reason"], "directed_abuse")
+        self.assertIn(
+            (update.effective_chat.id, update.effective_user.id),
+            self.context.bot.restricted,
+        )
+        public_notices = [
+            text
+            for chat_id, text in self.context.bot.sent
+            if chat_id == update.effective_chat.id
+        ]
+        self.assertTrue(public_notices)
+        self.assertIn("não confirmou a remoção", public_notices[-1])
+        self.assertNotIn("Mensagem removida", public_notices[-1])
+        operator_alerts = [
+            text
+            for chat_id, text in self.context.bot.sent
+            if chat_id == 1
+        ]
+        self.assertTrue(operator_alerts)
+        self.assertIn("action=delete", operator_alerts[-1])
+
+    def test_transient_false_delete_succeeds_on_retry(self) -> None:
+        self.context.bot.delete_results = [False, True]
+        update = fake_update(
+            user_id=48,
+            text="buceta",
+            message_id=432,
+            update_id=9432,
+        )
+
+        asyncio.run(moderation_handler(update, self.context))
+
+        target = (update.effective_chat.id, update.effective_message.message_id)
+        self.assertEqual(self.context.bot.deleted.count(target), 2)
+        row = self.runtime.db._conn.execute(
+            """
+            SELECT success
+            FROM actions
+            WHERE user_id=? AND action_type='delete'
+            ORDER BY created_at DESC
+            LIMIT 1
+            """,
+            (48,),
+        ).fetchone()
+        self.assertIsNotNone(row)
+        self.assertEqual(int(row["success"]), 1)
+        self.assertNotIn(
+            (update.effective_chat.id, update.effective_user.id),
+            self.context.bot.restricted,
+        )
+
+    def test_credential_notice_never_claims_unconfirmed_deletion(self) -> None:
+        self.context.bot.delete_results = [False, False, False]
+        update = fake_update(
+            user_id=50,
+            text="API key: example-secret-value-123456",
+            message_id=433,
+            update_id=9433,
+        )
+
+        asyncio.run(moderation_handler(update, self.context))
+
+        public_notices = [
+            text
+            for chat_id, text in self.context.bot.sent
+            if chat_id == update.effective_chat.id
+        ]
+        self.assertTrue(public_notices)
+        self.assertIn("não confirmou a remoção", public_notices[-1])
+        self.assertNotIn("mensagem removida", public_notices[-1].casefold())
+        row = self.runtime.db._conn.execute(
+            """
+            SELECT success
+            FROM actions
+            WHERE user_id=? AND action_type='delete'
+            ORDER BY created_at DESC
+            LIMIT 1
+            """,
+            (50,),
+        ).fetchone()
+        self.assertIsNotNone(row)
+        self.assertEqual(int(row["success"]), 0)
+
+    def test_abuse_during_active_containment_keeps_abuse_classification(self) -> None:
+        first = fake_update(
+            user_id=49,
+            text="merda",
+            message_id=441,
+            update_id=9441,
+        )
+        second = fake_update(
+            user_id=49,
+            text="vai se fuder",
+            message_id=442,
+            update_id=9442,
+        )
+        third = fake_update(
+            user_id=49,
+            text="pau no cu",
+            message_id=443,
+            update_id=9443,
+        )
+
+        asyncio.run(moderation_handler(first, self.context))
+        asyncio.run(moderation_handler(second, self.context))
+        strikes_before = self.runtime.db.user_summary(
+            third.effective_chat.id,
+            third.effective_user.id,
+        )["active_strikes"]
+        notices_before = len(self.context.bot.sent)
+
+        asyncio.run(moderation_handler(third, self.context))
+
+        action = self.runtime.db._conn.execute(
+            """
+            SELECT reason, success, metadata_json
+            FROM actions
+            WHERE user_id=? AND action_type='delete'
+            ORDER BY created_at DESC
+            LIMIT 1
+            """,
+            (49,),
+        ).fetchone()
+        self.assertIsNotNone(action)
+        self.assertEqual(action["reason"], "directed_abuse")
+        self.assertEqual(int(action["success"]), 1)
+        self.assertIn('"active_containment":true', action["metadata_json"])
+        incidents = self.runtime.db.list_incidents(limit=10)
+        self.assertEqual(incidents[0]["category"], "directed_abuse")
+        strikes_after = self.runtime.db.user_summary(
+            third.effective_chat.id,
+            third.effective_user.id,
+        )["active_strikes"]
+        self.assertEqual(strikes_after, strikes_before)
+        self.assertEqual(len(self.context.bot.sent), notices_before)
+
+    def test_abuse_incident_never_persists_full_offending_text(self) -> None:
+        raw = "você é idiota e isso nunca deve ir ao incidente"
+        update = fake_update(
+            user_id=45,
+            text=raw,
+            message_id=411,
+            update_id=9411,
+        )
+
+        asyncio.run(moderation_handler(update, self.context))
+
+        row = self.runtime.db._conn.execute(
+            """
+            SELECT evidence_json, note
+            FROM incidents
+            WHERE user_id=? AND category='directed_abuse'
+            ORDER BY created_at DESC
+            LIMIT 1
+            """,
+            (45,),
+        ).fetchone()
+        self.assertIsNotNone(row)
+        stored = str(row["evidence_json"]) + str(row["note"])
+        self.assertNotIn(raw, stored)
+        self.assertNotIn("idiota", stored)
+
+    def test_quoted_abuse_is_deleted_without_automatic_strike_or_mute(self) -> None:
+        update = fake_update(
+            user_id=46,
+            text='Estou denunciando: ele disse "você é idiota".',
+            message_id=421,
+            update_id=9421,
+        )
+
+        asyncio.run(moderation_handler(update, self.context))
+
+        self.assertIn(
+            (update.effective_chat.id, update.effective_message.message_id),
+            self.context.bot.deleted,
+        )
+        self.assertEqual(self.context.bot.restricted, [])
+        summary = self.runtime.db.user_summary(
+            update.effective_chat.id,
+            update.effective_user.id,
+        )
+        self.assertEqual(summary["active_strikes"], 0)
+
+    def test_non_text_messages_still_trigger_flood(self) -> None:
+        for message_id in (30, 31):
+            update = fake_update(
+                user_id=3,
+                text=None,
+                message_id=message_id,
+            )
+            asyncio.run(moderation_handler(update, self.context))
+
+        third = fake_update(
+            user_id=3,
+            text=None,
+            message_id=32,
+        )
+        asyncio.run(moderation_handler(third, self.context))
+
+        self.assertIn(
+            (third.effective_chat.id, third.effective_user.id),
+            self.context.bot.restricted,
+        )
+        self.assertTrue(
+            {
+                (third.effective_chat.id, 30),
+                (third.effective_chat.id, 31),
+                (third.effective_chat.id, 32),
+            }.issubset(set(self.context.bot.deleted))
+        )
+
+    def test_normal_member_message_passes(self) -> None:
+        update = fake_update(
+            user_id=2,
+            text="Eu tenho uma dúvida normal sobre o projeto.",
+        )
+        asyncio.run(moderation_handler(update, self.context))
+
+        self.assertEqual(self.context.bot.deleted, [])
+
+
+if __name__ == "__main__":
+    unittest.main()
