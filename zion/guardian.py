@@ -625,9 +625,16 @@ _SHORT_TERM_ALIASES = {
 }
 
 _REPORTING_CONTEXT_REGEX = re.compile(
-    r"\b(?:ele|ela|alguem|membro|usuario|user)\s+"
-    r"(?:disse|falou|escreveu|mandou|me chamou|denunciou|reportou)\b|"
-    r"\b(?:citando|reportando|denunciando|denuncia|relato|quote|quoted)\b"
+    r"^(?:(?:o|a)\s+)?(?:ele|ela|alguem|membro|usuario|user)\s+"
+    r"(?:disse|falou|escreveu|mandou|me chamou|denunciou|reportou|"
+    r"said|wrote|reported)\b|"
+    r"^(?:(?:estou|estamos)\s+)?"
+    r"(?:citando|reportando|denunciando|quoting)\b|"
+    r"^(?:(?:quero|vim para|gostaria de)\s+)"
+    r"(?:citar|reportar|denunciar)\b|"
+    r"^(?:citacao|denuncia|relato|quote|quoted)\b|"
+    r"^(?:a mensagem|o comentario|a frase)\s+"
+    r"(?:dizia|disse|continha)\b"
 )
 
 _DIRECTED_MARKER_REGEX = re.compile(
@@ -639,6 +646,12 @@ _LEGITIMATE_FODA_REGEX = re.compile(
 )
 
 _MENTION_REGEX = re.compile(r"(?<![A-Za-z0-9_])@[A-Za-z0-9_]{2,}")
+
+_ADULT_DOT_WORD_REGEX = re.compile(
+    r"(?i)(?<=[a-z0-9])\s*"
+    r"(?:\[\s*(?:\.|dot|ponto)\s*\]|dot|ponto)"
+    r"\s*(?=[a-z0-9])"
+)
 
 
 def _normalize_abuse_text(value: str) -> tuple[str, str, str]:
@@ -654,6 +667,14 @@ def _normalize_abuse_text(value: str) -> tuple[str, str, str]:
     folded = re.sub(
         r"(?<=[a-z0-9])@(?=[a-z0-9]|$|[^a-z0-9_])",
         "a",
+        folded,
+    )
+    # Interpret ! and | as "i" only when they occupy a word-character
+    # position. Ordinary punctuation such as "atenção!" remains punctuation.
+    folded = re.sub(
+        r"(?<![a-z0-9_])[!|](?=[a-z0-9])|"
+        r"(?<=[a-z0-9])[!|](?=[a-z0-9])",
+        "i",
         folded,
     )
     folded = folded.translate(_LEET_SUBSTITUTIONS)
@@ -748,19 +769,28 @@ def _abuse_decision(
     )
 
 
-def detect_abusive_content(text: str) -> AbuseDecision:
+def _normalize_adult_domain_text(value: str) -> tuple[str, str, str]:
+    prepared = _normalize_security_text(value).casefold()
+    prepared = _ADULT_DOT_WORD_REGEX.sub(".", prepared)
+    return _normalize_abuse_text(prepared)
+
+
+def detect_abusive_content(
+    text: str,
+    *,
+    directed_hint: bool = False,
+) -> AbuseDecision:
     original = text or ""
     spaced, compact, structured = _normalize_abuse_text(original)
     if not spaced and not compact:
         return AbuseDecision()
 
-    reporting_context = bool(
-        _REPORTING_CONTEXT_REGEX.search(spaced)
-        or any(mark in original for mark in ('"', "“", "”"))
-        or ("‘" in original and "’" in original)
-    )
+    # Quotes alone are not evidence of reporting. Otherwise an attacker could
+    # wrap a threat or slur in quotes to suppress strikes and immediate mute.
+    reporting_context = bool(_REPORTING_CONTEXT_REGEX.search(spaced))
     directed_marker = bool(
-        _DIRECTED_MARKER_REGEX.search(spaced)
+        directed_hint
+        or _DIRECTED_MARKER_REGEX.search(spaced)
         or re.search(r"(?<!\w)@[A-Za-z0-9_]{2,}", original)
     )
 
@@ -804,7 +834,26 @@ def detect_abusive_content(text: str) -> AbuseDecision:
                 immediate_mute=True,
             )
 
-    for rule_id, term in (*_ADULT_DOMAIN_RULES, *_ADULT_BRAND_RULES):
+    adult_spaced, adult_compact, adult_structured = (
+        _normalize_adult_domain_text(original)
+    )
+    for rule_id, term in _ADULT_DOMAIN_RULES:
+        if _abuse_term_present(
+            adult_spaced,
+            adult_compact,
+            adult_structured,
+            term,
+        ):
+            return _abuse_decision(
+                category="adult_site_reference",
+                severity=Severity.MEDIUM,
+                rule_id=rule_id,
+                spaced=spaced,
+                directed=False,
+                reporting_context=reporting_context,
+            )
+
+    for rule_id, term in _ADULT_BRAND_RULES:
         if _abuse_term_present(spaced, compact, structured, term):
             return _abuse_decision(
                 category="adult_site_reference",
@@ -1068,8 +1117,13 @@ class Guardian:
                 window_seconds=window_seconds,
             )
 
-    def evaluate_abuse(self, text: str) -> AbuseDecision:
-        return detect_abusive_content(text)
+    def evaluate_abuse(
+        self,
+        text: str,
+        *,
+        directed_hint: bool = False,
+    ) -> AbuseDecision:
+        return detect_abusive_content(text, directed_hint=directed_hint)
 
     def evaluate_chat_burst(
         self,
