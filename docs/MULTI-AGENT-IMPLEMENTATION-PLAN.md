@@ -141,7 +141,9 @@ uncertain-delivery handling fail closed against duplicate speakers.
   - Evidence: architecture threat table and least-privilege deployment section.
 - [x] P01.04 Record delivery semantics and recovery policy without exactly-once claims.
   - Evidence: claim-before-send and UNCERTAIN state contract in the architecture document.
-- [ ] P01.05 Add architecture and threat-model tests or contract assertions.
+- [x] P01.05 Add architecture and threat-model tests or contract assertions.
+  - Evidence: immutable registry, DM matrix, routing authority, claim-key, replay,
+    edit, uncertainty, concurrency, migration, and privacy contracts are executable.
 
 ### PHASE 2 - Agent registry
 
@@ -167,25 +169,45 @@ uncertain-delivery handling fail closed against duplicate speakers.
 
 ### PHASE 4 - DM access policies
 
-- [ ] P04.01 Enforce ZION CREATOR_ONLY before AI/session/retrieval.
-- [ ] P04.02 Enforce MIMIR CLOSED before AI/session/retrieval.
-- [ ] P04.03 Enable EIR PUBLIC support DM.
-- [ ] P04.04 Enable FREYR PUBLIC business DM.
-- [ ] P04.05 Add operator, ordinary-user, replay, and loop-prevention tests.
+- [x] P04.01 Enforce ZION CREATOR_ONLY before AI/session/retrieval.
+  - Evidence: the existing ZION private intake returns before session, retrieval,
+    or provider access for every non-operator numeric ID.
+- [~] P04.02 Enforce MIMIR CLOSED before AI/session/retrieval.
+  - Evidence: deterministic policy and negative unit tests PASS; secondary
+    transport wiring remains.
+- [~] P04.03 Enable EIR PUBLIC support DM.
+  - Evidence: deterministic policy PASS; secondary transport wiring remains.
+- [~] P04.04 Enable FREYR PUBLIC business DM.
+  - Evidence: deterministic policy PASS; secondary transport wiring remains.
+- [~] P04.05 Add operator, ordinary-user, replay, and loop-prevention tests.
+  - Evidence: operator/ordinary-user policy and ZION pre-AI negative tests PASS;
+    multi-identity transport replay/loop tests remain.
 
 ### PHASE 5 - Intent routing
 
-- [ ] P05.01 Implement MODERATION/COMMUNITY/TECHNICAL/SUPPORT/PARTNERSHIP/UNRELATED/AMBIGUOUS taxonomy.
-- [ ] P05.02 Add deterministic high-confidence routing and bounded AI fallback.
-- [ ] P05.03 Preserve natural conversation and silence for irrelevant chatter.
-- [ ] P05.04 Test mixed, ambiguous, injection, and adversarial intent.
+- [x] P05.01 Implement MODERATION/COMMUNITY/TECHNICAL/SUPPORT/PARTNERSHIP/UNRELATED/AMBIGUOUS taxonomy.
+  - Evidence: `zion/router.py` returns registry-backed decisions for the full taxonomy.
+- [~] P05.02 Add deterministic high-confidence routing and bounded AI fallback.
+  - Evidence: deterministic routing is complete; bounded fallback remains.
+- [x] P05.03 Preserve natural conversation and silence for irrelevant chatter.
+  - Evidence: unrelated and addressed-but-ambiguous messages resolve to silence.
+- [x] P05.04 Test mixed, ambiguous, injection, and adversarial intent.
+  - Evidence: support/technical precedence, confidentiality, agent injection,
+    ambiguity, moderation, and private-route cases PASS.
 
 ### PHASE 6 - Speaker arbitration
 
-- [ ] P06.01 Add durable, atomic speaker claim keyed by inbound message identity.
-- [ ] P06.02 Enforce zero-or-one external speaker and authorized handoff.
-- [ ] P06.03 Define retry, uncertain-send, callback, edit, replay, and expiration behavior.
-- [ ] P06.04 Add concurrent connections/tasks and crash-boundary tests.
+- [x] P06.01 Add durable, atomic speaker claim keyed by inbound message identity.
+  - Evidence: schema v3 `speaker_claims` plus atomic `BEGIN IMMEDIATE` claim.
+- [~] P06.02 Enforce zero-or-one external speaker and authorized handoff.
+  - Evidence: registry authority and concurrent durable arbitration PASS; external
+    Telegram send integration remains.
+- [x] P06.03 Define retry, uncertain-send, callback, edit, replay, and expiration behavior.
+  - Evidence: sent/uncertain states never replay; only `failed_safe` can retry;
+    edits share the original key; callbacks use the update identity; stale claims
+    are quarantined.
+- [x] P06.04 Add concurrent connections/tasks and crash-boundary tests.
+  - Evidence: two-connection race, stale crash recovery, replay, and error-state tests PASS.
 
 ### PHASE 7 - Telegram multi-identity transport
 
@@ -257,10 +279,17 @@ uncertain-delivery handling fail closed against duplicate speakers.
 
 ### PHASE 16 - Persistence, privacy, and retention
 
-- [ ] P16.01 Add the minimum schema required for durable arbitration/telemetry/leads.
-- [ ] P16.02 Add atomic migrations and pre-upgrade compatibility tests.
-- [ ] P16.03 Minimize stored user content and define retention/pruning.
-- [ ] P16.04 Prove no transaction spans a network await.
+- [~] P16.01 Add the minimum schema required for durable arbitration/telemetry/leads.
+  - Evidence: durable arbitration schema is complete; later telemetry/lead needs
+    remain subject to data-minimization review.
+- [x] P16.02 Add atomic migrations and pre-upgrade compatibility tests.
+  - Evidence: schema 2 to 3 migration preserves prior data and rolls back on failure.
+- [x] P16.03 Minimize stored user content and define retention/pruning.
+  - Evidence: claims contain identifiers/status metadata only, never message text;
+    terminal rows have bounded pruning.
+- [x] P16.04 Prove no transaction spans a network await.
+  - Evidence: claim/complete are separate synchronous DB operations; transport is
+    structurally outside the transaction boundary.
 
 ### PHASE 17 - Observability, health, and diagnostics
 
@@ -337,3 +366,5 @@ uncertain-delivery handling fail closed against duplicate speakers.
 | 2026-10-15 | Technical prototype `pdfinfo` | 6 pages; not accepted as the described 83-page route source |
 | 2026-10-15 | Registry and protected identity-store focused tests | 20/20 PASS |
 | 2026-10-15 | Full suite after first implementation increment | 631/631 PASS |
+| 2026-10-15 | DM, deterministic routing, durable arbitration, and schema v3 tests | focused PASS |
+| 2026-10-15 | Full suite after second implementation increment | 656/656 PASS |

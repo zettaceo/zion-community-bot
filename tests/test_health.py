@@ -8,7 +8,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from tests.helpers import make_settings
-from zion.db import ZION_APPLICATION_ID, ZionDB
+from zion.db import SUPPORTED_SCHEMA_VERSION, ZION_APPLICATION_ID, ZionDB
 from zion.health import HealthService
 
 
@@ -85,8 +85,14 @@ class HealthTests(unittest.TestCase):
             "ok",
         )
         self.assertGreaterEqual(diagnostics["db_size_mb"], 0)
-        self.assertEqual(diagnostics["schema_version"], 2)
-        self.assertEqual(diagnostics["schema_version_supported"], 2)
+        self.assertEqual(
+            diagnostics["schema_version"],
+            SUPPORTED_SCHEMA_VERSION,
+        )
+        self.assertEqual(
+            diagnostics["schema_version_supported"],
+            SUPPORTED_SCHEMA_VERSION,
+        )
         self.assertTrue(diagnostics["schema_version_ok"])
         self.assertEqual(
             diagnostics["sqlite_pragmas"]["journal_mode"],

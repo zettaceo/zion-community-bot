@@ -9,7 +9,7 @@ from dataclasses import replace
 from pathlib import Path
 
 from tests.helpers import make_settings
-from zion.db import ZionDB
+from zion.db import SUPPORTED_SCHEMA_VERSION, ZionDB
 from zion.guardian import Guardian, normalize_policy_domain
 from zion.knowledge import KnowledgeBase
 from zion.models import OperatingState
@@ -32,7 +32,10 @@ class V11DatabaseTests(unittest.TestCase):
         self.assertTrue(ok)
         self.assertEqual(result.lower(), "ok")
         self.assertGreater(self.db.file_size_bytes(), 0)
-        self.assertEqual(self.db.schema_version(), 2)
+        self.assertEqual(
+            self.db.schema_version(),
+            SUPPORTED_SCHEMA_VERSION,
+        )
 
     def test_idempotency_key_is_atomic_until_expiry(self) -> None:
         self.assertTrue(
@@ -576,7 +579,10 @@ class V11DatabaseTests(unittest.TestCase):
         migrated = ZionDB(legacy_path)
         try:
             migrated.initialize()
-            self.assertEqual(migrated.schema_version(), 2)
+            self.assertEqual(
+                migrated.schema_version(),
+                SUPPORTED_SCHEMA_VERSION,
+            )
             scheduled_columns = migrated._table_columns_locked(
                 "scheduled_messages"
             )

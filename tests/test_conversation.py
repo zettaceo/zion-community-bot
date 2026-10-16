@@ -143,19 +143,33 @@ class ConversationTests(unittest.TestCase):
         update = make_update(
             "O que é a Z-SWAP?",
             chat_type="private",
+            user_id=1,
         )
 
         asyncio.run(moderation_handler(update, self.context))
 
         self.runtime.ai.answer.assert_awaited_once_with(
             chat_id=20,
-            user_id=2,
+            user_id=1,
             question="O que é a Z-SWAP?",
         )
         self.assertEqual(
             update.effective_message.replies,
             ["Resposta clara sobre a Z-SWAP."],
         )
+
+    def test_private_message_from_non_operator_is_silent_before_ai(self) -> None:
+        update = make_update(
+            "O que é a Z-SWAP?",
+            chat_type="private",
+            user_id=2,
+        )
+
+        asyncio.run(moderation_handler(update, self.context))
+
+        self.runtime.ai.answer.assert_not_awaited()
+        self.assertEqual(update.effective_message.replies, [])
+        self.assertEqual(self.runtime.group_conversation_sessions, {})
 
     def test_onboarding_and_confusion_intents_get_local_help(self) -> None:
         phrases = (
@@ -615,6 +629,7 @@ class ConversationTests(unittest.TestCase):
             "Explique a Z-SWAP",
             chat_type="private",
             message_id=77,
+            user_id=1,
         )
 
         asyncio.run(moderation_handler(update, self.context))

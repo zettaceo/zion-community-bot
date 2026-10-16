@@ -23,9 +23,11 @@ from telegram.ext import (
     filters,
 )
 
+from .agents import DEFAULT_AGENT_REGISTRY, AgentId
 from .ai_service import AIService
 from .config import Settings
 from .db import ZION_APPLICATION_ID, ZionDB
+from .dm_policy import evaluate_dm_access
 from .guardian import (
     Guardian,
     normalize_link_target,
@@ -5144,9 +5146,16 @@ async def moderation_handler(
     ):
         return
 
-    # Private conversation stays outside group moderation, but ordinary text
-    # can now be answered after universal secret protection.
+    # This Application receives ZION's token. Its private policy is applied
+    # before conversation state, knowledge retrieval, or any provider call.
     if chat.type == "private":
+        dm_access = evaluate_dm_access(
+            DEFAULT_AGENT_REGISTRY.get(AgentId.ZION),
+            user_id=user.id,
+            admin_user_ids=rt.settings.admin_user_ids,
+        )
+        if not dm_access.allowed:
+            return
         await answer_natural_conversation(
             update,
             context,
