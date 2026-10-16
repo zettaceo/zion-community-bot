@@ -215,7 +215,9 @@ Unresolved repository findings:
 - reconciled development base:
   `c88c3dd8947fa32168feddaa88dbfb870a1eed64`;
 - feature branch: `feature/zion-multi-agent-core`;
-- feature candidate SHA: pending the audit commit;
+- audited implementation candidate SHA:
+  `2dc52ee40179218d2115e680a14f22bcae65f4f9`;
+- audit/report commit: documentation-only descendant of that candidate;
 - integrated `zion-v1.1-dev` SHA: pending PR review/merge;
 - development CI: pending the exact pushed feature/integration SHA;
 - production `zion-v1` SHA: pending production PR;

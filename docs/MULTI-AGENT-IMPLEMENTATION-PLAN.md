@@ -408,10 +408,19 @@ uncertain-delivery handling fail closed against duplicate speakers.
 
 ### PHASE 21 - Development release audit
 
-- [ ] P21.01 Create `docs/MULTI-AGENT-RELEASE-AUDIT.md`.
-- [ ] P21.02 Verify clean tree, exact SHA, CI, migrations, runtime, rollback, and all evidence.
-- [ ] P21.03 Review the full diff for authority/security/knowledge regressions.
-- [ ] P21.04 Open PR to `zion-v1.1-dev`, obtain green CI/review, and merge.
+- [x] P21.01 Create `docs/MULTI-AGENT-RELEASE-AUDIT.md`.
+  - Evidence: adversarial boundary, validation, migration, file, matrix, finding,
+    and pending external-gate evidence is recorded without production claims.
+- [~] P21.02 Verify clean tree, exact SHA, CI, migrations, runtime, rollback, and all evidence.
+  - Evidence so far: implementation candidate
+    `2dc52ee40179218d2115e680a14f22bcae65f4f9`, clean worktree, migration and
+    rollback tests, and 714-test local validation. Exact-SHA GitHub CI and
+    release runtime evidence remain PR/release gates.
+- [x] P21.03 Review the full diff for authority/security/knowledge regressions.
+  - Evidence: full 49-file base-to-candidate delta reviewed; no unresolved
+    CRITICAL/HIGH/MEDIUM repository finding; one non-runtime LOW warning recorded.
+- [~] P21.04 Open PR to `zion-v1.1-dev`, obtain green CI/review, and merge.
+  - Evidence: feature branch is based on unchanged remote dev and is ready for push/PR.
 
 ### PHASE 22 - Production promotion
 
