@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+import secrets
 import time
 import unicodedata
 from collections import defaultdict, deque
@@ -12,18 +13,24 @@ from enum import Enum
 from typing import Any
 from urllib.parse import unquote
 
-from telegram import ChatPermissions, Update
+from telegram import (
+    ChatPermissions,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    Update,
+)
 from telegram.constants import ChatMemberStatus
 from telegram.ext import (
     Application,
     ApplicationHandlerStop,
+    CallbackQueryHandler,
     CommandHandler,
     ContextTypes,
     MessageHandler,
     filters,
 )
 
-from .agents import DEFAULT_AGENT_REGISTRY, AgentId
+from .agents import DEFAULT_AGENT_REGISTRY, AgentId, ConversationIntent
 from .ai_service import AIService
 from .config import Settings
 from .db import ZION_APPLICATION_ID, ZionDB
@@ -45,13 +52,20 @@ from .mistral import (
     MistralCredentialInvalid,
     MistralCredentialValidationUnavailable,
 )
+from .multi_agent_transport import (
+    DeliveryFailedSafe,
+    DeliveryOutcomeUncertain,
+    MultiAgentTransport,
+)
 from .models import AbuseDecision, FloodDecision, OperatingState, Severity
 from .process_lock import ProcessLock
+from .router import IntentRouter
 from .secret_store import (
     SecretStore,
     SecretStoreError,
     SecretValidationError,
 )
+from .speaker import InboundMessageIdentity, SpeakerArbiter, UpdateKind
 
 
 logger = logging.getLogger("zion.telegram")
@@ -82,6 +96,13 @@ class GroupConversationSession:
     retrieval_query: str
     transcript: str
     last_reply_at: float
+
+
+@dataclass(frozen=True)
+class ControlCenterSession:
+    operator_id: int
+    expires_at: float
+    confirmation_action: str | None = None
 
 
 class AskRateLimiter:
@@ -137,6 +158,13 @@ class Runtime:
                     stale_after_seconds=None,
                 )
             )
+            self.startup_speaker_recovery = (
+                self.db.quarantine_stale_speaker_claims(
+                    stale_after_seconds=(
+                        settings.delivery_claim_timeout_seconds
+                    )
+                )
+            )
             if any(self.startup_delivery_recovery.values()):
                 try:
                     self.db.create_incident(
@@ -160,6 +188,9 @@ class Runtime:
                         type(exc).__name__,
                     )
             self.knowledge = KnowledgeBase(settings.knowledge_dir)
+            self.intent_router = IntentRouter(DEFAULT_AGENT_REGISTRY)
+            self.speaker_arbiter = SpeakerArbiter(self.db)
+            self.multi_agent_transport = MultiAgentTransport(settings)
             self.guardian = Guardian(settings, self.db)
             self.secret_store = SecretStore(settings.mistral_secret_path)
             self.mistral_secret_startup_status = self.secret_store.status()
@@ -177,6 +208,7 @@ class Runtime:
                 settings,
                 self.db,
                 self.secret_store,
+                self.multi_agent_transport.identity_store,
             )
             self.ask_limiter = AskRateLimiter(
                 settings.ai_user_requests_per_minute
@@ -218,6 +250,10 @@ class Runtime:
                 GroupConversationSession,
             ] = {}
             self.group_conversation_sessions_next_prune_at = 0.0
+            self.control_center_sessions: dict[
+                str,
+                ControlCenterSession,
+            ] = {}
         except Exception:
             db = getattr(self, "db", None)
             if isinstance(db, ZionDB):
@@ -502,7 +538,9 @@ def _looks_like_project_question(
         r"\b(?:projeto|produto|plano|beneficio|beneficios|vantagem|vantagens|"
         r"acesso|swap|bridge|ponte|token|"
         r"carteira|wallet|blockchain|rede|redes|terminal|backtest|"
-        r"autopilot|arbitragem|liquidez|staking|mint|founder|cex|dex|"
+        r"arquitetura|roteamento|routing|multi[- ]?chain|api|sdk|"
+        r"smart contract|contrato inteligente|indicador|ema|vwap|rsi|"
+        r"macd|autopilot|arbitragem|liquidez|staking|mint|founder|cex|dex|"
         r"assinatura|roadmap|whitepaper|taxa|taxas|cotacao|portfolio|"
         r"preco|valor|comprar|adquirir|lancamento|lancar)\b",
         folded,
@@ -528,6 +566,8 @@ def _remember_group_conversation(
     question: str,
     answer: str,
     previous: GroupConversationSession | None,
+    *,
+    speaker_name: str = "ZION",
 ) -> None:
     key = _group_conversation_key(update)
     if key is None:
@@ -559,7 +599,7 @@ def _remember_group_conversation(
     retrieval_query = "\n".join(
         part for part in (previous_query, question) if part
     )[-GROUP_CONVERSATION_QUERY_MAX_CHARS:]
-    exchange = f"Membro: {question}\nZION: {answer}"
+    exchange = f"Membro: {question}\n{speaker_name}: {answer}"
     transcript = "\n\n".join(
         part for part in (previous_transcript, exchange) if part
     )[-GROUP_CONVERSATION_CONTEXT_MAX_CHARS:]
@@ -788,13 +828,98 @@ async def answer_natural_conversation(
         return False
 
     rt = runtime(context)
+    multi_agent_group = bool(
+        update.effective_chat.type != "private"
+        and context.application.bot_data.get("zion_multi_agent_started")
+    )
+    selected_profile = DEFAULT_AGENT_REGISTRY.get(AgentId.ZION)
+    selected_intent = ConversationIntent.COMMUNITY
+    speaker_claim = None
+    update_id = getattr(update, "update_id", None)
+    if multi_agent_group:
+        if route == ConversationRoute.LOCAL_HELP:
+            selected_profile = DEFAULT_AGENT_REGISTRY.get(AgentId.ZION)
+            selected_intent = ConversationIntent.COMMUNITY
+        else:
+            decision = rt.intent_router.route_group(
+                raw_question,
+                explicitly_addressed=True,
+            )
+            if decision.speaker is None:
+                return True
+            selected_profile = decision.speaker
+            selected_intent = decision.intent
+
+        inbound = InboundMessageIdentity(
+            source_identity=AgentId.ZION.value,
+            chat_id=int(update.effective_chat.id),
+            message_id=int(update.effective_message.message_id),
+            update_id=(
+                int(update_id) if update_id is not None else None
+            ),
+            update_kind=(
+                UpdateKind.EDITED_MESSAGE
+                if getattr(update, "edited_message", None) is not None
+                else UpdateKind.MESSAGE
+            ),
+        )
+        speaker_claim = rt.speaker_arbiter.claim(
+            inbound,
+            speaker=selected_profile,
+            intent=selected_intent,
+        )
+        if speaker_claim is None:
+            return True
+
+    async def deliver(reply: str) -> bool:
+        if speaker_claim is None:
+            await update.effective_message.reply_text(reply)
+            return True
+        try:
+            sent = await rt.multi_agent_transport.send_message(
+                agent_id=selected_profile.agent_id,
+                primary_bot=context.bot,
+                chat_id=int(update.effective_chat.id),
+                text=reply,
+                reply_to_message_id=int(
+                    update.effective_message.message_id
+                ),
+            )
+        except DeliveryOutcomeUncertain as exc:
+            rt.speaker_arbiter.uncertain(
+                speaker_claim,
+                error_type=type(exc).__name__,
+            )
+            return True
+        except DeliveryFailedSafe as exc:
+            rt.speaker_arbiter.failed_safe(
+                speaker_claim,
+                error_type=type(exc).__name__,
+            )
+            return True
+        telegram_message_id = getattr(sent, "message_id", None)
+        if telegram_message_id is None:
+            rt.speaker_arbiter.uncertain(
+                speaker_claim,
+                error_type="missing_telegram_message_id",
+            )
+            return True
+        if not rt.speaker_arbiter.sent(
+            speaker_claim,
+            telegram_message_id=int(telegram_message_id),
+        ):
+            logger.error(
+                "Speaker delivery persisted incompletely | agent=%s",
+                selected_profile.agent_id.value,
+            )
+        return True
+
     active_session = _active_group_conversation(update, context)
     previous_session = (
         active_session
         if route == ConversationRoute.FOLLOW_UP
         else None
     )
-    update_id = getattr(update, "update_id", None)
     if claim_private_update and update_id is not None:
         try:
             claimed = rt.db.claim_idempotency_key(
@@ -818,8 +943,7 @@ async def answer_natural_conversation(
         )
         if local_reply is None:
             return False
-        await update.effective_message.reply_text(local_reply)
-        return True
+        return await deliver(local_reply)
 
     question = natural_conversation_question(
         update,
@@ -830,17 +954,18 @@ async def answer_natural_conversation(
         return False
 
     if not rt.ask_limiter.allow(update.effective_user.id):
-        await update.effective_message.reply_text(
+        return await deliver(
             "Recebi muitas perguntas em pouco tempo. Tente novamente em "
             "alguns instantes."
         )
-        return True
 
     answer_kwargs: dict[str, Any] = {
         "chat_id": update.effective_chat.id,
         "user_id": update.effective_user.id,
         "question": question,
     }
+    if selected_profile.agent_id is not AgentId.ZION:
+        answer_kwargs["agent_id"] = selected_profile.agent_id
     if previous_session is not None:
         if _is_explicit_conversation_correction(question):
             # Keep the transcript so the model understands and acknowledges
@@ -857,13 +982,14 @@ async def answer_natural_conversation(
 
     answer = await rt.ai.answer(**answer_kwargs)
     rendered = telegram_ai_reply_text(answer.text)
-    await update.effective_message.reply_text(rendered)
+    await deliver(rendered)
     _remember_group_conversation(
         rt,
         update,
         question,
         rendered,
         previous_session,
+        speaker_name=selected_profile.agent_id.value.upper(),
     )
     return True
 
@@ -1546,12 +1672,298 @@ async def unban_user_safe(
         return False
 
 
+CONTROL_CENTER_TTL_SECONDS = 10 * 60
+CONTROL_CENTER_ACTIONS = frozenset(
+    {
+        "main",
+        "guardian",
+        "ai",
+        "community",
+        "agents",
+        "incidents",
+        "domains",
+        "announcements",
+        "health",
+        "configuration",
+        "audit",
+        "lockdown_request",
+        "lockdown_confirm",
+        "cancel",
+    }
+)
+
+
+def _control_center_callback(nonce: str, action: str) -> str:
+    return f"zc1:{nonce}:{action}"
+
+
+def _new_control_center_session(
+    rt: Runtime,
+    operator_id: int,
+    *,
+    confirmation_action: str | None = None,
+) -> str:
+    now = time.monotonic()
+    for nonce, session in list(rt.control_center_sessions.items()):
+        if session.expires_at <= now:
+            rt.control_center_sessions.pop(nonce, None)
+    nonce = secrets.token_urlsafe(8)
+    rt.control_center_sessions[nonce] = ControlCenterSession(
+        operator_id=int(operator_id),
+        expires_at=now + CONTROL_CENTER_TTL_SECONDS,
+        confirmation_action=confirmation_action,
+    )
+    return nonce
+
+
+def _control_center_main_markup(nonce: str) -> InlineKeyboardMarkup:
+    button = lambda label, action: InlineKeyboardButton(
+        label,
+        callback_data=_control_center_callback(nonce, action),
+    )
+    return InlineKeyboardMarkup(
+        [
+            [button("Guardian", "guardian"), button("AI & Knowledge", "ai")],
+            [button("Community", "community"), button("Agents", "agents")],
+            [button("Incidents", "incidents"), button("Domains & Security", "domains")],
+            [button("Announcements", "announcements"), button("System Health", "health")],
+            [button("Configuration", "configuration"), button("Audit", "audit")],
+        ]
+    )
+
+
+def _control_center_back_markup(nonce: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [[InlineKeyboardButton(
+            "Voltar",
+            callback_data=_control_center_callback(nonce, "main"),
+        )]]
+    )
+
+
+def _control_center_view(
+    rt: Runtime,
+    nonce: str,
+    action: str,
+) -> tuple[str, InlineKeyboardMarkup]:
+    if action == "main":
+        return "ZION CONTROL CENTER\nSelecione uma área.", _control_center_main_markup(nonce)
+    if action == "agents":
+        lines = ["AGENTS"]
+        statuses = rt.multi_agent_transport.status_all()
+        for profile in DEFAULT_AGENT_REGISTRY:
+            status = statuses[profile.agent_id]
+            lines.append(
+                f"{profile.agent_id.value.upper()}: "
+                f"runtime={status.runtime_status} | "
+                f"token={status.store_status} | "
+                f"DM={profile.dm_policy.value} | "
+                f"moderation={profile.moderation_authority.value}"
+            )
+        return "\n".join(lines), _control_center_back_markup(nonce)
+    if action == "guardian":
+        state = rt.db.get_operating_state().value
+        markup = InlineKeyboardMarkup(
+            [
+                [InlineKeyboardButton(
+                    "Ativar LOCKDOWN",
+                    callback_data=_control_center_callback(
+                        nonce,
+                        "lockdown_request",
+                    ),
+                )],
+                [InlineKeyboardButton(
+                    "Voltar",
+                    callback_data=_control_center_callback(nonce, "main"),
+                )],
+            ]
+        )
+        return (
+            "GUARDIAN\n"
+            f"Operating State: {state}\n"
+            "Authority: deterministic ZION only",
+            markup,
+        )
+    if action == "ai":
+        return (
+            "AI & KNOWLEDGE\n"
+            f"Provider ready: {rt.ai.enabled}\n"
+            f"Circuit: {'OPEN' if rt.ai.circuit_open() else 'CLOSED'}\n"
+            f"Knowledge chunks: {len(rt.knowledge.chunks)}\n"
+            f"Knowledge load errors: {len(rt.knowledge.load_errors)}",
+            _control_center_back_markup(nonce),
+        )
+    if action == "community":
+        stats = rt.db.community_stats()
+        return (
+            "COMMUNITY\n"
+            + "\n".join(
+                f"{key}: {value}" for key, value in sorted(stats.items())
+            ),
+            _control_center_back_markup(nonce),
+        )
+    if action == "incidents":
+        incidents = rt.db.list_incidents(limit=10)
+        return (
+            f"INCIDENTS\nRecent count shown: {len(incidents)}",
+            _control_center_back_markup(nonce),
+        )
+    if action == "health":
+        snapshot = rt.health.snapshot()
+        return (
+            "SYSTEM HEALTH\n"
+            f"State: {snapshot.state.value}\n"
+            f"Database: {'OK' if snapshot.db_ok else 'FAIL'}\n"
+            f"Sensitive files: "
+            f"{'PRIVATE' if snapshot.details.get('sensitive_files_private') else 'WARNING'}",
+            _control_center_back_markup(nonce),
+        )
+    labels = {
+        "domains": "DOMAINS & SECURITY\nUse os controles operacionais aprovados; nenhum segredo é exibido.",
+        "announcements": "ANNOUNCEMENTS\nA superfície de anúncios permanece auditada e autorizada.",
+        "configuration": "CONFIGURATION\nValores secretos nunca são exibidos neste painel.",
+        "audit": "AUDIT\nAções administrativas permanecem no ledger sanitizado.",
+    }
+    return labels.get(action, "ZION CONTROL CENTER"), _control_center_back_markup(nonce)
+
+
+async def send_control_center(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+) -> bool:
+    if (
+        not update.effective_message
+        or not update.effective_user
+        or not update.effective_chat
+        or update.effective_chat.type != "private"
+        or update.effective_user.id
+        not in runtime(context).settings.admin_user_ids
+    ):
+        return False
+    rt = runtime(context)
+    nonce = _new_control_center_session(rt, update.effective_user.id)
+    text, markup = _control_center_view(rt, nonce, "main")
+    await update.effective_message.reply_text(text, reply_markup=markup)
+    return True
+
+
+async def control_center_callback(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+) -> None:
+    query = update.callback_query
+    user = update.effective_user
+    chat = update.effective_chat
+    if query is None or user is None or chat is None:
+        return
+    rt = runtime(context)
+    if chat.type != "private" or user.id not in rt.settings.admin_user_ids:
+        await query.answer("Não autorizado.", show_alert=True)
+        return
+    parts = str(query.data or "").split(":", 2)
+    if len(parts) != 3 or parts[0] != "zc1":
+        await query.answer("Controle inválido.", show_alert=True)
+        return
+    nonce, action = parts[1], parts[2]
+    session = rt.control_center_sessions.get(nonce)
+    if (
+        action not in CONTROL_CENTER_ACTIONS
+        or session is None
+        or session.operator_id != user.id
+        or session.expires_at <= time.monotonic()
+    ):
+        rt.control_center_sessions.pop(nonce, None)
+        await query.answer("Controle expirado ou inválido.", show_alert=True)
+        return
+
+    if action == "lockdown_request":
+        confirm_nonce = _new_control_center_session(
+            rt,
+            user.id,
+            confirmation_action="lockdown",
+        )
+        markup = InlineKeyboardMarkup(
+            [[
+                InlineKeyboardButton(
+                    "Confirmar LOCKDOWN",
+                    callback_data=_control_center_callback(
+                        confirm_nonce,
+                        "lockdown_confirm",
+                    ),
+                ),
+                InlineKeyboardButton(
+                    "Cancelar",
+                    callback_data=_control_center_callback(
+                        confirm_nonce,
+                        "cancel",
+                    ),
+                ),
+            ]]
+        )
+        await query.answer()
+        await query.edit_message_text(
+            "CONFIRMAÇÃO NECESSÁRIA\nAtivar LOCKDOWN agora?",
+            reply_markup=markup,
+        )
+        return
+
+    if action in {"lockdown_confirm", "cancel"}:
+        rt.control_center_sessions.pop(nonce, None)
+        if session.confirmation_action != "lockdown":
+            await query.answer("Confirmação inválida.", show_alert=True)
+            return
+        if action == "cancel":
+            new_nonce = _new_control_center_session(rt, user.id)
+            text, markup = _control_center_view(rt, new_nonce, "main")
+            await query.answer("Cancelado.")
+            await query.edit_message_text(text, reply_markup=markup)
+            return
+        try:
+            claimed = rt.db.claim_idempotency_key(
+                f"control_center:lockdown:{nonce}",
+                ttl_seconds=rt.settings.idempotency_retention_days * 86400,
+            )
+            if not claimed:
+                await query.answer("Ação já processada.", show_alert=True)
+                return
+            with rt.db.transaction():
+                rt.db.set_operating_state(OperatingState.LOCKDOWN)
+                rt.db.set_setting("operating_state_expires_at", "0")
+                rt.db.record_action(
+                    incident_id=None,
+                    chat_id=chat.id,
+                    user_id=None,
+                    action_type="lockdown",
+                    actor_type="admin",
+                    actor_id=str(user.id),
+                    reason="control_center_confirmed",
+                    success=True,
+                )
+        except Exception as exc:
+            logger.error(
+                "Control Center action failed | action=lockdown | error=%s",
+                type(exc).__name__,
+            )
+            await query.answer("Ação não concluída.", show_alert=True)
+            return
+        await query.answer("LOCKDOWN ativado.", show_alert=True)
+        await query.edit_message_text("ZION LOCKDOWN ATIVADO")
+        return
+
+    await query.answer()
+    text, markup = _control_center_view(rt, nonce, action)
+    await query.edit_message_text(text, reply_markup=markup)
+
+
 async def start_command(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
 ) -> None:
     record_user(update, context)
     if not update.effective_message:
+        return
+
+    if await send_control_center(update, context):
         return
 
     await update.effective_message.reply_text(
@@ -1671,11 +2083,17 @@ async def status_command(
         if rt.settings.ai_observe and rt.ai.enabled
         else "OBSERVE-ONLY OFF"
     )
+    agent_core_state = (
+        "ACTIVE"
+        if context.application.bot_data.get("zion_multi_agent_started")
+        else "STANDBY"
+    )
 
     await update.effective_message.reply_text(
         "ZION STATUS: ONLINE\n"
         f"Operating State: {snapshot.state.value}\n"
         "Community Core: ACTIVE\n"
+        f"Multi-Agent Core: {agent_core_state}\n"
         "Guardian State: SQLITE PERSISTENT\n"
         f"AI Layer: {ai_state}\n"
         f"AI Moderation: {observe_state}"
@@ -1694,12 +2112,20 @@ async def health_command(
     rt = runtime(context)
     snapshot = rt.health.snapshot()
     uptime = rt.health.format_uptime(snapshot.uptime_seconds)
+    identity_status = snapshot.details.get(
+        "telegram_identity_status",
+        {},
+    )
+    configured_identities = sum(
+        1 for value in identity_status.values() if value == "CONFIGURED"
+    )
 
     await update.effective_message.reply_text(
         "ZION HEALTH\n"
         f"State: {snapshot.state.value}\n"
         f"Database: {'OK' if snapshot.db_ok else 'FAIL'}\n"
         f"Telegram Config: {'OK' if snapshot.telegram_configured else 'FAIL'}\n"
+        f"Secondary Identities: {configured_identities}/3 configured\n"
         f"Mistral: {'READY' if rt.ai.enabled else 'OFF'}\n"
         f"Wi-Fi Interface: {'PRESENT' if snapshot.wifi_interface_present else 'MISSING'}\n"
         f"Sensitive Files: "
@@ -1788,6 +2214,12 @@ async def diagnostics_command(
         if circuit_remaining > 0
         else "CLOSED"
     )
+    identity_status = diag.get("telegram_identity_status", {})
+    identity_status_text = ",".join(
+        f"{name}={value}"
+        for name, value in sorted(identity_status.items())
+        if name != AgentId.ZION.value
+    ) or "NONE"
 
     scheduler_task = context.application.bot_data.get(
         "zion_scheduler_task"
@@ -1884,6 +2316,7 @@ async def diagnostics_command(
         f"AI enabled/provider ready: "
         f"{rt.settings.ai_enabled}/{rt.ai.enabled}\n"
         f"Mistral secret: {diag['mistral_secret_status']}\n"
+        f"Telegram identity stores: {identity_status_text}\n"
         f"AI accounting: "
         f"{'OK' if ai_accounting_ok else 'FAIL-CLOSED'}\n"
         f"AI tokens UTC used/budget/remaining: "
@@ -5349,6 +5782,108 @@ async def moderation_handler(
         )
 
 
+async def secondary_private_handler(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+) -> None:
+    """Handle only the private inbox owned by one secondary identity."""
+    if (
+        not update.effective_message
+        or not update.effective_user
+        or not update.effective_chat
+        or update.effective_chat.type != "private"
+    ):
+        return
+
+    rt = runtime(context)
+    raw_agent = context.application.bot_data.get("zion_agent_id")
+    if not isinstance(raw_agent, AgentId) or raw_agent is AgentId.ZION:
+        return
+    profile = DEFAULT_AGENT_REGISTRY.get(raw_agent)
+    access = evaluate_dm_access(
+        profile,
+        user_id=update.effective_user.id,
+        admin_user_ids=rt.settings.admin_user_ids,
+    )
+    if not access.allowed:
+        return
+
+    text = (
+        update.effective_message.text
+        or update.effective_message.caption
+        or ""
+    ).strip()
+    if not text or text.startswith("/"):
+        return
+
+    sensitive_surface = telegram_sensitive_surface(
+        update.effective_message,
+        text,
+    )
+    if await protect_credential_exposure(
+        update,
+        context,
+        sensitive_surface,
+        source=f"{raw_agent.value}_private",
+        notice_text=(
+            "Esta mensagem parece conter uma credencial. Apague-a e "
+            "revogue ou rotacione o valor se ele for real."
+        ),
+    ):
+        return
+    if await protect_wallet_secret(
+        update,
+        context,
+        sensitive_surface,
+        source=f"{raw_agent.value}_private",
+        notice_text=(
+            "Nunca envie seed phrase, recovery phrase ou chave privada. "
+            "Proteja a carteira e revogue qualquer segredo exposto."
+        ),
+    ):
+        return
+
+    update_id = getattr(update, "update_id", None)
+    if update_id is not None:
+        try:
+            claimed = rt.db.claim_idempotency_key(
+                f"telegram_private:{raw_agent.value}:{int(update_id)}",
+                ttl_seconds=rt.settings.idempotency_retention_days * 86400,
+            )
+        except Exception as exc:
+            logger.error(
+                "Secondary DM idempotency unavailable | agent=%s | error=%s",
+                raw_agent.value,
+                type(exc).__name__,
+            )
+            return
+        if not claimed:
+            return
+
+    decision = rt.intent_router.route_private(profile, text)
+    if decision.speaker is None:
+        return
+    local_reply = _security_refusal_reply(text)
+    if local_reply is not None:
+        await update.effective_message.reply_text(local_reply)
+        return
+    if not rt.ask_limiter.allow(update.effective_user.id):
+        await update.effective_message.reply_text(
+            "Recebi muitas perguntas em pouco tempo. Tente novamente em "
+            "alguns instantes."
+        )
+        return
+    answer = await rt.ai.answer(
+        chat_id=update.effective_chat.id,
+        user_id=update.effective_user.id,
+        question=text[:6000],
+        agent_id=raw_agent,
+    )
+    await update.effective_message.reply_text(
+        telegram_ai_reply_text(answer.text)
+    )
+
+
 def expire_temporary_state(rt: Runtime) -> None:
     with rt.db.transaction():
         raw = rt.db.get_setting("operating_state_expires_at")
@@ -6343,6 +6878,15 @@ async def post_init(application: Application) -> None:
         )
         return
 
+    rt = application.bot_data.get("zion_runtime")
+    if isinstance(rt, Runtime):
+        await rt.multi_agent_transport.start()
+        statuses = rt.multi_agent_transport.status_all()
+        application.bot_data["zion_multi_agent_started"] = all(
+            statuses[agent_id].runtime_status == "RUNNING"
+            for agent_id in (AgentId.MIMIR, AgentId.EIR, AgentId.FREYR)
+        )
+
     task = asyncio.create_task(
         scheduler_loop(application),
         name="zion-scheduler",
@@ -6362,6 +6906,7 @@ async def post_shutdown(application: Application) -> None:
 
     rt = application.bot_data.get("zion_runtime")
     if isinstance(rt, Runtime):
+        await rt.multi_agent_transport.stop()
         rt.close()
 
 
@@ -6408,6 +6953,11 @@ def build_application(settings: Settings | None = None) -> Application:
         .build()
     )
     app.bot_data["zion_runtime"] = rt
+    rt.multi_agent_transport.prepare(
+        shared_runtime=rt,
+        private_handler=secondary_private_handler,
+        error_handler=error_handler,
+    )
 
     commands = {
         "start": start_command,
@@ -6490,6 +7040,13 @@ def build_application(settings: Settings | None = None) -> Application:
 
     for name, handler in commands.items():
         app.add_handler(CommandHandler(name, handler))
+
+    app.add_handler(
+        CallbackQueryHandler(
+            control_center_callback,
+            pattern=r"^zc1:",
+        )
+    )
 
     app.add_handler(
         MessageHandler(

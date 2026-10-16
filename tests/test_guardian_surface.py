@@ -8,7 +8,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from tests.helpers import make_settings
+from tests.helpers import make_settings, write_test_knowledge_manifest
 import zion.telegram_app as telegram_app
 from zion.db import ZionDB
 from zion.guardian import Guardian, normalize_policy_domain
@@ -275,6 +275,7 @@ class AuthorizationAndPrivateBoundaryTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         root = Path(self.temp.name)
         (root / "knowledge").mkdir()
+        write_test_knowledge_manifest(root / "knowledge")
         self.runtime = Runtime(make_settings(root))
         self.addCleanup(self.runtime.close)
 
@@ -754,6 +755,7 @@ class OperatorAuditLedgerTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         root = Path(self.temp.name)
         (root / "knowledge").mkdir()
+        write_test_knowledge_manifest(root / "knowledge")
         self.runtime = Runtime(make_settings(root))
         self.addCleanup(self.runtime.close)
 

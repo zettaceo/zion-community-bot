@@ -172,16 +172,18 @@ uncertain-delivery handling fail closed against duplicate speakers.
 - [x] P04.01 Enforce ZION CREATOR_ONLY before AI/session/retrieval.
   - Evidence: the existing ZION private intake returns before session, retrieval,
     or provider access for every non-operator numeric ID.
-- [~] P04.02 Enforce MIMIR CLOSED before AI/session/retrieval.
-  - Evidence: deterministic policy and negative unit tests PASS; secondary
-    transport wiring remains.
-- [~] P04.03 Enable EIR PUBLIC support DM.
-  - Evidence: deterministic policy PASS; secondary transport wiring remains.
-- [~] P04.04 Enable FREYR PUBLIC business DM.
-  - Evidence: deterministic policy PASS; secondary transport wiring remains.
-- [~] P04.05 Add operator, ordinary-user, replay, and loop-prevention tests.
-  - Evidence: operator/ordinary-user policy and ZION pre-AI negative tests PASS;
-    multi-identity transport replay/loop tests remain.
+- [x] P04.02 Enforce MIMIR CLOSED before AI/session/retrieval.
+  - Evidence: the secondary private handler rejects MIMIR before content,
+    idempotency, retrieval, or provider access; negative test PASS.
+- [x] P04.03 Enable EIR PUBLIC support DM.
+  - Evidence: private intake preserves the EIR identity through retrieval and
+    provider prompt; duplicate update is suppressed.
+- [x] P04.04 Enable FREYR PUBLIC business DM.
+  - Evidence: private intake preserves the FREYR identity through retrieval and
+    provider prompt; duplicate update is suppressed.
+- [x] P04.05 Add operator, ordinary-user, replay, and loop-prevention tests.
+  - Evidence: ZION creator boundary, MIMIR closed DM, EIR/FREYR public DM,
+    duplicate update suppression, and secondary group discard tests PASS.
 
 ### PHASE 5 - Intent routing
 
@@ -199,9 +201,9 @@ uncertain-delivery handling fail closed against duplicate speakers.
 
 - [x] P06.01 Add durable, atomic speaker claim keyed by inbound message identity.
   - Evidence: schema v3 `speaker_claims` plus atomic `BEGIN IMMEDIATE` claim.
-- [~] P06.02 Enforce zero-or-one external speaker and authorized handoff.
-  - Evidence: registry authority and concurrent durable arbitration PASS; external
-    Telegram send integration remains.
+- [x] P06.02 Enforce zero-or-one external speaker and authorized handoff.
+  - Evidence: registry authority, concurrent durable arbitration, token-specific
+    external send, sent-state completion, and duplicate-update suppression PASS.
 - [x] P06.03 Define retry, uncertain-send, callback, edit, replay, and expiration behavior.
   - Evidence: sent/uncertain states never replay; only `failed_safe` can retry;
     edits share the original key; callbacks use the update identity; stale claims
@@ -211,26 +213,46 @@ uncertain-delivery handling fail closed against duplicate speakers.
 
 ### PHASE 7 - Telegram multi-identity transport
 
-- [ ] P07.01 Implement one group intake and bounded secondary-DM intake.
-- [ ] P07.02 Send through the selected identity without exposing its token.
-- [ ] P07.03 Restrict secondary identities to minimum Telegram privileges.
-- [ ] P07.04 Add lifecycle, offset, callback, error, and shutdown tests.
+- [x] P07.01 Implement one group intake and bounded secondary-DM intake.
+  - Evidence: ZION owns group intake; secondary applications discard non-private
+    updates and apply each identity's DM policy before AI.
+- [x] P07.02 Send through the selected identity without exposing its token.
+  - Evidence: `MultiAgentTransport` selects the protected token-specific client;
+    safe statuses and timeout/failure-state tests PASS.
+- [~] P07.03 Restrict secondary identities to minimum Telegram privileges.
+  - Evidence: code grants no moderation authority and ignores secondary group
+    intake; live BotFather/group privilege configuration remains an acceptance gate.
+- [x] P07.04 Add lifecycle, offset, callback, error, and shutdown tests.
+  - Evidence: per-token polling startup, pending-update discard, callback/edit
+    claim identity, group discard, safe/uncertain errors, and reverse lifecycle
+    shutdown tests PASS.
 
 ### PHASE 8 - ZION admin Control Center
 
-- [ ] P08.01 Add creator-only inline main menu and required submenus.
-- [ ] P08.02 Show agent status, policy, scope, health, activity, and routing telemetry.
-- [ ] P08.03 Require explicit confirmation for dangerous actions.
-- [ ] P08.04 Reject unauthorized, stale, replayed, and malformed callbacks.
-- [ ] P08.05 Ensure no menu surface reveals secret values.
+- [~] P08.01 Add creator-only inline main menu and required submenus.
+  - Evidence: all required top-level areas have inline views; deeper operational
+    submenu coverage remains.
+- [~] P08.02 Show agent status, policy, scope, health, activity, and routing telemetry.
+  - Evidence: safe runtime/token/DM/moderation status is present; scope, last
+    activity, and routing telemetry remain.
+- [x] P08.03 Require explicit confirmation for dangerous actions.
+  - Evidence: LOCKDOWN requires a separate one-time confirmation session.
+- [x] P08.04 Reject unauthorized, stale, replayed, and malformed callbacks.
+  - Evidence: authorization, nonce expiry, action allowlist, and one-time
+    confirmation tests PASS.
+- [x] P08.05 Ensure no menu surface reveals secret values.
+  - Evidence: menu renders safe status only; secret-value negative test PASS.
 
 ### PHASE 9 - Knowledge classification
 
-- [ ] P09.01 Add PUBLIC/CONTROLLED/INTERNAL/SECRET metadata and source identity.
-- [ ] P09.02 Filter by agent scope and context before model context is built.
-- [ ] P09.03 Add freshness/status/version and source-aware internal provenance.
-- [ ] P09.04 Fail closed on missing/invalid classification.
-- [ ] P09.05 Add per-agent retrieval and leakage tests.
+- [x] P09.01 Add PUBLIC/CONTROLLED/INTERNAL/SECRET metadata and source identity.
+- [x] P09.02 Filter by agent scope and context before model context is built.
+- [x] P09.03 Add freshness/status/version and source-aware internal provenance.
+- [x] P09.04 Fail closed on missing/invalid classification.
+- [x] P09.05 Add per-agent retrieval and leakage tests.
+  - Evidence: machine-readable manifest, agent-aware retrieval, current-status
+    filter, invalid/unclassified fail-closed behavior, and INTERNAL/SECRET
+    exclusion tests PASS.
 
 ### PHASE 10 - Knowledge reconciliation
 
@@ -243,24 +265,30 @@ uncertain-delivery handling fail closed against duplicate speakers.
 - [ ] P10.05 Create `docs/apn/Z-SWAP-APN-SOURCE.md` from verified content only.
 - [ ] P10.06 Classify every APN and Technical Paper section.
 - [ ] P10.07 Reconcile conflicts against current executable/public facts and record decisions.
-- [ ] P10.08 Create `knowledge/MANIFEST.md` with authority, status, version, and allowed agents.
-- [ ] P10.09 Test retrieval filters and cross-agent/injection leakage.
+- [x] P10.08 Create `knowledge/MANIFEST.md` with authority, status, version, and allowed agents.
+- [~] P10.09 Test retrieval filters and cross-agent/injection leakage.
+  - Evidence: retrieval filters and agent scopes PASS; the final APN/Technical
+    Paper adversarial matrix remains after source reconciliation.
 
 ### PHASE 11 - MIMIR CTO
 
-- [ ] P11.01 Add grounded technical identity prompt and public technical scope.
-- [ ] P11.02 Reject internal implementation, security, infrastructure, and unpublished facts.
-- [ ] P11.03 Test depth, uncertainty, roadmap boundaries, and closed DM.
+- [x] P11.01 Add grounded technical identity prompt and public technical scope.
+- [x] P11.02 Reject internal implementation, security, infrastructure, and unpublished facts.
+- [~] P11.03 Test depth, uncertainty, roadmap boundaries, and closed DM.
+  - Evidence: identity, confidentiality, unknown-agent, and closed-DM tests PASS;
+    reconciled Technical Paper depth tests remain.
 
 ### PHASE 12 - EIR CXO
 
-- [ ] P12.01 Add support identity, support triage, and public DM flow.
-- [ ] P12.02 Prevent requests for seed, private key, password, API secret, token, or 2FA.
-- [ ] P12.03 Test question/problem/bug/account/human escalation classes.
+- [x] P12.01 Add support identity, support triage, and public DM flow.
+- [x] P12.02 Prevent requests for seed, private key, password, API secret, token, or 2FA.
+- [~] P12.03 Test question/problem/bug/account/human escalation classes.
+  - Evidence: support routing, public DM, and shared secret boundaries PASS;
+    the complete support/escalation class matrix remains.
 
 ### PHASE 13 - FREYR CBO
 
-- [ ] P13.01 Add institutional/partnership identity and public DM flow.
+- [x] P13.01 Add institutional/partnership identity and public DM flow.
 - [ ] P13.02 Add data-minimized partnership qualification and operator summary.
 - [ ] P13.03 Define and test retention, privacy, and audit behavior if persistence is used.
 
@@ -272,9 +300,9 @@ uncertain-delivery handling fail closed against duplicate speakers.
 
 ### PHASE 15 - Confidentiality and prompt-injection hardening
 
-- [ ] P15.01 Apply deterministic internal-information and credential boundary to every agent.
-- [ ] P15.02 Test founder/admin impersonation and system-prompt/source requests.
-- [ ] P15.03 Test cross-agent oracle and controlled/internal/secret exfiltration.
+- [x] P15.01 Apply deterministic internal-information and credential boundary to every agent.
+- [x] P15.02 Test founder/admin impersonation and system-prompt/source requests.
+- [x] P15.03 Test cross-agent oracle and controlled/internal/secret exfiltration.
 - [ ] P15.04 Test document reproduction/copyright-safe behavior.
 
 ### PHASE 16 - Persistence, privacy, and retention
@@ -293,10 +321,13 @@ uncertain-delivery handling fail closed against duplicate speakers.
 
 ### PHASE 17 - Observability, health, and diagnostics
 
-- [ ] P17.01 Add per-identity status without secret values.
+- [x] P17.01 Add per-identity status without secret values.
 - [ ] P17.02 Add routing, arbitration, silence, handoff, and failure telemetry.
 - [ ] P17.03 Extend `/status`, `/health`, `/diagnostics`, `/aistatus`, dashboard, and menu coherently.
-- [ ] P17.04 Add safe-log and degraded-state tests.
+- [~] P17.04 Add safe-log and degraded-state tests.
+  - Evidence: protected-store log redaction, UNSAFE health, missing/disabled,
+    duplicate-token, unavailable transport, and uncertain delivery tests PASS;
+    final end-to-end degraded-state matrix remains.
 
 ### PHASE 18 - Adversarial test matrix
 
@@ -368,3 +399,5 @@ uncertain-delivery handling fail closed against duplicate speakers.
 | 2026-10-15 | Full suite after first implementation increment | 631/631 PASS |
 | 2026-10-15 | DM, deterministic routing, durable arbitration, and schema v3 tests | focused PASS |
 | 2026-10-15 | Full suite after second implementation increment | 656/656 PASS |
+| 2026-10-16 | Identity prompts, knowledge firewall, transport, DM, Control Center, and safe health focused suite | 112/112 PASS |
+| 2026-10-16 | Full suite after third implementation increment | 678/678 PASS |

@@ -2,12 +2,49 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+import json
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parent.parent
 
 from zion.knowledge import KnowledgeBase
+
+
+def write_manifest(
+    root: Path,
+    *,
+    files: list[str] | None = None,
+    classification: str = "PUBLIC",
+    status: str = "CURRENT",
+    allowed_agents: list[str] | None = None,
+) -> None:
+    selected = files or sorted(
+        path.name
+        for path in root.glob("*.md")
+        if path.name.lower() not in {"readme.md", "manifest.md"}
+    )
+    agents = allowed_agents or ["zion", "mimir", "eir", "freyr"]
+    payload = {
+        "schema_version": 1,
+        "sources": [
+            {
+                "file": filename,
+                "classification": classification,
+                "status": status,
+                "version": "test-v1",
+                "source_identity": "test-fixture",
+                "allowed_agents": agents,
+            }
+            for filename in selected
+        ],
+    }
+    (root / "MANIFEST.md").write_text(
+        "# Test manifest\n\n```json\n"
+        + json.dumps(payload)
+        + "\n```\n",
+        encoding="utf-8",
+    )
 
 
 class KnowledgeTests(unittest.TestCase):
@@ -19,6 +56,7 @@ class KnowledgeTests(unittest.TestCase):
                 "# Fees\nFees must come from official documentation.\n",
                 encoding="utf-8",
             )
+            write_manifest(root)
             kb = KnowledgeBase(root)
             results = kb.search("seed phrase security")
             self.assertTrue(results)
@@ -36,6 +74,7 @@ class KnowledgeTests(unittest.TestCase):
                 "# Product\npublic product fact\n",
                 encoding="utf-8",
             )
+            write_manifest(root)
             kb = KnowledgeBase(root)
             self.assertNotIn(
                 "internal maintenance instructions",
@@ -53,6 +92,7 @@ class KnowledgeTests(unittest.TestCase):
                 "# Security\nNever share a seed phrase.\n",
                 encoding="utf-8",
             )
+            write_manifest(root)
             kb = KnowledgeBase(root)
             self.assertEqual(
                 kb.search("what is the and of"),
@@ -66,6 +106,7 @@ class KnowledgeTests(unittest.TestCase):
                 "# Security\nOfficial support channels are documented here.\n",
                 encoding="utf-8",
             )
+            write_manifest(root)
             kb = KnowledgeBase(root)
             self.assertEqual(
                 kb.search(
@@ -84,6 +125,7 @@ class KnowledgeTests(unittest.TestCase):
             )
             try:
                 (root / "linked.md").symlink_to(outside)
+                write_manifest(root)
                 kb = KnowledgeBase(root)
                 self.assertEqual(kb.chunks, [])
                 self.assertEqual(len(kb.load_errors), 1)
@@ -94,6 +136,7 @@ class KnowledgeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "broken.md").write_bytes(b"\xff\xfe\xfd")
+            write_manifest(root)
             kb = KnowledgeBase(root)
             self.assertEqual(kb.chunks, [])
             self.assertEqual(len(kb.load_errors), 1)
@@ -105,6 +148,7 @@ class KnowledgeTests(unittest.TestCase):
                 "# Guardian\n" + ("guardian " * 3000),
                 encoding="utf-8",
             )
+            write_manifest(root)
             kb = KnowledgeBase(root)
             rendered = kb.render_context(
                 "guardian",
@@ -113,6 +157,104 @@ class KnowledgeTests(unittest.TestCase):
             self.assertLessEqual(len(rendered), 500)
             self.assertIn("[Contexto oficial: Guardian]", rendered)
             self.assertNotIn("official.md", rendered)
+
+    def test_missing_manifest_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "unclassified.md").write_text(
+                "# Private\nThis must never enter context.\n",
+                encoding="utf-8",
+            )
+            kb = KnowledgeBase(root)
+            self.assertEqual(kb.chunks, [])
+            self.assertEqual(len(kb.load_errors), 1)
+
+    def test_unclassified_file_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "approved.md").write_text(
+                "# Product\nApproved public fact.\n",
+                encoding="utf-8",
+            )
+            (root / "forgotten.md").write_text(
+                "# Internal\nForgotten private fact.\n",
+                encoding="utf-8",
+            )
+            write_manifest(root, files=["approved.md"])
+            kb = KnowledgeBase(root)
+            self.assertIn("Approved public fact", kb.render_context("product"))
+            self.assertNotIn("Forgotten private fact", kb.render_context("private"))
+            self.assertTrue(
+                any("forgotten.md" in error for error in kb.load_errors)
+            )
+
+    def test_internal_secret_and_noncurrent_sources_never_retrieve(self) -> None:
+        for classification, status in (
+            ("INTERNAL", "CURRENT"),
+            ("SECRET", "CURRENT"),
+            ("PUBLIC", "HISTORICAL"),
+            ("PUBLIC", "SUPERSEDED"),
+            ("PUBLIC", "EXCLUDED"),
+        ):
+            with self.subTest(classification=classification, status=status):
+                with tempfile.TemporaryDirectory() as tmp:
+                    root = Path(tmp)
+                    (root / "restricted.md").write_text(
+                        "# Restricted\nUnique forbidden material.\n",
+                        encoding="utf-8",
+                    )
+                    write_manifest(
+                        root,
+                        classification=classification,
+                        status=status,
+                    )
+                    kb = KnowledgeBase(root)
+                    self.assertEqual(
+                        kb.render_context("unique forbidden material"),
+                        "",
+                    )
+
+    def test_controlled_source_is_filtered_by_agent(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "controlled.md").write_text(
+                "# Architecture\nApproved controlled architecture summary.\n",
+                encoding="utf-8",
+            )
+            write_manifest(
+                root,
+                classification="CONTROLLED",
+                allowed_agents=["mimir"],
+            )
+            kb = KnowledgeBase(root)
+            self.assertEqual(
+                kb.render_context(
+                    "approved controlled architecture",
+                    agent_id="zion",
+                ),
+                "",
+            )
+            self.assertIn(
+                "Approved controlled architecture summary",
+                kb.render_context(
+                    "approved controlled architecture",
+                    agent_id="mimir",
+                ),
+            )
+
+    def test_unknown_agent_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "public.md").write_text(
+                "# Product\nPublic fact.\n",
+                encoding="utf-8",
+            )
+            write_manifest(root)
+            kb = KnowledgeBase(root)
+            self.assertEqual(
+                kb.render_context("public fact", agent_id="unknown"),
+                "",
+            )
 
     def test_product_knowledge_answers_basic_z_swap_question(self) -> None:
         root = Path(__file__).resolve().parents[1] / "knowledge"

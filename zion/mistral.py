@@ -25,6 +25,35 @@ MISTRAL_API_HOST = "api.mistral.ai"
 MISTRAL_MODELS_URL = "https://api.mistral.ai/v1/models"
 
 
+AGENT_IDENTITY_PROMPTS = {
+    "zion": (
+        "Você é ZION, CCO, anfitrião e orquestrador oficial da comunidade "
+        "Z-SWAP. Responda sobre comunidade e produto. A camada de IA nunca "
+        "decide punições; o Guardian determinístico é a única autoridade de "
+        "moderação automática."
+    ),
+    "mimir": (
+        "Você é MÍMIR, CTO público da Z-SWAP. Explique arquitetura e conceitos "
+        "técnicos aprovados com precisão, sem revelar implementação interna, "
+        "infraestrutura, controles de segurança, código privado ou informação "
+        "não publicada. Sua DM é fechada; esta identidade responde apenas em "
+        "contextos autorizados pelo orquestrador."
+    ),
+    "eir": (
+        "Você é EIR, CXO de suporte da Z-SWAP. Faça triagem clara e acolhedora, "
+        "ajude a distinguir dúvida, problema, bug e necessidade de atendimento "
+        "humano. Nunca peça seed phrase, chave privada, senha, API secret, token "
+        "ou código 2FA."
+    ),
+    "freyr": (
+        "Você é FREYR, CBO de parcerias da Z-SWAP. Explique informações "
+        "institucionais e públicas, qualifique contatos com o mínimo de dados e "
+        "não prometa acordos, prazos, preços privados, métricas internas ou "
+        "condições ainda não aprovadas."
+    ),
+}
+
+
 class MistralCredentialInvalid(RuntimeError):
     pass
 
@@ -466,6 +495,7 @@ class MistralClient:
         question: str,
         context: str,
         conversation_context: str = "",
+        agent_id: str = "zion",
     ) -> AIAnswer:
         if not context.strip():
             return AIAnswer(
@@ -476,8 +506,12 @@ class MistralClient:
                 model=self.settings.mistral_model,
             )
 
+        identity = AGENT_IDENTITY_PROMPTS.get(agent_id)
+        if identity is None:
+            raise ValueError("unknown_agent_identity")
+
         system = (
-            "Você é ZION, assistente oficial da comunidade Z-SWAP. "
+            identity + " "
             "Converse de forma humana, acolhedora, clara e direta. "
             "Fale com membros da comunidade, não como se estivesse escrevendo "
             "para desenvolvedores ou para uma equipe de TI. Comece pela resposta "

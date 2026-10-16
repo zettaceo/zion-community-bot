@@ -1,11 +1,40 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from zion.config import Settings
 
 
+def write_test_knowledge_manifest(
+    root: Path,
+    files: tuple[str, ...] = ("official.md", "orders.md"),
+) -> None:
+    root.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "schema_version": 1,
+        "sources": [
+            {
+                "file": filename,
+                "classification": "PUBLIC",
+                "status": "CURRENT",
+                "version": "test-v1",
+                "source_identity": "test-fixture",
+                "allowed_agents": ["zion", "mimir", "eir", "freyr"],
+            }
+            for filename in files
+        ],
+    }
+    (root / "MANIFEST.md").write_text(
+        "# Test manifest\n\n```json\n"
+        + json.dumps(payload)
+        + "\n```\n",
+        encoding="utf-8",
+    )
+
+
 def make_settings(root: Path) -> Settings:
+    write_test_knowledge_manifest(root / "knowledge")
     return Settings(
         root_dir=root,
         telegram_token="123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghi",

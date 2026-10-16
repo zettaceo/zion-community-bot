@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock
 from telegram.constants import ChatMemberStatus
 
 from tests.helpers import make_settings
+from zion.agents import AgentId
 from zion.models import AIAnswer
 from zion.telegram_app import (
     ConversationRoute,
@@ -17,6 +18,7 @@ from zion.telegram_app import (
     conversation_route,
     moderation_handler,
     natural_conversation_question,
+    secondary_private_handler,
     telegram_ai_reply_text,
 )
 
@@ -300,6 +302,91 @@ class ConversationTests(unittest.TestCase):
 
         self.runtime.ai.answer.assert_awaited_once()
         self.assertEqual(len(update.effective_message.replies), 1)
+
+    def test_multi_agent_group_routes_once_through_mimir_identity(self) -> None:
+        class CapturingTransport:
+            def __init__(self) -> None:
+                self.calls = []
+
+            async def send_message(self, **kwargs):
+                self.calls.append(kwargs)
+                return SimpleNamespace(message_id=9001)
+
+        transport = CapturingTransport()
+        self.runtime.multi_agent_transport = transport
+        self.context.application.bot_data["zion_multi_agent_started"] = True
+        update = make_update(
+            "Como funciona o roteamento multi-chain?",
+            chat_type="supergroup",
+            message_id=900,
+        )
+
+        asyncio.run(moderation_handler(update, self.context))
+        asyncio.run(moderation_handler(update, self.context))
+
+        self.runtime.ai.answer.assert_awaited_once_with(
+            chat_id=-10020,
+            user_id=2,
+            question="Como funciona o roteamento multi-chain?",
+            agent_id=AgentId.MIMIR,
+        )
+        self.assertEqual(len(transport.calls), 1)
+        self.assertEqual(transport.calls[0]["agent_id"], AgentId.MIMIR)
+        self.assertEqual(update.effective_message.replies, [])
+        row = self.runtime.db._conn.execute(
+            "SELECT selected_agent, status FROM speaker_claims"
+        ).fetchone()
+        self.assertEqual(row["selected_agent"], "mimir")
+        self.assertEqual(row["status"], "sent")
+
+    def test_mimir_private_inbox_is_closed_before_ai(self) -> None:
+        update = make_update(
+            "Como funciona o roteamento multi-chain?",
+            chat_type="private",
+            message_id=901,
+        )
+        self.context.application.bot_data["zion_agent_id"] = AgentId.MIMIR
+
+        asyncio.run(secondary_private_handler(update, self.context))
+
+        self.runtime.ai.answer.assert_not_awaited()
+        self.assertEqual(update.effective_message.replies, [])
+        key = "telegram_private:mimir:901"
+        self.assertIsNone(
+            self.runtime.db._conn.execute(
+                "SELECT key FROM idempotency_keys WHERE key = ?",
+                (key,),
+            ).fetchone()
+        )
+
+    def test_public_secondary_private_inboxes_keep_receiving_identity(self) -> None:
+        cases = (
+            (AgentId.EIR, "Minha carteira não conecta, pode ajudar?"),
+            (AgentId.FREYR, "Como funciona uma parceria com a Z-SWAP?"),
+        )
+        for index, (agent_id, question) in enumerate(cases, start=902):
+            with self.subTest(agent_id=agent_id.value):
+                self.runtime.ai.answer.reset_mock()
+                self.context.application.bot_data["zion_agent_id"] = agent_id
+                update = make_update(
+                    question,
+                    chat_type="private",
+                    message_id=index,
+                )
+
+                asyncio.run(secondary_private_handler(update, self.context))
+                asyncio.run(secondary_private_handler(update, self.context))
+
+                self.runtime.ai.answer.assert_awaited_once_with(
+                    chat_id=20,
+                    user_id=2,
+                    question=question,
+                    agent_id=agent_id,
+                )
+                self.assertEqual(
+                    update.effective_message.replies,
+                    ["Resposta clara sobre a Z-SWAP."],
+                )
 
     def test_group_reply_to_zion_continues_conversation(self) -> None:
         update = make_update(

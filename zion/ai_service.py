@@ -7,6 +7,7 @@ import re
 import threading
 import time
 
+from .agents import AgentId
 from .config import Settings
 from .db import ZionDB
 from .knowledge import KnowledgeBase
@@ -429,7 +430,22 @@ class AIService:
         question: str,
         context_query: str | None = None,
         conversation_context: str | None = None,
+        agent_id: AgentId | str = AgentId.ZION,
     ) -> AIAnswer:
+        try:
+            selected_agent = (
+                agent_id
+                if isinstance(agent_id, AgentId)
+                else AgentId(str(agent_id).strip().lower())
+            )
+        except ValueError:
+            return AIAnswer(
+                text=(
+                    "Não foi possível confirmar a identidade autorizada para "
+                    "esta resposta."
+                ),
+                model="zion-local",
+            )
         if not self.state_allows_ai():
             return AIAnswer(
                 text=(
@@ -445,11 +461,15 @@ class AIService:
         safe_conversation_context = sanitize_for_ai(
             conversation_context or ""
         )[:6000]
-        context = self.knowledge.render_context(safe_context_query)
+        context = self.knowledge.render_context(
+            safe_context_query,
+            agent_id=selected_agent,
+        )
         question_hash = self._hash_text(safe_question)
 
         canonical_answer = self.knowledge.canonical_finite_answer(
-            safe_question
+            safe_question,
+            agent_id=selected_agent,
         )
         if canonical_answer is not None:
             self._record_ai_event(
@@ -461,7 +481,10 @@ class AIService:
                 input_hash=question_hash,
                 metadata={
                     "knowledge_hits": len(
-                        self.knowledge.search(safe_context_query)
+                        self.knowledge.search(
+                            safe_context_query,
+                            agent_id=selected_agent,
+                        )
                     ),
                     "provider_called": False,
                     "canonical_finite_list": True,
@@ -553,6 +576,8 @@ class AIService:
                         "question": safe_question,
                         "context": context,
                     }
+                    if selected_agent is not AgentId.ZION:
+                        client_kwargs["agent_id"] = selected_agent.value
                     if safe_conversation_context:
                         client_kwargs["conversation_context"] = (
                             safe_conversation_context
@@ -576,11 +601,16 @@ class AIService:
                 input_hash=question_hash,
                 metadata={
                     "knowledge_hits": len(
-                        self.knowledge.search(safe_context_query)
+                        self.knowledge.search(
+                            safe_context_query,
+                            agent_id=selected_agent,
+                        )
                     ),
                     "knowledge_sources": self.knowledge.source_labels(
-                        safe_context_query
+                        safe_context_query,
+                        agent_id=selected_agent,
                     ),
+                    "agent_id": selected_agent.value,
                 },
             )
             return answer

@@ -8,7 +8,7 @@ import unittest
 from dataclasses import replace
 from pathlib import Path
 
-from tests.helpers import make_settings
+from tests.helpers import make_settings, write_test_knowledge_manifest
 from zion.db import SUPPORTED_SCHEMA_VERSION, ZionDB
 from zion.guardian import Guardian, normalize_policy_domain
 from zion.knowledge import KnowledgeBase
@@ -726,6 +726,7 @@ class V11KnowledgeTests(unittest.TestCase):
                 "# Support\nUse official support channels.\n",
                 encoding="utf-8",
             )
+            write_test_knowledge_manifest(root)
             kb = KnowledgeBase(root)
             labels = kb.source_labels("seed phrase security")
             self.assertEqual(

@@ -7,7 +7,7 @@ import unittest
 from dataclasses import replace
 from pathlib import Path
 
-from tests.helpers import make_settings
+from tests.helpers import make_settings, write_test_knowledge_manifest
 from zion.ai_service import AIService, sanitize_for_ai
 from zion.db import ZionDB
 from zion.knowledge import KnowledgeBase
@@ -25,6 +25,10 @@ class AITests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.root = Path(self.temp.name)
         (self.root / "knowledge").mkdir()
+        write_test_knowledge_manifest(
+            self.root / "knowledge",
+            files=("official.md", "orders.md"),
+        )
         self.settings = make_settings(self.root)
         self.db = ZionDB(self.settings.db_path)
         self.db.initialize()
