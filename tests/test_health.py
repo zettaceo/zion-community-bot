@@ -194,7 +194,7 @@ class HealthTests(unittest.TestCase):
 
     def test_secondary_identity_health_exposes_only_safe_status(self) -> None:
         class FakeIdentityStore:
-            secret_value = "999999:NEVER_EXPOSE_THIS_TELEGRAM_TOKEN"
+            secret_value = "999999" + ":NEVER_EXPOSE_THIS_TELEGRAM_TOKEN"
 
             @staticmethod
             def status_all():

@@ -93,6 +93,27 @@ class ControlCenterTests(unittest.TestCase):
         self.assertEqual(update.callback_query.edits, [])
         self.assertIn("expirado", update.callback_query.answers[0][0])
 
+    def test_agents_submenu_exposes_safe_policy_scope_and_telemetry(self) -> None:
+        main = self.update()
+        asyncio.run(send_control_center(main, self.context))
+        nonce = next(iter(self.runtime.control_center_sessions))
+
+        agents = self.update(data=f"zc1:{nonce}:agents")
+        asyncio.run(control_center_callback(agents, self.context))
+        text, kwargs = agents.callback_query.edits[0]
+        self.assertIn("EIR: runtime=", text)
+        rendered = repr(kwargs["reply_markup"])
+        self.assertIn("agent_eir", rendered)
+        self.assertIn("routing", rendered)
+
+        detail = self.update(data=f"zc1:{nonce}:agent_eir")
+        asyncio.run(control_center_callback(detail, self.context))
+        detail_text = detail.callback_query.edits[0][0]
+        self.assertIn("DM policy: public", detail_text)
+        self.assertIn("support_public", detail_text)
+        self.assertIn("Responses sent: 0", detail_text)
+        self.assertNotIn(self.runtime.settings.telegram_token, detail_text)
+
     def test_lockdown_requires_confirmation_and_is_one_time(self) -> None:
         main = self.update()
         asyncio.run(send_control_center(main, self.context))

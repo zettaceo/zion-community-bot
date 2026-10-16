@@ -12,7 +12,12 @@ from .config import Settings
 from .db import ZionDB
 from .knowledge import KnowledgeBase
 from .mistral import MistralClient
-from .models import AIAnswer, AIClassification, OperatingState
+from .models import (
+    AIAnswer,
+    AIClassification,
+    AIRouteClassification,
+    OperatingState,
+)
 from .secret_store import SecretStore
 
 
@@ -897,6 +902,70 @@ class AIService:
                     "error_type": type(exc).__name__,
                     "budget_estimate_tokens": reservation,
                     "usage_outcome": "uncertain",
+                },
+            )
+            return None
+
+    async def classify_route(
+        self,
+        *,
+        chat_id: int | None,
+        user_id: int | None,
+        text: str,
+    ) -> AIRouteClassification | None:
+        """Interpret ambiguous conversation without gaining authority."""
+
+        if not self.provider_available():
+            return None
+        safe_text = sanitize_for_ai(text)[:3000]
+        reservation = self._reserve_budget(
+            self._estimate_tokens(safe_text, 120)
+        )
+        if reservation is None:
+            return None
+        try:
+            try:
+                async with self._semaphore:
+                    result = await self.client.classify_route(safe_text)
+            finally:
+                self._release_budget(reservation)
+            self._record_provider_success()
+            self._record_provider_success_event(
+                reservation=reservation,
+                input_tokens=result.input_tokens,
+                output_tokens=result.output_tokens,
+                chat_id=None,
+                user_id=None,
+                purpose="intent_route",
+                model=result.model or self.settings.mistral_model,
+                success=True,
+                category=result.intent,
+                risk=result.confidence,
+                requires_human=False,
+                latency_ms=result.latency_ms,
+                input_hash=self._hash_text(safe_text),
+                metadata={"authority": "interpretation_only"},
+            )
+            return result
+        except Exception as exc:
+            self._record_provider_failure()
+            self._charge_uncertain_budget(reservation)
+            logger.warning(
+                "Falha no classificador limitado de routing: %s",
+                type(exc).__name__,
+            )
+            self._record_ai_event(
+                chat_id=None,
+                user_id=None,
+                purpose="intent_route",
+                model=self.settings.mistral_model,
+                success=False,
+                input_hash=self._hash_text(safe_text),
+                metadata={
+                    "error_type": type(exc).__name__,
+                    "budget_estimate_tokens": reservation,
+                    "usage_outcome": "uncertain",
+                    "authority": "interpretation_only",
                 },
             )
             return None

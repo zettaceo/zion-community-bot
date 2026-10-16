@@ -164,8 +164,10 @@ uncertain-delivery handling fail closed against duplicate speakers.
   - Evidence: formatter test proves loaded token material becomes `[REDACTED]`.
 - [x] P03.04 Expose CONFIGURED/MISSING/UNSAFE only.
   - Evidence: value-blind status matrix test PASS.
-- [~] P03.05 Prove tokens never enter logs, SQLite, diagnostics, backups, or repository files.
-  - Evidence so far: log/status tests PASS; runtime diagnostics, DB, backup, and repository-wide checks remain.
+- [x] P03.05 Prove tokens never enter logs, SQLite, diagnostics, backups, or repository files.
+  - Evidence: protected-store values are redacted from logs and absent from
+    safe status, health/diagnostics, SQLite dumps, verified backups, WAL/SHM,
+    and tracked repository content; secret scan PASS.
 
 ### PHASE 4 - DM access policies
 
@@ -189,8 +191,10 @@ uncertain-delivery handling fail closed against duplicate speakers.
 
 - [x] P05.01 Implement MODERATION/COMMUNITY/TECHNICAL/SUPPORT/PARTNERSHIP/UNRELATED/AMBIGUOUS taxonomy.
   - Evidence: `zion/router.py` returns registry-backed decisions for the full taxonomy.
-- [~] P05.02 Add deterministic high-confidence routing and bounded AI fallback.
-  - Evidence: deterministic routing is complete; bounded fallback remains.
+- [x] P05.02 Add deterministic high-confidence routing and bounded AI fallback.
+  - Evidence: deterministic routing runs first; Mistral can return only an
+    allowlisted benign intent, confidence below 0.80 fails closed, and
+    moderation is impossible through the fallback interface.
 - [x] P05.03 Preserve natural conversation and silence for irrelevant chatter.
   - Evidence: unrelated and addressed-but-ambiguous messages resolve to silence.
 - [x] P05.04 Test mixed, ambiguous, injection, and adversarial intent.
@@ -219,9 +223,10 @@ uncertain-delivery handling fail closed against duplicate speakers.
 - [x] P07.02 Send through the selected identity without exposing its token.
   - Evidence: `MultiAgentTransport` selects the protected token-specific client;
     safe statuses and timeout/failure-state tests PASS.
-- [~] P07.03 Restrict secondary identities to minimum Telegram privileges.
+- [!] P07.03 Restrict secondary identities to minimum Telegram privileges.
   - Evidence: code grants no moderation authority and ignores secondary group
-    intake; live BotFather/group privilege configuration remains an acceptance gate.
+    intake. Live BotFather/group privilege configuration requires the real bot
+    identities and remains blocked until Phase 23 acceptance on the Acer.
 - [x] P07.04 Add lifecycle, offset, callback, error, and shutdown tests.
   - Evidence: per-token polling startup, pending-update discard, callback/edit
     claim identity, group discard, safe/uncertain errors, and reverse lifecycle
@@ -229,12 +234,12 @@ uncertain-delivery handling fail closed against duplicate speakers.
 
 ### PHASE 8 - ZION admin Control Center
 
-- [~] P08.01 Add creator-only inline main menu and required submenus.
-  - Evidence: all required top-level areas have inline views; deeper operational
-    submenu coverage remains.
-- [~] P08.02 Show agent status, policy, scope, health, activity, and routing telemetry.
-  - Evidence: safe runtime/token/DM/moderation status is present; scope, last
-    activity, and routing telemetry remain.
+- [x] P08.01 Add creator-only inline main menu and required submenus.
+  - Evidence: all required top-level areas and per-agent/routing detail views
+    have authorized inline callbacks.
+- [x] P08.02 Show agent status, policy, scope, health, activity, and routing telemetry.
+  - Evidence: per-agent runtime/store/DM/scope/moderation/routed/sent/failure/
+    last-success data and aggregate routing telemetry render without secrets.
 - [x] P08.03 Require explicit confirmation for dangerous actions.
   - Evidence: LOCKDOWN requires a separate one-time confirmation session.
 - [x] P08.04 Reject unauthorized, stale, replayed, and malformed callbacks.
@@ -290,47 +295,62 @@ uncertain-delivery handling fail closed against duplicate speakers.
 
 - [x] P11.01 Add grounded technical identity prompt and public technical scope.
 - [x] P11.02 Reject internal implementation, security, infrastructure, and unpublished facts.
-- [~] P11.03 Test depth, uncertainty, roadmap boundaries, and closed DM.
-  - Evidence: identity, confidentiality, unknown-agent, and closed-DM tests PASS;
-    reconciled Technical Paper depth tests remain.
+- [x] P11.03 Test depth, uncertainty, roadmap boundaries, and closed DM.
+  - Evidence: reconciled public Technical Paper projections, identity,
+    confidentiality, unknown-agent, completeness, status-boundary, uncertainty,
+    and closed-DM tests PASS.
 
 ### PHASE 12 - EIR CXO
 
 - [x] P12.01 Add support identity, support triage, and public DM flow.
 - [x] P12.02 Prevent requests for seed, private key, password, API secret, token, or 2FA.
-- [~] P12.03 Test question/problem/bug/account/human escalation classes.
-  - Evidence: support routing, public DM, and shared secret boundaries PASS;
-    the complete support/escalation class matrix remains.
+- [x] P12.03 Test question/problem/bug/account/human escalation classes.
+  - Evidence: deterministic triage covers question, usage problem, user error,
+    possible incident, possible bug, account, and human; sensitive classes
+    require human review.
 
 ### PHASE 13 - FREYR CBO
 
 - [x] P13.01 Add institutional/partnership identity and public DM flow.
-- [ ] P13.02 Add data-minimized partnership qualification and operator summary.
-- [ ] P13.03 Define and test retention, privacy, and audit behavior if persistence is used.
+- [x] P13.02 Add data-minimized partnership qualification and operator summary.
+  - Evidence: only labelled fields are accepted; minimum required groups are
+    enforced; the summary is delivered through the primary ZION bot.
+- [x] P13.03 Define and test retention, privacy, and audit behavior if persistence is used.
+  - Evidence: lead content is not persisted; audit stores only field/delivery
+    counts and decision status; SQLite dump negative tests PASS.
 
 ### PHASE 14 - Cross-agent handoff
 
-- [ ] P14.01 Implement invisible, bounded rerouting before external response.
-- [ ] P14.02 Prove handoff preserves single-speaker and authority boundaries.
-- [ ] P14.03 Test technical/support/business loops and ambiguity.
+- [x] P14.01 Implement invisible, bounded rerouting before external response.
+  - Evidence: one-hop handoff is computed before claim/send; the addressed
+    identity emits no acknowledgement.
+- [x] P14.02 Prove handoff preserves single-speaker and authority boundaries.
+  - Evidence: the durable final-speaker claim and transport capture prove one
+    authorized external identity.
+- [x] P14.03 Test technical/support/business loops and ambiguity.
+  - Evidence: EIR-to-MIMIR, FREYR-to-EIR, MIMIR-to-FREYR, multi-address
+    ambiguity, and handoff_count<=1 tests PASS.
 
 ### PHASE 15 - Confidentiality and prompt-injection hardening
 
 - [x] P15.01 Apply deterministic internal-information and credential boundary to every agent.
 - [x] P15.02 Test founder/admin impersonation and system-prompt/source requests.
 - [x] P15.03 Test cross-agent oracle and controlled/internal/secret exfiltration.
-- [ ] P15.04 Test document reproduction/copyright-safe behavior.
+- [x] P15.04 Test document reproduction/copyright-safe behavior.
+  - Evidence: whole APN/Technical Paper reproduction receives a bounded summary
+    offer; the provider prompt independently prohibits whole-document output.
 
 ### PHASE 16 - Persistence, privacy, and retention
 
-- [~] P16.01 Add the minimum schema required for durable arbitration/telemetry/leads.
-  - Evidence: durable arbitration schema is complete; later telemetry/lead needs
-    remain subject to data-minimization review.
+- [x] P16.01 Add the minimum schema required for durable arbitration/telemetry/leads.
+  - Evidence: schema v4 adds content-free routing telemetry; no lead table is
+    created because FREYR intentionally does not persist lead content.
 - [x] P16.02 Add atomic migrations and pre-upgrade compatibility tests.
-  - Evidence: schema 2 to 3 migration preserves prior data and rolls back on failure.
+  - Evidence: schema 2 to 4 migration preserves prior data; v3 to v4 is
+    additive; migration rollback and future-schema tests remain green.
 - [x] P16.03 Minimize stored user content and define retention/pruning.
-  - Evidence: claims contain identifiers/status metadata only, never message text;
-    terminal rows have bounded pruning.
+  - Evidence: claims and routing telemetry exclude message/contact/user/chat
+    content; lead data is not stored; terminal rows have bounded housekeeping.
 - [x] P16.04 Prove no transaction spans a network await.
   - Evidence: claim/complete are separate synchronous DB operations; transport is
     structurally outside the transaction boundary.
@@ -338,35 +358,53 @@ uncertain-delivery handling fail closed against duplicate speakers.
 ### PHASE 17 - Observability, health, and diagnostics
 
 - [x] P17.01 Add per-identity status without secret values.
-- [ ] P17.02 Add routing, arbitration, silence, handoff, and failure telemetry.
-- [ ] P17.03 Extend `/status`, `/health`, `/diagnostics`, `/aistatus`, dashboard, and menu coherently.
-- [~] P17.04 Add safe-log and degraded-state tests.
+- [x] P17.02 Add routing, arbitration, silence, handoff, and failure telemetry.
+  - Evidence: schema-v4 aggregates cover routed/sent/send failure, silence,
+    ambiguity, handoff, denied DM, routing failure, and last success.
+- [x] P17.03 Extend `/status`, `/health`, `/diagnostics`, `/aistatus`, dashboard, and menu coherently.
+  - Evidence: status/health remain compatible; diagnostics, AI status, and the
+    creator Control Center expose value-blind multi-agent state and routing.
+- [x] P17.04 Add safe-log and degraded-state tests.
   - Evidence: protected-store log redaction, UNSAFE health, missing/disabled,
-    duplicate-token, unavailable transport, and uncertain delivery tests PASS;
-    final end-to-end degraded-state matrix remains.
+    duplicate-token, unavailable primary/secondary transport, failed-safe and
+    uncertain delivery, no ghost conversation context, and safe recovery tests PASS.
 
 ### PHASE 18 - Adversarial test matrix
 
-- [ ] P18.01 Routing, mixed intent, unrelated chatter, and ambiguity.
-- [ ] P18.02 Concurrent messages, duplicate updates, edits, callbacks, retries, and uncertain sends.
-- [ ] P18.03 DM authority and non-operator access.
-- [ ] P18.04 Secret-store filesystem attacks and secret propagation.
-- [ ] P18.05 Knowledge/injection/cross-agent exfiltration.
-- [ ] P18.06 Guardian/flood/link/secret behavior through centralized intake.
+- [x] P18.01 Routing, mixed intent, unrelated chatter, and ambiguity.
+- [x] P18.02 Concurrent messages, duplicate updates, edits, callbacks, retries, and uncertain sends.
+- [x] P18.03 DM authority and non-operator access.
+- [x] P18.04 Secret-store filesystem attacks and secret propagation.
+- [x] P18.05 Knowledge/injection/cross-agent exfiltration.
+- [x] P18.06 Guardian/flood/link/secret behavior through centralized intake.
+  - Evidence: focused routing/workflow/conversation matrix 60/60 PASS;
+    Guardian/moderation/security matrix 163/163 PASS; persistence/release matrix
+    104/104 PASS; complete suite PASS.
 
 ### PHASE 19 - Full regression
 
-- [ ] P19.01 Run focused new tests.
-- [ ] P19.02 Run all Guardian/moderation/security/persistence tests.
-- [ ] P19.03 Run the complete suite with zero removed/weakened tests.
-- [ ] P19.04 Run secret scan and normal repository validation.
+- [x] P19.01 Run focused new tests.
+- [x] P19.02 Run all Guardian/moderation/security/persistence tests.
+- [x] P19.03 Run the complete suite with zero removed/weakened tests.
+- [x] P19.04 Run secret scan and normal repository validation.
+  - Evidence: audited Python 3.12 runtime, 9 locked packages, imports PASS,
+    714/714 tests PASS, shell checks PASS, sensitive-file boundary PASS,
+    `SECRET SCAN: OK`, `ZION VALIDATION: OK` on 2026-10-16.
 
 ### PHASE 20 - Documentation reconciliation
 
-- [ ] P20.01 Update architecture, policies, security, operations, configuration, and deployment docs.
-- [ ] P20.02 Document Telegram topology and provisioning procedure without token values.
-- [ ] P20.03 Update `docs/CHAT-HANDOFF.md`.
-- [ ] P20.04 Reconcile plan evidence and remove stale claims.
+- [x] P20.01 Update architecture, policies, security, operations, configuration, and deployment docs.
+  - Evidence: master plan, architecture, policy, security, operations, and
+    deployment contracts describe the implemented boundaries.
+- [x] P20.02 Document Telegram topology and provisioning procedure without token values.
+  - Evidence: architecture/deployment docs define centralized intake, secondary
+    privacy/minimum privilege, protected local provisioning, and value-blind verification.
+- [x] P20.03 Update `docs/CHAT-HANDOFF.md`.
+  - Evidence: dated development handoff records implementation and separates
+    pending release/live gates.
+- [x] P20.04 Reconcile plan evidence and remove stale claims.
+  - Evidence: implementation statuses and evidence log reconciled after the
+    714-test full validation; live-only gates remain explicitly blocked/pending.
 
 ### PHASE 21 - Development release audit
 
@@ -420,3 +458,5 @@ uncertain-delivery handling fail closed against duplicate speakers.
 | 2026-10-16 | APN/Technical Paper source discovery, classification and public-truth reconciliation | complete; absent named route explicitly recorded |
 | 2026-10-16 | Reconciled knowledge/Mistral focused suite | 45/45 PASS |
 | 2026-10-16 | Full suite after fourth implementation increment | 682/682 PASS |
+| 2026-10-16 | Bounded fallback, one-hop handoff, EIR/FREYR workflows, schema v4 telemetry and Control Center | focused 60/60 PASS; degraded/security/persistence matrices PASS |
+| 2026-10-16 | Final development validation before release audit | runtime/imports/shell PASS; 714/714 tests; SECRET SCAN OK; ZION VALIDATION OK |

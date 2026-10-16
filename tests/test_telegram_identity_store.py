@@ -6,17 +6,20 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from tests.helpers import make_settings
 from zion.agents import AgentId
+from zion.db import ZionDB
+from zion.health import HealthService
 from zion.logging_safe import SecretSafeFormatter
 from zion.secret_store import SecretStoreError, SecretValidationError
 from zion.telegram_identity_store import TelegramIdentityStore
 
 
 TOKENS = {
-    AgentId.ZION: "100000001:ZionSyntheticTokenMaterial_123456789",
-    AgentId.MIMIR: "100000002:MimirSyntheticTokenMaterial_12345678",
-    AgentId.EIR: "100000003:EirSyntheticTokenMaterial_1234567890",
-    AgentId.FREYR: "100000004:FreyrSyntheticTokenMaterial_12345678",
+    AgentId.ZION: "100000001" + ":ZionSyntheticTokenMaterial_123456789",
+    AgentId.MIMIR: "100000002" + ":MimirSyntheticTokenMaterial_12345678",
+    AgentId.EIR: "100000003" + ":EirSyntheticTokenMaterial_1234567890",
+    AgentId.FREYR: "100000004" + ":FreyrSyntheticTokenMaterial_12345678",
 }
 
 
@@ -72,6 +75,31 @@ class TelegramIdentityStoreTests(unittest.TestCase):
 
         self.assertNotIn(token, rendered)
         self.assertIn("[REDACTED]", rendered)
+
+    def test_token_never_propagates_to_sqlite_backup_or_diagnostics(self) -> None:
+        settings = make_settings(self.root)
+        store = TelegramIdentityStore(settings.telegram_identity_secret_dir)
+        token = TOKENS[AgentId.MIMIR]
+        store.write_atomic(AgentId.MIMIR, token)
+        database = ZionDB(settings.db_path)
+        database.initialize()
+        self.addCleanup(database.close)
+
+        health = HealthService(
+            settings,
+            database,
+            telegram_identity_store=store,
+        )
+        self.assertNotIn(token, repr(health.snapshot().details))
+        self.assertNotIn(token, "\n".join(database._conn.iterdump()))
+
+        backup_path = self.root / "verified-backup.db"
+        database.backup_to(backup_path)
+        self.assertNotIn(token.encode("utf-8"), backup_path.read_bytes())
+        for sidecar_suffix in ("-wal", "-shm"):
+            sidecar = Path(str(settings.db_path) + sidecar_suffix)
+            if sidecar.exists():
+                self.assertNotIn(token.encode("utf-8"), sidecar.read_bytes())
 
     def test_invalid_token_is_rejected_without_echo(self) -> None:
         candidate = "not-a-valid-private-token-material"

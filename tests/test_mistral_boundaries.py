@@ -364,6 +364,7 @@ class MistralBoundaryTests(unittest.TestCase):
             self.assertIn("outras compatíveis", system)
             self.assertIn("não acrescente tipos", system)
             self.assertIn("linguagem natural e concreta", system)
+            self.assertIn("Não reproduza documentos inteiros", system)
 
 
 if __name__ == "__main__":

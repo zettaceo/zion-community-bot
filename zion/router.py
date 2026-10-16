@@ -6,11 +6,13 @@ from dataclasses import dataclass
 
 from .agents import (
     DEFAULT_AGENT_REGISTRY,
+    AgentId,
     AgentProfile,
     AgentRegistry,
     AgentRole,
     ConversationIntent,
 )
+from .models import AIRouteClassification
 
 
 def _fold(value: str) -> str:
@@ -69,6 +71,16 @@ class RouteDecision:
     speaker: AgentProfile | None
     confidence: float
     reason: str
+    handoff_from: AgentId | None = None
+    used_ai_fallback: bool = False
+
+    @property
+    def handoff_count(self) -> int:
+        return int(
+            self.handoff_from is not None
+            and self.speaker is not None
+            and self.handoff_from is not self.speaker.agent_id
+        )
 
 
 class IntentRouter:
@@ -91,13 +103,40 @@ class IntentRouter:
         *,
         confidence: float,
         reason: str,
+        handoff_from: AgentId | None = None,
+        used_ai_fallback: bool = False,
     ) -> RouteDecision:
         return RouteDecision(
             intent=intent,
             speaker=self.registry.speaker_for(intent),
             confidence=max(0.0, min(1.0, confidence)),
             reason=reason,
+            handoff_from=handoff_from,
+            used_ai_fallback=used_ai_fallback,
         )
+
+    def addressed_agent(self, text: str) -> AgentId | None:
+        """Return one unambiguous official identity addressed in text."""
+
+        folded = _fold(text)
+        candidates: set[AgentId] = set()
+        for profile in self.registry:
+            names = {profile.agent_id.value}
+            if profile.telegram_username:
+                names.add(profile.telegram_username.casefold())
+            if profile.agent_id is AgentId.MIMIR:
+                names.add("mimir")
+            for name in names:
+                normalized = _fold(name)
+                if re.search(
+                    rf"(?<![a-z0-9_])@?{re.escape(normalized)}(?![a-z0-9_])",
+                    folded,
+                ):
+                    candidates.add(profile.agent_id)
+                    break
+        if len(candidates) == 1:
+            return next(iter(candidates))
+        return None
 
     def route_group(
         self,
@@ -105,6 +144,7 @@ class IntentRouter:
         *,
         moderation_detected: bool = False,
         explicitly_addressed: bool = False,
+        addressed_agent: AgentId | None = None,
     ) -> RouteDecision:
         folded = _fold(text).strip()
         if moderation_detected:
@@ -134,42 +174,49 @@ class IntentRouter:
                 ConversationIntent.COMMUNITY,
                 confidence=1.0,
                 reason="confidentiality_boundary",
-            )
-        if partnership:
-            return self._decision(
-                ConversationIntent.PARTNERSHIP,
-                confidence=0.98,
-                reason="explicit_partnership",
+                handoff_from=addressed_agent,
             )
         if support and support_problem:
             return self._decision(
                 ConversationIntent.SUPPORT,
                 confidence=0.97,
                 reason="user_problem",
+                handoff_from=addressed_agent,
+            )
+        if partnership:
+            return self._decision(
+                ConversationIntent.PARTNERSHIP,
+                confidence=0.98,
+                reason="explicit_partnership",
+                handoff_from=addressed_agent,
             )
         if technical and question:
             return self._decision(
                 ConversationIntent.TECHNICAL,
                 confidence=0.95,
                 reason="technical_question",
+                handoff_from=addressed_agent,
             )
         if support and support_action:
             return self._decision(
                 ConversationIntent.SUPPORT,
                 confidence=0.90,
                 reason="operational_question",
+                handoff_from=addressed_agent,
             )
         if community and question:
             return self._decision(
                 ConversationIntent.COMMUNITY,
                 confidence=0.90,
                 reason="community_question",
+                handoff_from=addressed_agent,
             )
         if support and question:
             return self._decision(
                 ConversationIntent.SUPPORT,
                 confidence=0.85,
                 reason="support_topic_question",
+                handoff_from=addressed_agent,
             )
         if explicitly_addressed and (technical or support):
             intent = (
@@ -181,17 +228,61 @@ class IntentRouter:
                 intent,
                 confidence=0.80,
                 reason="addressed_topic",
+                handoff_from=addressed_agent,
             )
         if explicitly_addressed:
             return self._decision(
                 ConversationIntent.AMBIGUOUS,
                 confidence=0.0,
                 reason="addressed_but_ambiguous",
+                handoff_from=addressed_agent,
             )
         return self._decision(
             ConversationIntent.UNRELATED,
             confidence=0.95,
             reason="no_official_intent",
+        )
+
+    def accept_ai_fallback(
+        self,
+        initial: RouteDecision,
+        fallback: AIRouteClassification | None,
+        *,
+        minimum_confidence: float = 0.80,
+    ) -> RouteDecision:
+        """Accept a bounded interpretation result without granting authority.
+
+        AI is consulted only after deterministic routing chose silence. It may
+        select one conversational intent from an allowlist. It cannot select
+        moderation, a token, a bot outside the registry, or any action.
+        """
+
+        if initial.speaker is not None or initial.intent not in {
+            ConversationIntent.AMBIGUOUS,
+            ConversationIntent.UNRELATED,
+        }:
+            return initial
+        if fallback is None or fallback.confidence < minimum_confidence:
+            return initial
+        try:
+            intent = ConversationIntent(fallback.intent)
+        except ValueError:
+            return initial
+        if intent in {
+            ConversationIntent.MODERATION,
+            ConversationIntent.AMBIGUOUS,
+            ConversationIntent.UNRELATED,
+        }:
+            return initial
+        speaker = self.registry.speaker_for(intent)
+        if speaker is None:
+            return initial
+        return self._decision(
+            intent,
+            confidence=fallback.confidence,
+            reason="bounded_ai_fallback",
+            handoff_from=initial.handoff_from,
+            used_ai_fallback=True,
         )
 
     def route_private(

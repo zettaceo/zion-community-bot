@@ -91,6 +91,44 @@ callback version, expiry, replay, and confirmation are checked again.
 
 No SQLite transaction spans steps that await Telegram or Mistral.
 
+### Bounded intent fallback and handoff
+
+Deterministic routing runs first. Only an addressed or conversational message
+that remains ambiguous can reach the Mistral intent classifier. That classifier
+returns one allowlisted benign intent plus a confidence value. It has no route
+to moderation, tokens, tools, knowledge scopes, or Telegram actions. Results
+below `0.80`, unknown labels, `unrelated`, and `ambiguous` preserve silence.
+
+When the named identity does not own the detected subject, the core may perform
+one invisible handoff before any external response. The final authority speaks;
+the originally addressed agent sends no acknowledgement. `handoff_count` is
+therefore limited to zero or one and cannot form an agent loop.
+
+### EIR and FREYR bounded workflows
+
+EIR classifies support locally into question, usage problem, user error,
+possible incident, possible bug, account, or human request. Incident, account,
+and explicit-human cases receive a human-review notice. EIR never asks for a
+seed phrase, private key, password, token, API secret, or 2FA code.
+
+FREYR accepts only explicitly labelled partnership fields. It does not infer
+contact or commercial terms from prose. Company/project, contact, and one of
+proposal/objective/desired integration are required before a summary is sent
+through the primary ZION identity to an authorized operator. No lead content is
+stored in SQLite. Contract, payment, commission, equity, exclusivity, binding
+deadline, integration promise, or final commercial terms always require a
+human decision. If the primary ZION channel is unavailable, the handoff fails
+closed and FREYR reports temporary unavailability.
+
+### Minimized routing telemetry
+
+Schema v4 stores a bounded route key, source/selected identities, group/private
+channel, intent, outcome, reason code, handoff count, AI-fallback flag, status,
+and timestamps. It has no column for message text, prompt, body, Telegram chat
+ID, user ID, username, contact, or partnership content. Retention uses the same
+bounded operational idempotency window. Aggregates expose routes, sends,
+failures, silence, ambiguity, handoffs, denied DMs, and last successful activity.
+
 ## Delivery semantics
 
 Telegram and SQLite do not share a transaction. The system provides durable
@@ -183,4 +221,7 @@ identifier. A completed or uncertain claim cannot authorize another speaker.
 5. Tokens are value-blind outside the protected store/client construction path.
 6. External send uncertainty never creates an automatic duplicate.
 7. Existing Guardian, database, release, and rollback contracts remain green.
-
+8. AI fallback can select only a benign speaker and can never create moderation.
+9. A cross-agent handoff has one final speaker and at most one internal hop.
+10. Partnership details reach only the authorized operator through ZION and are
+    not retained as a lead record.

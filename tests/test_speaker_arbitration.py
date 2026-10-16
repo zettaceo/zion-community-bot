@@ -282,7 +282,7 @@ class SpeakerArbitrationTests(unittest.TestCase):
 
 
 class SpeakerMigrationTests(unittest.TestCase):
-    def test_schema_two_database_migrates_to_three_without_data_loss(self) -> None:
+    def test_schema_two_database_migrates_to_four_without_data_loss(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "legacy.db"
             connection = sqlite3.connect(path)
@@ -312,7 +312,7 @@ class SpeakerMigrationTests(unittest.TestCase):
             try:
                 db.initialize()
                 self.assertEqual(db.schema_version(), SUPPORTED_SCHEMA_VERSION)
-                self.assertEqual(SUPPORTED_SCHEMA_VERSION, 3)
+                self.assertEqual(SUPPORTED_SCHEMA_VERSION, 4)
                 self.assertEqual(db.get_setting("sentinel"), "preserved")
                 pragmas = db.runtime_pragmas()
                 self.assertEqual(pragmas["application_id"], ZION_APPLICATION_ID)
@@ -320,6 +320,12 @@ class SpeakerMigrationTests(unittest.TestCase):
                     db._conn.execute(
                         "SELECT 1 FROM sqlite_master "
                         "WHERE type='table' AND name='speaker_claims'"
+                    ).fetchone()
+                )
+                self.assertIsNotNone(
+                    db._conn.execute(
+                        "SELECT 1 FROM sqlite_master "
+                        "WHERE type='table' AND name='routing_events'"
                     ).fetchone()
                 )
             finally:

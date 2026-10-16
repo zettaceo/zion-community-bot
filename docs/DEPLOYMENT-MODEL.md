@@ -308,6 +308,32 @@ This operator-selected flow means the secret transits Telegram private chat befo
 
 ## Post-deploy acceptance
 
+### Multi-agent protected provisioning
+
+Provision MIMIR, EIR, and FREYR only after the exact production SHA has passed
+release verification. Enter each real token locally on the Acer through the
+protected identity-store procedure; never place it in a command argument,
+shell history, Git, `.env`, Telegram chat, or deployment backup. Verify only the
+returned bot identity and value-blind store status.
+
+ZION alone keeps the group administrator permissions required by Guardian.
+Secondary bots are ordinary members allowed to post, with privacy mode enabled.
+Do not add or enable them before the coordinated runtime is installed. Startup
+must show all three secondary pollers `RUNNING` before multi-agent group routing
+is accepted.
+
+The exact production release introduces SQLite schema v4 with additive
+speaker/routing metadata only. Rehearse the real pre-cutover database backup in
+a disposable copy, prove schema/application ID/foreign keys/integrity, and prove
+that current data survives migration before service downtime.
+
+Live acceptance must cover technical, support, partnership, community,
+unrelated, abuse, flood, link, secret exposure, all four DM policies, invisible
+handoff, ambiguity, and simultaneous messages. Every inbound group message must
+produce at most one speaker. A qualified FREYR DM must reach the creator through
+ZION without appearing in SQLite or logs. Validate rollback readiness before
+closing the change.
+
 Do not call deployment successful until all of these are checked:
 
 Host:
