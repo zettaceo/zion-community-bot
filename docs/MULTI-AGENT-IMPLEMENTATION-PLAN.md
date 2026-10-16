@@ -256,19 +256,35 @@ uncertain-delivery handling fail closed against duplicate speakers.
 
 ### PHASE 10 - Knowledge reconciliation
 
-- [~] P10.01 Locate and authenticate the current Technical Paper source.
-  - Evidence: a six-page prototype PDF was found locally; the specified 83-page route source still requires authoritative location/reconciliation.
+- [x] P10.01 Locate and authenticate the current Technical Paper source.
+  - Evidence: the named `technical-paper/01-PAGE-BY-PAGE-ROUTE.md` is absent
+    from fetched Git history, local search and accessible Drive search. The
+    current Drive master project, README and 67-section content plan dated
+    2026-10-14 were authenticated and transcribed without inventing the absent
+    route file.
 - [x] P10.02 Locate the current 21-page APN PDF.
-  - Evidence: `/home/zetta/Documentos/Z-SWAP-Apresentacao-21-Slides.pdf`, 21 pages.
-- [ ] P10.03 Visually and textually inspect all relevant pages of both current sources.
-- [ ] P10.04 Distinguish the current APN from historical `docs/PITCH-DECK.md`.
-- [ ] P10.05 Create `docs/apn/Z-SWAP-APN-SOURCE.md` from verified content only.
-- [ ] P10.06 Classify every APN and Technical Paper section.
-- [ ] P10.07 Reconcile conflicts against current executable/public facts and record decisions.
+  - Evidence: final v2 PDF SHA-256 `f11814ff...a8b5c4d`, 21 pages, plus its
+    matching authorized textual source and assembly QA.
+- [x] P10.03 Visually and textually inspect all relevant pages of both current sources.
+  - Evidence: all 21 APN pages visually reviewed; authorized 21-page text and
+    all 67 Technical Paper plan sections reviewed.
+- [x] P10.04 Distinguish the current APN from historical `docs/PITCH-DECK.md`.
+  - Evidence: canonical APN source marks the old Solana/Colosseum deck
+    HISTORICAL / EXCLUDED.
+- [x] P10.05 Create `docs/apn/Z-SWAP-APN-SOURCE.md` from verified content only.
+- [x] P10.06 Classify every APN and Technical Paper section.
+  - Evidence: APN page groups and all 67 paper sections are classified;
+    technical raw sources remain outside retrieval.
+- [x] P10.07 Reconcile conflicts against current executable/public facts and record decisions.
+  - Evidence: reconciliation used Z-SWAP `origin/main` `166fd5be...` and its
+    public source of truth. Superseded Founder prices/supply/version-3 clause
+    were removed; Autopilot is now IMPLEMENTED_DISABLED; Portfolio/Orders are
+    PARTIAL.
 - [x] P10.08 Create `knowledge/MANIFEST.md` with authority, status, version, and allowed agents.
-- [~] P10.09 Test retrieval filters and cross-agent/injection leakage.
-  - Evidence: retrieval filters and agent scopes PASS; the final APN/Technical
-    Paper adversarial matrix remains after source reconciliation.
+- [x] P10.09 Test retrieval filters and cross-agent/injection leakage.
+  - Evidence: APN projection is available to institutional roles; the
+    CONTROLLED technical projection is retrievable by MIMIR and excluded from
+    ZION. INTERNAL/SECRET/non-current sources still fail closed.
 
 ### PHASE 11 - MIMIR CTO
 
@@ -401,3 +417,6 @@ uncertain-delivery handling fail closed against duplicate speakers.
 | 2026-10-15 | Full suite after second implementation increment | 656/656 PASS |
 | 2026-10-16 | Identity prompts, knowledge firewall, transport, DM, Control Center, and safe health focused suite | 112/112 PASS |
 | 2026-10-16 | Full suite after third implementation increment | 678/678 PASS |
+| 2026-10-16 | APN/Technical Paper source discovery, classification and public-truth reconciliation | complete; absent named route explicitly recorded |
+| 2026-10-16 | Reconciled knowledge/Mistral focused suite | 45/45 PASS |
+| 2026-10-16 | Full suite after fourth implementation increment | 682/682 PASS |

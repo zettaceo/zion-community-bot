@@ -273,8 +273,10 @@ class KnowledgeTests(unittest.TestCase):
             "Quais são os benefícios do plano piloto?"
         )
 
-        self.assertIn("suporte direto prioritário", rendered)
-        self.assertIn("status Founder", rendered)
+        self.assertIn("30 análises do ZION por dia", rendered)
+        self.assertIn("até 10 mesas de papel adiante", rendered)
+        self.assertIn("Automação avançada do Pilot pertence ao roadmap", rendered)
+        self.assertNotIn("Autopilot CEX disponível", rendered)
         self.assertNotIn("z-swap.md", rendered)
 
     def test_exact_pro_plan_is_not_confused_with_pilot(self) -> None:
@@ -318,9 +320,10 @@ class KnowledgeTests(unittest.TestCase):
         rendered = kb.render_context(
             "Qual a diferença entre Trader e Pilot?"
         )
+        flat = " ".join(rendered.split())
 
-        self.assertIn("Trader sobe para 25 análises", rendered)
-        self.assertIn("Pilot sobe para 30 análises", rendered)
+        self.assertIn("Trader sobe para 25 análises", flat)
+        self.assertIn("Pilot sobe para 30 análises", flat)
         self.assertIn(
             "[Contexto oficial: Plano Trader]",
             rendered,
@@ -333,6 +336,7 @@ class KnowledgeTests(unittest.TestCase):
     def test_current_plan_matrix_contains_canonical_product_facts(self):
         root = Path(__file__).resolve().parents[1] / "knowledge"
         text = (root / "z-swap-plans.md").read_text(encoding="utf-8")
+        flat = " ".join(text.split())
 
         expected = (
             "Free, Pro, Trader e Pilot",
@@ -340,20 +344,100 @@ class KnowledgeTests(unittest.TestCase):
             "10 análises do ZION por dia",
             "25 análises do ZION por dia",
             "30 análises do ZION por dia",
-            "US$ 7,90 por mês",
-            "US$ 20,90 por mês",
-            "US$ 159 por mês",
-            "taxa de swap do Pro nas redes EVM é 0,5%",
-            "taxa de swap do Trader nas redes EVM é 0,25%",
-            "taxa de swap do Pilot nas redes EVM é 0,10%",
-            "decisão atual do produto é não cobrar taxa de integração",
+            "platform fee EVM pública é 0,50%",
+            "platform fee EVM pública é 0,25%",
+            "platform fee EVM pública é 0,10%",
+            "platform fee da Z-SWAP está atualmente desabilitada",
+            "exatamente 36 meses de Premium",
+            "A venda não está aberta",
+            "preços públicos finais ainda não foram anunciados",
         )
         for fact in expected:
             with self.subTest(fact=fact):
-                self.assertIn(fact, text)
+                self.assertIn(fact, flat)
 
         self.assertNotIn("/home/", text)
         self.assertNotIn("src/", text)
+        for superseded in (
+            "US$ 7,90 por mês",
+            "US$ 20,90 por mês",
+            "US$ 159 por mês",
+            "1,5 SOL",
+            "4 SOL",
+            "30 SOL",
+            "1.500 passes",
+            "500 passes",
+            "50 passes",
+            "ou acesso até a versão 3",
+        ):
+            with self.subTest(superseded=superseded):
+                self.assertNotIn(superseded, flat)
+
+    def test_apn_canonical_source_preserves_all_21_pages(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        text = (
+            root / "docs" / "apn" / "Z-SWAP-APN-SOURCE.md"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn(
+            "f11814ff833a86f974b4ddd0fc14ad2e9372afe52ffd4dff206315de3a8b5c4d",
+            text,
+        )
+        for page in range(1, 22):
+            with self.subTest(page=page):
+                self.assertIn(f"## {page:02d} —", text)
+        self.assertIn("docs/PITCH-DECK.md", text)
+        self.assertIn("HISTORICAL / EXCLUDED", text)
+
+    def test_technical_paper_source_is_mixed_and_exact_route_is_not_invented(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        text = (
+            root
+            / "docs"
+            / "technical-paper"
+            / "Z-SWAP-TECHNICAL-PAPER-SOURCE.md"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("that exact file is absent", text)
+        self.assertIn("67 planned sections", text)
+        self.assertIn("| 42 | Database Security | INTERNAL |", text)
+        self.assertIn("| 13 | Supported Network Architecture | PUBLIC |", text)
+        self.assertIn("The raw source documents are never indexed directly", text)
+
+    def test_apn_and_technical_projections_follow_agent_matrix(self) -> None:
+        root = Path(__file__).resolve().parents[1] / "knowledge"
+        kb = KnowledgeBase(root)
+
+        apn = kb.render_context(
+            "parcerias creators comunidades protocolos",
+            agent_id="freyr",
+        )
+        self.assertIn("creators", apn)
+
+        mimir = kb.render_context(
+            "arquitetura pública roteamento DEX bridge",
+            agent_id="mimir",
+        )
+        self.assertIn("camadas de execução, inteligência e risco", mimir)
+
+        zion = kb.render_context(
+            "arquitetura pública roteamento DEX bridge",
+            agent_id="zion",
+        )
+        self.assertNotIn("camadas de execução, inteligência e risco", zion)
+
+    def test_current_corpus_rejects_superseded_founder_and_autopilot_claims(self) -> None:
+        root = Path(__file__).resolve().parents[1] / "knowledge"
+        corpus = "\n".join(
+            path.read_text(encoding="utf-8")
+            for path in sorted(root.glob("*.md"))
+            if path.name != "MANIFEST.md"
+        )
+
+        self.assertNotIn("acesso até a versão 3", corpus)
+        self.assertNotIn("Autopilot CEX é um recurso de automação em corretoras centralizadas. Começa no plano Pro", corpus)
+        self.assertNotIn("oferta planejada de 1.500 passes", corpus)
+        self.assertIn("uso público permanece desabilitado", corpus)
 
 
 

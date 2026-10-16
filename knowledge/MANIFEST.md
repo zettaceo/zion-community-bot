@@ -29,7 +29,7 @@ model context is built.
       "file": "z-swap-plans.md",
       "classification": "PUBLIC",
       "status": "CURRENT",
-      "version": "2026-09-24",
+      "version": "166fd5be9c28fb2ffaaffd9413bf61c40f492698@2026-10-16",
       "source_identity": "zswap-public-plan-matrix",
       "allowed_agents": ["zion", "mimir", "eir", "freyr"]
     },
@@ -37,8 +37,16 @@ model context is built.
       "file": "z-swap.md",
       "classification": "PUBLIC",
       "status": "CURRENT",
-      "version": "25fc4b0fa55db72472c7ae00af42596209d7c362",
+      "version": "166fd5be9c28fb2ffaaffd9413bf61c40f492698@2026-10-16",
       "source_identity": "zswap-curated-public-snapshot",
+      "allowed_agents": ["zion", "mimir", "eir", "freyr"]
+    },
+    {
+      "file": "zswap-apn.md",
+      "classification": "PUBLIC",
+      "status": "CURRENT",
+      "version": "f11814ff833a86f974b4ddd0fc14ad2e9372afe52ffd4dff206315de3a8b5c4d@2026-10-16",
+      "source_identity": "zswap-apn-21-page-reconciled",
       "allowed_agents": ["zion", "mimir", "eir", "freyr"]
     },
     {
@@ -53,7 +61,7 @@ model context is built.
       "file": "zswap-features.md",
       "classification": "PUBLIC",
       "status": "CURRENT",
-      "version": "25fc4b0fa55db72472c7ae00af42596209d7c362",
+      "version": "166fd5be9c28fb2ffaaffd9413bf61c40f492698@2026-10-16",
       "source_identity": "zswap-curated-feature-snapshot",
       "allowed_agents": ["zion", "mimir", "eir", "freyr"]
     },
@@ -61,7 +69,7 @@ model context is built.
       "file": "zswap-safety-boundary.md",
       "classification": "PUBLIC",
       "status": "CURRENT",
-      "version": "25fc4b0fa55db72472c7ae00af42596209d7c362",
+      "version": "166fd5be9c28fb2ffaaffd9413bf61c40f492698@2026-10-16",
       "source_identity": "zswap-public-disclosure-policy",
       "allowed_agents": ["zion", "mimir", "eir", "freyr"]
     },
@@ -69,9 +77,17 @@ model context is built.
       "file": "zswap-status.md",
       "classification": "PUBLIC",
       "status": "CURRENT",
-      "version": "25fc4b0fa55db72472c7ae00af42596209d7c362",
+      "version": "166fd5be9c28fb2ffaaffd9413bf61c40f492698@2026-10-16",
       "source_identity": "zswap-curated-status-snapshot",
       "allowed_agents": ["zion", "mimir", "eir", "freyr"]
+    },
+    {
+      "file": "zswap-technical-public.md",
+      "classification": "CONTROLLED",
+      "status": "CURRENT",
+      "version": "drive-technical-paper-plan-2026-10-14@166fd5be",
+      "source_identity": "zswap-technical-paper-public-projection",
+      "allowed_agents": ["mimir"]
     }
   ]
 }

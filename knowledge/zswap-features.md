@@ -158,13 +158,18 @@ Liquidez, APY, volume e disponibilidade são dados variáveis. ZION não deve tr
 
 # Portfolio
 
-A área de Portfolio agrega ativos do usuário em múltiplas redes compatíveis.
+A área de Portfolio está parcialmente disponível para os ativos curados que a
+plataforma suporta atualmente. Ela não representa cobertura completa de toda a
+wallet, e falha de RPC/preço ainda pode ser indistinguível de saldo vazio.
 
 Valores em USD são estimativas baseadas nas fontes de preço disponíveis e podem mudar com o mercado.
 
 # Orders e History
 
-Orders centraliza o acompanhamento de ordens suportadas.
+Orders está parcialmente disponível para criar e revisar planos de ordem no
+navegador e acompanhar gatilhos suportados. Um plano salvo não executa de forma
+autônoma: o usuário confirma e, em operação on-chain, assina a transação. A
+superfície ainda não é um histórico unificado e durável de ordens DEX e CEX.
 
 History reúne histórico das operações que a plataforma consegue registrar e apresentar ao usuário.
 
@@ -202,11 +207,15 @@ DCA é uma superfície separada do Autopilot.
 
 Ela permite trabalhar com planos periódicos conforme o modo e a configuração disponíveis.
 
-O produto possui modo simulado para testar o fluxo sem confundir simulação com dinheiro real.
+O produto possui modo simulado para testar o fluxo sem confundir simulação com
+dinheiro real. A existência da superfície não autoriza afirmar que DCA real
+automatizado está liberado.
 
 # Autopilot CEX
 
-Autopilot é um recurso de automação em CEX e começa no plano Pro na matriz atual.
+Autopilot é uma infraestrutura de automação em CEX. Ela está implementada, mas
+o uso público permanece desabilitado; não deve ser apresentada como benefício
+disponível de qualquer plano.
 
 Autopilot não é sinônimo do plano Pilot.
 

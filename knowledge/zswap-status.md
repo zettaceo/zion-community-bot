@@ -1,29 +1,33 @@
 # Z-SWAP — Estado Público do Produto
 
-Snapshot de referência desta base: 15/09/2026, a partir do código público de `zetta-world/swap-z-app` no commit 25fc4b0fa55db72472c7ae00af42596209d7c362.
+Snapshot reconciliado em 16/10/2026 contra a fonte pública atual e o código de
+`zetta-world/swap-z-app` em `166fd5be9c28fb2ffaaffd9413bf61c40f492698`.
 
 Este arquivo serve para impedir que ZION trate um teaser, beta ou item de roadmap como se estivesse plenamente lançado.
 
-# Ativas no produto
+# Matriz pública certificada
 
-As superfícies públicas presentes no produto incluem:
+Disponíveis no escopo público certificado:
 
 - Swap
-- Bridge
-- Orders
-- CEX
-- DCA
-- Pools
-- Explorer
 - ZION
-- Laboratório
+- Laboratório / Workbench
+- Paper / Simulation
+- Pools
 - Dashboard
+
+Parcialmente disponíveis:
+
 - Portfolio
-- History
-- Settings
-- About
-- Plans
-- Enterprise
+- Orders
+
+Autopilot CEX possui infraestrutura implementada, mas o uso público está
+desabilitado. Automação avançada permanece roadmap.
+
+Rotas e superfícies públicas como Bridge, Explorer, CEX, DCA, History,
+Settings, About, Plans e Enterprise existem na aplicação, mas a simples
+existência da rota não amplia o escopo certificado nem prova disponibilidade
+de toda operação possível.
 
 A existência da superfície não significa que toda operação, mercado, par, rede ou integração esteja disponível a todo instante.
 
