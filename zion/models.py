@@ -102,6 +102,16 @@ class AIClassification:
 
 
 @dataclass(slots=True)
+class AIRouteClassification:
+    intent: str = "ambiguous"
+    confidence: float = 0.0
+    model: str = ""
+    input_tokens: int = 0
+    output_tokens: int = 0
+    latency_ms: int = 0
+
+
+@dataclass(slots=True)
 class AIAnswer:
     text: str
     model: str

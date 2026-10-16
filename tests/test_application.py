@@ -35,6 +35,7 @@ class ApplicationBuildTests(unittest.TestCase):
                         application.bot_data["zion_scheduler_task"],
                         existing,
                     )
+                    self.assertIsNone(runtime.primary_bot)
                 finally:
                     existing.cancel()
                     try:
@@ -83,6 +84,29 @@ class ApplicationBuildTests(unittest.TestCase):
             )
 
             runtime.close()
+
+    def test_post_init_binds_primary_zion_bot_before_secondary_start(self) -> None:
+        async def scenario() -> None:
+            with tempfile.TemporaryDirectory() as tmp:
+                settings = make_settings(Path(tmp))
+                application = build_application(settings)
+                runtime = application.bot_data["zion_runtime"]
+                runtime.multi_agent_transport.start = unittest.mock.AsyncMock()
+                try:
+                    await post_init(application)
+                    self.assertIs(runtime.primary_bot, application.bot)
+                    runtime.multi_agent_transport.start.assert_awaited_once()
+                finally:
+                    task = application.bot_data.get("zion_scheduler_task")
+                    if task is not None:
+                        task.cancel()
+                        try:
+                            await task
+                        except asyncio.CancelledError:
+                            pass
+                    runtime.close()
+
+        asyncio.run(scenario())
 
     def test_private_mistral_capture_handler_runs_before_generic_pipeline(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

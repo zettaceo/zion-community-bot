@@ -15,7 +15,7 @@ from typing import Any, Iterator
 from .models import OperatingState, Severity
 
 
-SUPPORTED_SCHEMA_VERSION = 2
+SUPPORTED_SCHEMA_VERSION = 4
 DEFAULT_BUSY_TIMEOUT_MS = 5000
 ZION_APPLICATION_ID = 0x5A494F4E  # ASCII "ZION"
 
@@ -157,6 +157,73 @@ CREATE TABLE IF NOT EXISTS idempotency_keys (
 
 CREATE INDEX IF NOT EXISTS idx_idempotency_expires
 ON idempotency_keys(expires_at);
+
+CREATE TABLE IF NOT EXISTS speaker_claims (
+    claim_key TEXT PRIMARY KEY,
+    source_identity TEXT NOT NULL,
+    chat_id INTEGER NOT NULL,
+    message_id INTEGER,
+    update_id INTEGER,
+    update_kind TEXT NOT NULL,
+    selected_agent TEXT NOT NULL,
+    intent TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'claimed',
+    attempt_count INTEGER NOT NULL DEFAULT 1,
+    claimed_at REAL NOT NULL,
+    updated_at REAL NOT NULL,
+    sent_at REAL,
+    telegram_message_id INTEGER,
+    error_type TEXT,
+    CHECK (source_identity IN ('zion', 'mimir', 'eir', 'freyr')),
+    CHECK (selected_agent IN ('zion', 'mimir', 'eir', 'freyr')),
+    CHECK (intent IN (
+        'moderation', 'community', 'technical', 'support', 'partnership'
+    )),
+    CHECK (status IN ('claimed', 'sent', 'failed_safe', 'uncertain')),
+    CHECK (attempt_count >= 1)
+);
+
+CREATE INDEX IF NOT EXISTS idx_speaker_claims_status
+ON speaker_claims(status, updated_at);
+
+CREATE TABLE IF NOT EXISTS routing_events (
+    route_key TEXT PRIMARY KEY,
+    source_identity TEXT NOT NULL,
+    channel TEXT NOT NULL,
+    initial_agent TEXT,
+    selected_agent TEXT,
+    intent TEXT NOT NULL,
+    outcome TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    handoff_count INTEGER NOT NULL DEFAULT 0,
+    ai_fallback INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL,
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL,
+    CHECK (source_identity IN ('zion', 'mimir', 'eir', 'freyr')),
+    CHECK (channel IN ('group', 'private')),
+    CHECK (initial_agent IS NULL OR initial_agent IN ('zion', 'mimir', 'eir', 'freyr')),
+    CHECK (selected_agent IS NULL OR selected_agent IN ('zion', 'mimir', 'eir', 'freyr')),
+    CHECK (intent IN (
+        'moderation', 'community', 'technical', 'support', 'partnership',
+        'unrelated', 'ambiguous'
+    )),
+    CHECK (outcome IN (
+        'routed', 'suppressed', 'ambiguous', 'dm_denied', 'routing_failed'
+    )),
+    CHECK (handoff_count IN (0, 1)),
+    CHECK (ai_fallback IN (0, 1)),
+    CHECK (status IN (
+        'selected', 'suppressed', 'denied', 'sent', 'failed_safe',
+        'uncertain', 'routing_failed'
+    ))
+);
+
+CREATE INDEX IF NOT EXISTS idx_routing_events_status
+ON routing_events(status, updated_at);
+
+CREATE INDEX IF NOT EXISTS idx_routing_events_agent
+ON routing_events(selected_agent, created_at DESC);
 
 CREATE TABLE IF NOT EXISTS ai_events (
     id TEXT PRIMARY KEY,
@@ -577,6 +644,16 @@ class ZionDB:
                         "REAL",
                     ),
                 ),
+            ),
+            (
+                3,
+                "multi_agent_speaker_claims",
+                (),
+            ),
+            (
+                4,
+                "multi_agent_routing_telemetry",
+                (),
             ),
         )
 
@@ -1664,6 +1741,353 @@ class ZionDB:
                 WHERE expires_at <= ?
                 """,
                 (cutoff,),
+            )
+        return int(cursor.rowcount)
+
+    def claim_speaker_message(
+        self,
+        *,
+        claim_key: str,
+        source_identity: str,
+        chat_id: int,
+        message_id: int | None,
+        update_id: int | None,
+        update_kind: str,
+        selected_agent: str,
+        intent: str,
+        allow_failed_safe_retry: bool = False,
+        now: float | None = None,
+    ) -> bool:
+        key = claim_key.strip()
+        if not key or len(key) > 128:
+            raise ValueError("speaker claim key is invalid")
+        if source_identity not in {"zion", "mimir", "eir", "freyr"}:
+            raise ValueError("speaker claim source identity is invalid")
+        if selected_agent not in {"zion", "mimir", "eir", "freyr"}:
+            raise ValueError("selected speaker identity is invalid")
+        if intent not in {
+            "moderation",
+            "community",
+            "technical",
+            "support",
+            "partnership",
+        }:
+            raise ValueError("speaker claim intent is invalid")
+        kind = update_kind.strip().lower()
+        if kind not in {"message", "edited_message", "callback_query"}:
+            raise ValueError("speaker claim update kind is invalid")
+        if message_id is None and update_id is None:
+            raise ValueError("speaker claim requires a Telegram identifier")
+
+        ts = time.time() if now is None else now
+        with self._lock:
+            with self._transaction_locked(immediate=True):
+                cursor = self._conn.execute(
+                    """
+                    INSERT INTO speaker_claims(
+                        claim_key, source_identity, chat_id,
+                        message_id, update_id, update_kind,
+                        selected_agent, intent, status,
+                        attempt_count, claimed_at, updated_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'claimed', 1, ?, ?)
+                    ON CONFLICT(claim_key) DO NOTHING
+                    """,
+                    (
+                        key,
+                        source_identity,
+                        chat_id,
+                        message_id,
+                        update_id,
+                        kind,
+                        selected_agent,
+                        intent,
+                        ts,
+                        ts,
+                    ),
+                )
+                if cursor.rowcount == 1:
+                    return True
+                if not allow_failed_safe_retry:
+                    return False
+
+                cursor = self._conn.execute(
+                    """
+                    UPDATE speaker_claims
+                    SET status='claimed',
+                        attempt_count=attempt_count + 1,
+                        claimed_at=?,
+                        updated_at=?,
+                        error_type=NULL
+                    WHERE claim_key=?
+                      AND status='failed_safe'
+                      AND source_identity=?
+                      AND selected_agent=?
+                      AND intent=?
+                    """,
+                    (
+                        ts,
+                        ts,
+                        key,
+                        source_identity,
+                        selected_agent,
+                        intent,
+                    ),
+                )
+                return cursor.rowcount == 1
+
+    def complete_speaker_claim(
+        self,
+        claim_key: str,
+        *,
+        status: str,
+        telegram_message_id: int | None = None,
+        error_type: str | None = None,
+        now: float | None = None,
+    ) -> bool:
+        key = claim_key.strip()
+        if not key:
+            raise ValueError("speaker claim key is invalid")
+        if status not in {"sent", "failed_safe", "uncertain"}:
+            raise ValueError("speaker claim terminal status is invalid")
+        if status == "sent" and telegram_message_id is None:
+            raise ValueError("sent speaker claim requires a message id")
+        if error_type is not None:
+            error_type = error_type.strip().lower()
+            if (
+                not error_type
+                or len(error_type) > 80
+                or not all(
+                    char.isalnum() or char in {"_", "-"}
+                    for char in error_type
+                )
+            ):
+                raise ValueError("speaker claim error type is invalid")
+
+        ts = time.time() if now is None else now
+        with self._lock:
+            cursor = self._conn.execute(
+                """
+                UPDATE speaker_claims
+                SET status=?,
+                    updated_at=?,
+                    sent_at=CASE WHEN ?='sent' THEN ? ELSE NULL END,
+                    telegram_message_id=CASE
+                        WHEN ?='sent' THEN ? ELSE NULL
+                    END,
+                    error_type=?
+                WHERE claim_key=? AND status='claimed'
+                """,
+                (
+                    status,
+                    ts,
+                    status,
+                    ts,
+                    status,
+                    telegram_message_id,
+                    error_type,
+                    key,
+                ),
+            )
+        return cursor.rowcount == 1
+
+    def quarantine_stale_speaker_claims(
+        self,
+        *,
+        stale_after_seconds: int,
+        now: float | None = None,
+    ) -> int:
+        ts = time.time() if now is None else now
+        cutoff = ts - max(1, int(stale_after_seconds))
+        with self._lock:
+            cursor = self._conn.execute(
+                """
+                UPDATE speaker_claims
+                SET status='uncertain',
+                    updated_at=?,
+                    error_type='stale_claim_after_crash'
+                WHERE status='claimed' AND claimed_at <= ?
+                """,
+                (ts, cutoff),
+            )
+        return int(cursor.rowcount)
+
+    def get_speaker_claim(self, claim_key: str) -> dict[str, Any] | None:
+        with self._lock:
+            row = self._conn.execute(
+                """
+                SELECT claim_key, source_identity, chat_id,
+                       message_id, update_id, update_kind,
+                       selected_agent, intent, status,
+                       attempt_count, claimed_at, updated_at,
+                       sent_at, telegram_message_id, error_type
+                FROM speaker_claims
+                WHERE claim_key=?
+                """,
+                (claim_key.strip(),),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def prune_speaker_claims(self, before: float) -> int:
+        with self._lock:
+            cursor = self._conn.execute(
+                """
+                DELETE FROM speaker_claims
+                WHERE updated_at < ?
+                  AND status IN ('sent', 'failed_safe')
+                """,
+                (before,),
+            )
+        return int(cursor.rowcount)
+
+    def record_routing_event(
+        self,
+        *,
+        route_key: str,
+        source_identity: str,
+        channel: str,
+        initial_agent: str | None,
+        selected_agent: str | None,
+        intent: str,
+        outcome: str,
+        reason: str,
+        handoff_count: int = 0,
+        ai_fallback: bool = False,
+        status: str = "selected",
+        now: float | None = None,
+    ) -> bool:
+        key = route_key.strip()
+        if not key or len(key) > 128:
+            raise ValueError("routing event key is invalid")
+        allowed_agents = {"zion", "mimir", "eir", "freyr"}
+        if source_identity not in allowed_agents:
+            raise ValueError("routing source identity is invalid")
+        if initial_agent is not None and initial_agent not in allowed_agents:
+            raise ValueError("initial routing agent is invalid")
+        if selected_agent is not None and selected_agent not in allowed_agents:
+            raise ValueError("selected routing agent is invalid")
+        allowed_intents = {
+            "moderation", "community", "technical", "support",
+            "partnership", "unrelated", "ambiguous",
+        }
+        if intent not in allowed_intents:
+            raise ValueError("routing intent is invalid")
+        if channel not in {"group", "private"}:
+            raise ValueError("routing channel is invalid")
+        if outcome not in {
+            "routed", "suppressed", "ambiguous", "dm_denied",
+            "routing_failed",
+        }:
+            raise ValueError("routing outcome is invalid")
+        if status not in {
+            "selected", "suppressed", "denied", "sent", "failed_safe",
+            "uncertain", "routing_failed",
+        }:
+            raise ValueError("routing status is invalid")
+        if handoff_count not in {0, 1}:
+            raise ValueError("routing handoff count is invalid")
+        safe_reason = reason.strip().lower()
+        if (
+            not safe_reason
+            or len(safe_reason) > 80
+            or not all(
+                char.isalnum() or char in {"_", "-"}
+                for char in safe_reason
+            )
+        ):
+            raise ValueError("routing reason is invalid")
+        ts = time.time() if now is None else now
+        with self._lock:
+            cursor = self._conn.execute(
+                """
+                INSERT INTO routing_events(
+                    route_key, source_identity, channel, initial_agent,
+                    selected_agent, intent, outcome, reason, handoff_count,
+                    ai_fallback, status, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(route_key) DO NOTHING
+                """,
+                (
+                    key, source_identity, channel, initial_agent,
+                    selected_agent, intent, outcome, safe_reason,
+                    handoff_count, int(bool(ai_fallback)), status, ts, ts,
+                ),
+            )
+        return cursor.rowcount == 1
+
+    def complete_routing_event(
+        self,
+        route_key: str,
+        *,
+        status: str,
+        now: float | None = None,
+    ) -> bool:
+        if status not in {"sent", "failed_safe", "uncertain", "routing_failed"}:
+            raise ValueError("routing terminal status is invalid")
+        ts = time.time() if now is None else now
+        with self._lock:
+            cursor = self._conn.execute(
+                """
+                UPDATE routing_events
+                SET status=?, updated_at=?
+                WHERE route_key=? AND status='selected'
+                """,
+                (status, ts, route_key.strip()),
+            )
+        return cursor.rowcount == 1
+
+    def routing_telemetry(self) -> dict[str, Any]:
+        with self._lock:
+            rows = self._conn.execute(
+                """
+                SELECT selected_agent,
+                       SUM(CASE WHEN outcome='routed' THEN 1 ELSE 0 END) AS routed,
+                       SUM(CASE WHEN status='sent' THEN 1 ELSE 0 END) AS sent,
+                       SUM(CASE WHEN status IN ('failed_safe', 'uncertain') THEN 1 ELSE 0 END) AS send_failures,
+                       MAX(CASE WHEN status='sent' THEN updated_at END) AS last_success
+                FROM routing_events
+                GROUP BY selected_agent
+                """
+            ).fetchall()
+            totals = self._conn.execute(
+                """
+                SELECT
+                    SUM(CASE WHEN outcome='suppressed' THEN 1 ELSE 0 END) AS suppressed,
+                    SUM(CASE WHEN intent='ambiguous' THEN 1 ELSE 0 END) AS ambiguous,
+                    SUM(handoff_count) AS handoffs,
+                    SUM(CASE WHEN outcome='dm_denied' THEN 1 ELSE 0 END) AS dm_denied,
+                    SUM(CASE WHEN outcome='routing_failed' OR status='routing_failed' THEN 1 ELSE 0 END) AS routing_failures
+                FROM routing_events
+                """
+            ).fetchone()
+        agents: dict[str, dict[str, int | float | None]] = {}
+        for row in rows:
+            if row["selected_agent"] is None:
+                continue
+            agents[str(row["selected_agent"])] = {
+                "routed": int(row["routed"] or 0),
+                "sent": int(row["sent"] or 0),
+                "send_failures": int(row["send_failures"] or 0),
+                "last_success": (
+                    float(row["last_success"])
+                    if row["last_success"] is not None
+                    else None
+                ),
+            }
+        return {
+            "agents": agents,
+            "suppressed": int(totals["suppressed"] or 0),
+            "ambiguous": int(totals["ambiguous"] or 0),
+            "handoffs": int(totals["handoffs"] or 0),
+            "dm_denied": int(totals["dm_denied"] or 0),
+            "routing_failures": int(totals["routing_failures"] or 0),
+        }
+
+    def prune_routing_events(self, before: float) -> int:
+        with self._lock:
+            cursor = self._conn.execute(
+                "DELETE FROM routing_events WHERE updated_at < ?",
+                (before,),
             )
         return int(cursor.rowcount)
 

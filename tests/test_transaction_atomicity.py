@@ -10,7 +10,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from tests.helpers import make_settings
-from zion.db import ZionDB
+from zion.db import SUPPORTED_SCHEMA_VERSION, ZionDB
 from zion.guardian import Guardian
 from zion.models import OperatingState
 from zion.telegram_app import expire_temporary_state, lockdown_command
@@ -190,7 +190,7 @@ class AtomicityTests(unittest.TestCase):
             self.assertFalse(db._conn.in_transaction)
             db._conn.execute('DROP TRIGGER fail_marker')
             db.initialize()
-            self.assertEqual(db.schema_version(), 2)
+            self.assertEqual(db.schema_version(), SUPPORTED_SCHEMA_VERSION)
             before = list(db._conn.iterdump())
             db.initialize()
             self.assertEqual(list(db._conn.iterdump()), before)
@@ -249,8 +249,15 @@ class AtomicityTests(unittest.TestCase):
                 worker.join(timeout=10)
                 self.assertFalse(worker.is_alive())
             self.assertEqual(errors, [])
-            self.assertEqual([row[0] for row in peers[0]._conn.execute(
-                'SELECT version FROM schema_migrations ORDER BY version')], [1, 2])
+            self.assertEqual(
+                [
+                    row[0]
+                    for row in peers[0]._conn.execute(
+                        'SELECT version FROM schema_migrations ORDER BY version'
+                    )
+                ],
+                list(range(1, SUPPORTED_SCHEMA_VERSION + 1)),
+            )
             self.assertTrue(peers[0].verify_integrity(full=True)['ok'])
         finally:
             for db in peers:

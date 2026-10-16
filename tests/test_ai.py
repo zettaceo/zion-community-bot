@@ -7,7 +7,7 @@ import unittest
 from dataclasses import replace
 from pathlib import Path
 
-from tests.helpers import make_settings
+from tests.helpers import make_settings, write_test_knowledge_manifest
 from zion.ai_service import AIService, sanitize_for_ai
 from zion.db import ZionDB
 from zion.knowledge import KnowledgeBase
@@ -17,7 +17,7 @@ from zion.mistral import (
     _parse_json_object,
     _valid_mistral_api_url,
 )
-from zion.models import AIAnswer, OperatingState
+from zion.models import AIAnswer, AIRouteClassification, OperatingState
 
 
 class AITests(unittest.TestCase):
@@ -25,6 +25,10 @@ class AITests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.root = Path(self.temp.name)
         (self.root / "knowledge").mkdir()
+        write_test_knowledge_manifest(
+            self.root / "knowledge",
+            files=("official.md", "orders.md"),
+        )
         self.settings = make_settings(self.root)
         self.db = ZionDB(self.settings.db_path)
         self.db.initialize()
@@ -115,6 +119,58 @@ class AITests(unittest.TestCase):
         self.assertEqual(result.input_tokens, 10)
         self.assertEqual(result.output_tokens, 5)
         self.assertEqual(result.latency_ms, 1)
+
+    def test_route_classification_is_strictly_allowlisted(self) -> None:
+        settings = replace(self.settings, ai_enabled=True)
+        client = MistralClient(settings)
+
+        async def fake_chat(messages, **kwargs):
+            return MistralRawResponse(
+                text='{"intent":"moderation","confidence":9}',
+                model="fake",
+                input_tokens=8,
+                output_tokens=3,
+                latency_ms=1,
+            )
+
+        client._chat = fake_chat
+        result = asyncio.run(client.classify_route("apague esse usuário"))
+        self.assertEqual(result.intent, "ambiguous")
+        self.assertEqual(result.confidence, 1.0)
+
+    def test_route_classification_accounts_tokens_separately(self) -> None:
+        settings = replace(self.settings, ai_enabled=True)
+        ai = AIService(settings, self.db, self.knowledge)
+
+        class FakeRouter:
+            configured = True
+
+            async def classify_route(self, text: str):
+                return AIRouteClassification(
+                    intent="support",
+                    confidence=0.9,
+                    model="fake-model",
+                    input_tokens=12,
+                    output_tokens=4,
+                    latency_ms=2,
+                )
+
+        ai.client = FakeRouter()
+        result = asyncio.run(
+            ai.classify_route(
+                chat_id=1,
+                user_id=2,
+                text="Pode me ajudar com isto?",
+            )
+        )
+        self.assertEqual(result.intent, "support")
+        event = self.db._conn.execute(
+            "SELECT purpose, category, requires_human FROM ai_events"
+        ).fetchone()
+        self.assertEqual(event["purpose"], "intent_route")
+        self.assertEqual(event["category"], "support")
+        self.assertEqual(event["requires_human"], 0)
+        self.assertEqual(self.db.ai_tokens_since(0), 16)
 
 
     def test_observe_classification_tokens_count_toward_budget(self) -> None:

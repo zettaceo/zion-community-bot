@@ -7,11 +7,17 @@ import re
 import threading
 import time
 
+from .agents import AgentId
 from .config import Settings
 from .db import ZionDB
 from .knowledge import KnowledgeBase
 from .mistral import MistralClient
-from .models import AIAnswer, AIClassification, OperatingState
+from .models import (
+    AIAnswer,
+    AIClassification,
+    AIRouteClassification,
+    OperatingState,
+)
 from .secret_store import SecretStore
 
 
@@ -429,7 +435,22 @@ class AIService:
         question: str,
         context_query: str | None = None,
         conversation_context: str | None = None,
+        agent_id: AgentId | str = AgentId.ZION,
     ) -> AIAnswer:
+        try:
+            selected_agent = (
+                agent_id
+                if isinstance(agent_id, AgentId)
+                else AgentId(str(agent_id).strip().lower())
+            )
+        except ValueError:
+            return AIAnswer(
+                text=(
+                    "Não foi possível confirmar a identidade autorizada para "
+                    "esta resposta."
+                ),
+                model="zion-local",
+            )
         if not self.state_allows_ai():
             return AIAnswer(
                 text=(
@@ -445,11 +466,15 @@ class AIService:
         safe_conversation_context = sanitize_for_ai(
             conversation_context or ""
         )[:6000]
-        context = self.knowledge.render_context(safe_context_query)
+        context = self.knowledge.render_context(
+            safe_context_query,
+            agent_id=selected_agent,
+        )
         question_hash = self._hash_text(safe_question)
 
         canonical_answer = self.knowledge.canonical_finite_answer(
-            safe_question
+            safe_question,
+            agent_id=selected_agent,
         )
         if canonical_answer is not None:
             self._record_ai_event(
@@ -461,7 +486,10 @@ class AIService:
                 input_hash=question_hash,
                 metadata={
                     "knowledge_hits": len(
-                        self.knowledge.search(safe_context_query)
+                        self.knowledge.search(
+                            safe_context_query,
+                            agent_id=selected_agent,
+                        )
                     ),
                     "provider_called": False,
                     "canonical_finite_list": True,
@@ -553,6 +581,8 @@ class AIService:
                         "question": safe_question,
                         "context": context,
                     }
+                    if selected_agent is not AgentId.ZION:
+                        client_kwargs["agent_id"] = selected_agent.value
                     if safe_conversation_context:
                         client_kwargs["conversation_context"] = (
                             safe_conversation_context
@@ -576,11 +606,16 @@ class AIService:
                 input_hash=question_hash,
                 metadata={
                     "knowledge_hits": len(
-                        self.knowledge.search(safe_context_query)
+                        self.knowledge.search(
+                            safe_context_query,
+                            agent_id=selected_agent,
+                        )
                     ),
                     "knowledge_sources": self.knowledge.source_labels(
-                        safe_context_query
+                        safe_context_query,
+                        agent_id=selected_agent,
                     ),
+                    "agent_id": selected_agent.value,
                 },
             )
             return answer
@@ -867,6 +902,70 @@ class AIService:
                     "error_type": type(exc).__name__,
                     "budget_estimate_tokens": reservation,
                     "usage_outcome": "uncertain",
+                },
+            )
+            return None
+
+    async def classify_route(
+        self,
+        *,
+        chat_id: int | None,
+        user_id: int | None,
+        text: str,
+    ) -> AIRouteClassification | None:
+        """Interpret ambiguous conversation without gaining authority."""
+
+        if not self.provider_available():
+            return None
+        safe_text = sanitize_for_ai(text)[:3000]
+        reservation = self._reserve_budget(
+            self._estimate_tokens(safe_text, 120)
+        )
+        if reservation is None:
+            return None
+        try:
+            try:
+                async with self._semaphore:
+                    result = await self.client.classify_route(safe_text)
+            finally:
+                self._release_budget(reservation)
+            self._record_provider_success()
+            self._record_provider_success_event(
+                reservation=reservation,
+                input_tokens=result.input_tokens,
+                output_tokens=result.output_tokens,
+                chat_id=None,
+                user_id=None,
+                purpose="intent_route",
+                model=result.model or self.settings.mistral_model,
+                success=True,
+                category=result.intent,
+                risk=result.confidence,
+                requires_human=False,
+                latency_ms=result.latency_ms,
+                input_hash=self._hash_text(safe_text),
+                metadata={"authority": "interpretation_only"},
+            )
+            return result
+        except Exception as exc:
+            self._record_provider_failure()
+            self._charge_uncertain_budget(reservation)
+            logger.warning(
+                "Falha no classificador limitado de routing: %s",
+                type(exc).__name__,
+            )
+            self._record_ai_event(
+                chat_id=None,
+                user_id=None,
+                purpose="intent_route",
+                model=self.settings.mistral_model,
+                success=False,
+                input_hash=self._hash_text(safe_text),
+                metadata={
+                    "error_type": type(exc).__name__,
+                    "budget_estimate_tokens": reservation,
+                    "usage_outcome": "uncertain",
+                    "authority": "interpretation_only",
                 },
             )
             return None
