@@ -8,8 +8,9 @@ from pathlib import Path
 from unittest.mock import patch
 
 from tests.helpers import make_settings
-from zion.db import ZION_APPLICATION_ID, ZionDB
+from zion.db import SUPPORTED_SCHEMA_VERSION, ZION_APPLICATION_ID, ZionDB
 from zion.health import HealthService
+from zion.telegram_identity_store import TelegramIdentityStore
 
 
 class HealthTests(unittest.TestCase):
@@ -85,8 +86,14 @@ class HealthTests(unittest.TestCase):
             "ok",
         )
         self.assertGreaterEqual(diagnostics["db_size_mb"], 0)
-        self.assertEqual(diagnostics["schema_version"], 2)
-        self.assertEqual(diagnostics["schema_version_supported"], 2)
+        self.assertEqual(
+            diagnostics["schema_version"],
+            SUPPORTED_SCHEMA_VERSION,
+        )
+        self.assertEqual(
+            diagnostics["schema_version_supported"],
+            SUPPORTED_SCHEMA_VERSION,
+        )
         self.assertTrue(diagnostics["schema_version_ok"])
         self.assertEqual(
             diagnostics["sqlite_pragmas"]["journal_mode"],
@@ -183,6 +190,62 @@ class HealthTests(unittest.TestCase):
         snapshot = self.health.snapshot()
         self.assertFalse(
             snapshot.details["sensitive_files_private"]
+        )
+
+    def test_secondary_identity_health_exposes_only_safe_status(self) -> None:
+        class FakeIdentityStore:
+            secret_value = "999999" + ":NEVER_EXPOSE_THIS_TELEGRAM_TOKEN"
+
+            @staticmethod
+            def status_all():
+                from zion.agents import AgentId
+
+                return {
+                    AgentId.MIMIR: TelegramIdentityStore.CONFIGURED,
+                    AgentId.EIR: TelegramIdentityStore.MISSING,
+                    AgentId.FREYR: TelegramIdentityStore.CONFIGURED,
+                }
+
+        health = HealthService(
+            self.settings,
+            self.db,
+            telegram_identity_store=FakeIdentityStore(),
+        )
+        snapshot = health.snapshot()
+        statuses = snapshot.details["telegram_identity_status"]
+
+        self.assertEqual(
+            statuses,
+            {
+                "mimir": "CONFIGURED",
+                "eir": "MISSING",
+                "freyr": "CONFIGURED",
+            },
+        )
+        self.assertNotIn(
+            FakeIdentityStore.secret_value,
+            repr(snapshot.details),
+        )
+
+    def test_unsafe_secondary_identity_store_fails_sensitive_health(self) -> None:
+        class UnsafeIdentityStore:
+            @staticmethod
+            def status_all():
+                from zion.agents import AgentId
+
+                return {
+                    AgentId.MIMIR: TelegramIdentityStore.UNSAFE,
+                    AgentId.EIR: TelegramIdentityStore.MISSING,
+                    AgentId.FREYR: TelegramIdentityStore.MISSING,
+                }
+
+        health = HealthService(
+            self.settings,
+            self.db,
+            telegram_identity_store=UnsafeIdentityStore(),
+        )
+        self.assertFalse(
+            health.snapshot().details["sensitive_files_private"]
         )
 
 

@@ -9,6 +9,7 @@ from .config import Settings
 from .db import SUPPORTED_SCHEMA_VERSION, ZION_APPLICATION_ID, ZionDB
 from .models import HealthSnapshot, OperatingState
 from .secret_store import SecretStore
+from .telegram_identity_store import TelegramIdentityStore
 
 
 def _private_file(path: Path) -> bool:
@@ -32,11 +33,18 @@ class HealthService:
         settings: Settings,
         db: ZionDB,
         secret_store: SecretStore | None = None,
+        telegram_identity_store: TelegramIdentityStore | None = None,
     ):
         self.settings = settings
         self.db = db
         self.secret_store = secret_store or SecretStore(
             settings.mistral_secret_path
+        )
+        self.telegram_identity_store = (
+            telegram_identity_store
+            or TelegramIdentityStore(
+                settings.telegram_identity_secret_dir
+            )
         )
         self._started_monotonic = time.monotonic()
         self._integrity_checked_at = float("-inf")
@@ -112,10 +120,18 @@ class HealthService:
             )
         )
         mistral_secret_status = self.secret_store.status()
+        telegram_identity_status = {
+            agent_id.value: status
+            for agent_id, status in (
+                self.telegram_identity_store.status_all().items()
+            )
+        }
         sensitive_files_private = (
             sensitive_files_private
             and rotated_logs_private
             and mistral_secret_status != SecretStore.UNSAFE
+            and TelegramIdentityStore.UNSAFE
+            not in telegram_identity_status.values()
         )
 
         state_read_ok = True
@@ -173,6 +189,7 @@ class HealthService:
                 "ai_provider": "mistral",
                 "ai_model": self.settings.mistral_model,
                 "mistral_secret_status": mistral_secret_status,
+                "telegram_identity_status": telegram_identity_status,
                 "sensitive_files_private": sensitive_files_private,
                 "sqlite_integrity_ok": integrity_ok,
                 "sqlite_integrity_result": integrity_result,
@@ -303,6 +320,9 @@ class HealthService:
             ),
             "mistral_secret_status": str(
                 snapshot.details.get("mistral_secret_status", "MISSING")
+            ),
+            "telegram_identity_status": dict(
+                snapshot.details.get("telegram_identity_status", {})
             ),
             "wifi_interface_present": snapshot.wifi_interface_present,
             "ai_latency_24h": latency,

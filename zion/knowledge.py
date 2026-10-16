@@ -1,16 +1,25 @@
 from __future__ import annotations
 
 import logging
+import json
 import re
 import unicodedata
 from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
+
+from zion.agents import AgentId
 
 
 logger = logging.getLogger("zion.knowledge")
 
 MAX_KNOWLEDGE_FILE_BYTES = 256 * 1024
 MIN_RETRIEVAL_SCORE = 0.25
+KNOWLEDGE_MANIFEST = "MANIFEST.md"
+MANIFEST_JSON_RE = re.compile(
+    r"```json\s*(.*?)\s*```",
+    re.IGNORECASE | re.DOTALL,
+)
 
 
 WORD_REGEX = re.compile(r"[A-Za-zÀ-ÿ0-9_'-]{2,}")
@@ -91,6 +100,17 @@ TOPIC_ALIASES = (
 def _normalize(text: str) -> str:
     folded = unicodedata.normalize("NFKD", text.lower())
     return "".join(char for char in folded if not unicodedata.combining(char))
+
+
+def _agent_id_or_none(agent_id: AgentId | str) -> AgentId | None:
+    try:
+        return (
+            agent_id
+            if isinstance(agent_id, AgentId)
+            else AgentId(str(agent_id).strip().lower())
+        )
+    except ValueError:
+        return None
 
 
 def _base_tokens(text: str) -> set[str]:
@@ -192,11 +212,47 @@ def _mentioned_topics(text: str) -> set[int]:
     }
 
 
-@dataclass(slots=True)
+class KnowledgeClassification(str, Enum):
+    PUBLIC = "PUBLIC"
+    CONTROLLED = "CONTROLLED"
+    INTERNAL = "INTERNAL"
+    SECRET = "SECRET"
+
+
+class KnowledgeSourceStatus(str, Enum):
+    CURRENT = "CURRENT"
+    HISTORICAL = "HISTORICAL"
+    SUPERSEDED = "SUPERSEDED"
+    EXCLUDED = "EXCLUDED"
+
+
+@dataclass(frozen=True, slots=True)
+class KnowledgeSource:
+    filename: str
+    classification: KnowledgeClassification
+    status: KnowledgeSourceStatus
+    version: str
+    source_identity: str
+    allowed_agents: frozenset[AgentId]
+
+    def allows(self, agent_id: AgentId) -> bool:
+        return (
+            self.status is KnowledgeSourceStatus.CURRENT
+            and self.classification
+            in {
+                KnowledgeClassification.PUBLIC,
+                KnowledgeClassification.CONTROLLED,
+            }
+            and agent_id in self.allowed_agents
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class KnowledgeChunk:
     source: str
     heading: str
     text: str
+    authority: KnowledgeSource
 
 
 class KnowledgeBase:
@@ -204,18 +260,32 @@ class KnowledgeBase:
         self.directory = directory
         self.chunks: list[KnowledgeChunk] = []
         self.load_errors: list[str] = []
+        self.sources: dict[str, KnowledgeSource] = {}
         self.reload()
 
     def reload(self) -> int:
         self.chunks.clear()
         self.load_errors.clear()
+        self.sources.clear()
         if not self.directory.exists():
             return 0
 
         root = self.directory.resolve()
 
+        try:
+            self.sources = self._load_manifest(root)
+        except (OSError, UnicodeError, ValueError, json.JSONDecodeError) as exc:
+            self.load_errors.append(
+                f"{KNOWLEDGE_MANIFEST}:{type(exc).__name__}"
+            )
+            logger.warning(
+                "Knowledge manifest rejected | error=%s",
+                type(exc).__name__,
+            )
+            return 0
+
         for path in sorted(self.directory.glob("*.md")):
-            if path.name.lower() == "readme.md":
+            if path.name.lower() in {"readme.md", KNOWLEDGE_MANIFEST.lower()}:
                 continue
             try:
                 if path.is_symlink():
@@ -227,7 +297,10 @@ class KnowledgeBase:
                 if path.stat().st_size > MAX_KNOWLEDGE_FILE_BYTES:
                     raise ValueError("file_too_large")
 
-                self.chunks.extend(self._parse_file(path))
+                authority = self.sources.get(path.name)
+                if authority is None:
+                    raise ValueError("unclassified_source")
+                self.chunks.extend(self._parse_file(path, authority))
             except (OSError, UnicodeError, ValueError) as exc:
                 error = f"{path.name}:{type(exc).__name__}"
                 self.load_errors.append(error)
@@ -239,7 +312,76 @@ class KnowledgeBase:
 
         return len(self.chunks)
 
-    def _parse_file(self, path: Path) -> list[KnowledgeChunk]:
+    def _load_manifest(self, root: Path) -> dict[str, KnowledgeSource]:
+        path = root / KNOWLEDGE_MANIFEST
+        if path.is_symlink() or not path.is_file():
+            raise ValueError("manifest_missing_or_unsafe")
+        if path.stat().st_size > MAX_KNOWLEDGE_FILE_BYTES:
+            raise ValueError("manifest_too_large")
+        text = path.read_text(encoding="utf-8")
+        match = MANIFEST_JSON_RE.search(text)
+        if match is None:
+            raise ValueError("manifest_json_missing")
+        payload = json.loads(match.group(1))
+        if payload.get("schema_version") != 1:
+            raise ValueError("manifest_schema_unsupported")
+        rows = payload.get("sources")
+        if not isinstance(rows, list):
+            raise ValueError("manifest_sources_invalid")
+
+        sources: dict[str, KnowledgeSource] = {}
+        for raw in rows:
+            if not isinstance(raw, dict):
+                raise ValueError("manifest_source_invalid")
+            filename = str(raw.get("file", "")).strip()
+            if (
+                not filename
+                or Path(filename).name != filename
+                or not filename.lower().endswith(".md")
+                or filename.lower() in {
+                    "readme.md",
+                    KNOWLEDGE_MANIFEST.lower(),
+                }
+                or filename in sources
+            ):
+                raise ValueError("manifest_filename_invalid")
+            version = str(raw.get("version", "")).strip()
+            source_identity = str(raw.get("source_identity", "")).strip()
+            raw_agents = raw.get("allowed_agents")
+            if not version or not source_identity or not isinstance(
+                raw_agents, list
+            ):
+                raise ValueError("manifest_metadata_incomplete")
+            try:
+                classification = KnowledgeClassification(
+                    str(raw.get("classification", "")).upper()
+                )
+                status = KnowledgeSourceStatus(
+                    str(raw.get("status", "")).upper()
+                )
+                agents = frozenset(
+                    AgentId(str(agent).strip().lower())
+                    for agent in raw_agents
+                )
+            except ValueError as exc:
+                raise ValueError("manifest_enum_invalid") from exc
+            if not agents:
+                raise ValueError("manifest_agents_empty")
+            sources[filename] = KnowledgeSource(
+                filename=filename,
+                classification=classification,
+                status=status,
+                version=version,
+                source_identity=source_identity,
+                allowed_agents=agents,
+            )
+        return sources
+
+    def _parse_file(
+        self,
+        path: Path,
+        authority: KnowledgeSource,
+    ) -> list[KnowledgeChunk]:
         text = path.read_text(encoding="utf-8")
         chunks: list[KnowledgeChunk] = []
         heading = path.stem
@@ -254,6 +396,7 @@ class KnowledgeBase:
                         source=path.name,
                         heading=heading,
                         text=body,
+                        authority=authority,
                     )
                 )
             buffer = []
@@ -267,7 +410,16 @@ class KnowledgeBase:
         flush()
         return chunks
 
-    def search(self, query: str, limit: int = 4) -> list[KnowledgeChunk]:
+    def search(
+        self,
+        query: str,
+        limit: int = 4,
+        *,
+        agent_id: AgentId | str = AgentId.ZION,
+    ) -> list[KnowledgeChunk]:
+        selected_agent = _agent_id_or_none(agent_id)
+        if selected_agent is None:
+            return []
         query_tokens = _tokens(query)
         if not query_tokens:
             return []
@@ -277,6 +429,8 @@ class KnowledgeBase:
 
         scored: list[tuple[float, KnowledgeChunk]] = []
         for chunk in self.chunks:
+            if not chunk.authority.allows(selected_agent):
+                continue
             heading_tiers = _mentioned_tiers(chunk.heading)
             heading_topics = _mentioned_topics(chunk.heading)
             if (
@@ -327,6 +481,8 @@ class KnowledgeBase:
     def canonical_finite_answer(
         self,
         query: str,
+        *,
+        agent_id: AgentId | str = AgentId.ZION,
     ) -> str | None:
         folded = _normalize(query)
         asks_list = bool(
@@ -361,10 +517,15 @@ class KnowledgeBase:
         if target_heading is None:
             return None
 
+        selected_agent = _agent_id_or_none(agent_id)
+        if selected_agent is None:
+            return None
+
         candidates = [
             chunk
             for chunk in self.chunks
             if _normalize(chunk.heading) == target_heading
+            and chunk.authority.allows(selected_agent)
         ]
         if not candidates and kind == "networks":
             candidates = [
@@ -373,6 +534,7 @@ class KnowledgeBase:
                 if _normalize(chunk.heading).startswith(
                     "redes disponiveis"
                 )
+                and chunk.authority.allows(selected_agent)
             ]
         if not candidates:
             return None
@@ -408,9 +570,11 @@ class KnowledgeBase:
         self,
         query: str,
         limit: int = 4,
+        *,
+        agent_id: AgentId | str = AgentId.ZION,
     ) -> list[str]:
         labels: list[str] = []
-        for chunk in self.search(query, limit):
+        for chunk in self.search(query, limit, agent_id=agent_id):
             label = f"{chunk.source} — {chunk.heading}"
             if label not in labels:
                 labels.append(label)
@@ -421,8 +585,10 @@ class KnowledgeBase:
         query: str,
         limit: int = 4,
         max_chars: int = 8000,
+        *,
+        agent_id: AgentId | str = AgentId.ZION,
     ) -> str:
-        chunks = self.search(query, limit)
+        chunks = self.search(query, limit, agent_id=agent_id)
         if not chunks:
             return ""
 

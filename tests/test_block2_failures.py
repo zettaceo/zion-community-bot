@@ -14,7 +14,7 @@ from dataclasses import replace
 from pathlib import Path
 
 from tests.helpers import make_settings
-from zion.db import ZionDB
+from zion.db import SUPPORTED_SCHEMA_VERSION, ZionDB
 from zion.health import HealthService
 
 
@@ -209,7 +209,10 @@ signal.pause()
             self.assertEqual(db._conn.execute('PRAGMA application_id').fetchone()[0], 0)
             self.assertFalse(db._conn.in_transaction)
             db.initialize()
-            self.assertEqual(db.schema_version(), 2)
+            self.assertEqual(
+                db.schema_version(),
+                SUPPORTED_SCHEMA_VERSION,
+            )
             self.assertEqual(db._conn.execute(
                 "SELECT text FROM scheduled_messages WHERE id='original'"
             ).fetchone()[0], 'preserve')

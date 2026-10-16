@@ -8,6 +8,40 @@ This document is a handoff, not a production-authorization document.
 
 ---
 
+## 2026-10-16 — MULTI-AGENT COMMAND SYSTEM DEVELOPMENT HANDOFF
+
+An isolated feature branch based on verified `origin/zion-v1.1-dev`
+`c88c3dd8947fa32168feddaa88dbfb870a1eed64` implements the coordinated ZION,
+MIMIR, EIR, and FREYR core. It has not been claimed as deployed by this entry.
+
+Implemented development boundaries:
+
+- ZION is the sole group intake, deterministic Guardian, arbiter, and Control
+  Center; secondary identities have no moderation tools;
+- protected identity-bound tokens stay outside Git, `.env`, SQLite, backups,
+  diagnostics, and chat;
+- ZION DM is creator-only, MIMIR DM is closed, and EIR/FREYR DMs are public;
+- deterministic intent routing runs before a bounded non-moderating AI fallback;
+- invisible cross-agent handoff permits one internal hop and one final speaker;
+- knowledge retrieval enforces PUBLIC/CONTROLLED/INTERNAL/SECRET scope before
+  model context construction;
+- schema v4 stores content-free routing telemetry and prunes it on the existing
+  retention cadence;
+- EIR triages support and escalates sensitive classes without asking secrets;
+- FREYR accepts labelled minimum fields, forwards through the primary ZION bot,
+  creates no lead record, and leaves commercial commitments to a human;
+- the local confidentiality boundary covers direct/encoded exfiltration and
+  full-document reproduction requests.
+
+The official audited-runtime validation completed with **714/714 PASS**, runtime
+and imports compatible, shell checks green, `SECRET SCAN: OK`, and
+`ZION VALIDATION: OK`. The feature HEAD, GitHub CI, promotion SHA, Acer
+deployment, real token provisioning, minimum Telegram privileges, and 17-case
+live acceptance must be recorded only after they actually occur. Do not treat
+this paragraph as production evidence.
+
+---
+
 ## 1. Executive state
 
 The repository development line has completed:

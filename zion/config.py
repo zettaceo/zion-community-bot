@@ -146,6 +146,7 @@ class Settings:
     ai_circuit_failures: int
     ai_circuit_seconds: int
 
+    telegram_identity_secret_dir: Path
     mistral_secret_path: Path
     legacy_mistral_api_key_present: bool
     mistral_api_url: str
@@ -190,6 +191,17 @@ class Settings:
             pass
         else:
             issues.append("mistral_secret_inside_worktree")
+
+        try:
+            identity_path = self.telegram_identity_secret_dir.resolve(
+                strict=False
+            )
+            root_path = self.root_dir.resolve(strict=False)
+            identity_path.relative_to(root_path)
+        except ValueError:
+            pass
+        else:
+            issues.append("telegram_identity_store_inside_worktree")
 
         return tuple(issues)
 
@@ -420,6 +432,14 @@ class Settings:
                 "ZION_AI_CIRCUIT_SECONDS",
                 120,
                 10,
+            ),
+            telegram_identity_secret_dir=(
+                Path.home()
+                / ".local"
+                / "state"
+                / "zion-community-bot"
+                / "secrets"
+                / "telegram-identities"
             ),
             mistral_secret_path=(
                 Path.home()

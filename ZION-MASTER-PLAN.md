@@ -8,6 +8,25 @@ Core principle: **AI interprets; deterministic policy or authorized humans execu
 > This document defines the target system and records the current implementation state.  
 > It does **not** mean development code is deployed to production.
 
+## Multi-Agent Command System development state
+
+The coordinated multi-agent implementation is a development release candidate,
+not a production claim. ZION remains CCO, sole Guardian, group intake authority,
+speaker arbiter, and creator Control Center. MIMIR (CTO), EIR (CXO), and FREYR
+(CBO) are bounded speaking identities with no moderation authority.
+
+The implementation includes protected identity-bound tokens, pre-AI DM policy,
+deterministic routing with a bounded advisory fallback, one-hop invisible
+handoff, agent-filtered knowledge retrieval, durable single-speaker claims,
+schema-v4 minimized routing telemetry, EIR support triage, and FREYR
+data-minimized qualification with human decision. Real tokens, group privilege
+configuration, exact-SHA promotion, Acer cutover, and live acceptance remain
+release gates until measured.
+
+Detailed execution evidence lives in
+`docs/MULTI-AGENT-IMPLEMENTATION-PLAN.md`; topology and threats live in
+`docs/MULTI-AGENT-ARCHITECTURE.md`.
+
 ## 0. Status semantics
 
 Every roadmap item uses one of four states:

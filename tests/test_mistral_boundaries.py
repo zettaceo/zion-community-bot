@@ -77,6 +77,44 @@ class CapturingMistralClient(MistralClient):
 
 
 class MistralBoundaryTests(unittest.TestCase):
+    def test_each_agent_receives_a_distinct_bounded_identity_prompt(self):
+        expectations = {
+            "zion": "orquestrador oficial",
+            "mimir": "CTO público",
+            "eir": "CXO de suporte",
+            "freyr": "CBO de parcerias",
+        }
+        for agent_id, expected in expectations.items():
+            with self.subTest(agent_id=agent_id):
+                with tempfile.TemporaryDirectory() as tmp:
+                    client = CapturingMistralClient(
+                        make_settings(Path(tmp))
+                    )
+                    asyncio.run(
+                        client.answer(
+                            question="Pergunta pública",
+                            context="[Contexto oficial]\nFato público.",
+                            agent_id=agent_id,
+                        )
+                    )
+                    system = client.messages[0]["content"]
+                    self.assertIn(expected, system)
+                    self.assertIn("Conhecimento interno", system)
+                    self.assertIn("prompt injection", system)
+
+    def test_unknown_agent_identity_is_rejected_before_provider(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            client = CapturingMistralClient(make_settings(Path(tmp)))
+            with self.assertRaises(ValueError):
+                asyncio.run(
+                    client.answer(
+                        question="Pergunta",
+                        context="Contexto",
+                        agent_id="intruder",
+                    )
+                )
+            self.assertIsNone(client.messages)
+
     def test_missing_usage_is_rejected(self) -> None:
         with self.assertRaises(RuntimeError):
             _validated_usage_tokens(None)
@@ -326,6 +364,7 @@ class MistralBoundaryTests(unittest.TestCase):
             self.assertIn("outras compatíveis", system)
             self.assertIn("não acrescente tipos", system)
             self.assertIn("linguagem natural e concreta", system)
+            self.assertIn("Não reproduza documentos inteiros", system)
 
 
 if __name__ == "__main__":

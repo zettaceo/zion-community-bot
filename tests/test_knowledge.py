@@ -2,12 +2,49 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+import json
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parent.parent
 
 from zion.knowledge import KnowledgeBase
+
+
+def write_manifest(
+    root: Path,
+    *,
+    files: list[str] | None = None,
+    classification: str = "PUBLIC",
+    status: str = "CURRENT",
+    allowed_agents: list[str] | None = None,
+) -> None:
+    selected = files or sorted(
+        path.name
+        for path in root.glob("*.md")
+        if path.name.lower() not in {"readme.md", "manifest.md"}
+    )
+    agents = allowed_agents or ["zion", "mimir", "eir", "freyr"]
+    payload = {
+        "schema_version": 1,
+        "sources": [
+            {
+                "file": filename,
+                "classification": classification,
+                "status": status,
+                "version": "test-v1",
+                "source_identity": "test-fixture",
+                "allowed_agents": agents,
+            }
+            for filename in selected
+        ],
+    }
+    (root / "MANIFEST.md").write_text(
+        "# Test manifest\n\n```json\n"
+        + json.dumps(payload)
+        + "\n```\n",
+        encoding="utf-8",
+    )
 
 
 class KnowledgeTests(unittest.TestCase):
@@ -19,6 +56,7 @@ class KnowledgeTests(unittest.TestCase):
                 "# Fees\nFees must come from official documentation.\n",
                 encoding="utf-8",
             )
+            write_manifest(root)
             kb = KnowledgeBase(root)
             results = kb.search("seed phrase security")
             self.assertTrue(results)
@@ -36,6 +74,7 @@ class KnowledgeTests(unittest.TestCase):
                 "# Product\npublic product fact\n",
                 encoding="utf-8",
             )
+            write_manifest(root)
             kb = KnowledgeBase(root)
             self.assertNotIn(
                 "internal maintenance instructions",
@@ -53,6 +92,7 @@ class KnowledgeTests(unittest.TestCase):
                 "# Security\nNever share a seed phrase.\n",
                 encoding="utf-8",
             )
+            write_manifest(root)
             kb = KnowledgeBase(root)
             self.assertEqual(
                 kb.search("what is the and of"),
@@ -66,6 +106,7 @@ class KnowledgeTests(unittest.TestCase):
                 "# Security\nOfficial support channels are documented here.\n",
                 encoding="utf-8",
             )
+            write_manifest(root)
             kb = KnowledgeBase(root)
             self.assertEqual(
                 kb.search(
@@ -84,6 +125,7 @@ class KnowledgeTests(unittest.TestCase):
             )
             try:
                 (root / "linked.md").symlink_to(outside)
+                write_manifest(root)
                 kb = KnowledgeBase(root)
                 self.assertEqual(kb.chunks, [])
                 self.assertEqual(len(kb.load_errors), 1)
@@ -94,6 +136,7 @@ class KnowledgeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "broken.md").write_bytes(b"\xff\xfe\xfd")
+            write_manifest(root)
             kb = KnowledgeBase(root)
             self.assertEqual(kb.chunks, [])
             self.assertEqual(len(kb.load_errors), 1)
@@ -105,6 +148,7 @@ class KnowledgeTests(unittest.TestCase):
                 "# Guardian\n" + ("guardian " * 3000),
                 encoding="utf-8",
             )
+            write_manifest(root)
             kb = KnowledgeBase(root)
             rendered = kb.render_context(
                 "guardian",
@@ -113,6 +157,104 @@ class KnowledgeTests(unittest.TestCase):
             self.assertLessEqual(len(rendered), 500)
             self.assertIn("[Contexto oficial: Guardian]", rendered)
             self.assertNotIn("official.md", rendered)
+
+    def test_missing_manifest_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "unclassified.md").write_text(
+                "# Private\nThis must never enter context.\n",
+                encoding="utf-8",
+            )
+            kb = KnowledgeBase(root)
+            self.assertEqual(kb.chunks, [])
+            self.assertEqual(len(kb.load_errors), 1)
+
+    def test_unclassified_file_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "approved.md").write_text(
+                "# Product\nApproved public fact.\n",
+                encoding="utf-8",
+            )
+            (root / "forgotten.md").write_text(
+                "# Internal\nForgotten private fact.\n",
+                encoding="utf-8",
+            )
+            write_manifest(root, files=["approved.md"])
+            kb = KnowledgeBase(root)
+            self.assertIn("Approved public fact", kb.render_context("product"))
+            self.assertNotIn("Forgotten private fact", kb.render_context("private"))
+            self.assertTrue(
+                any("forgotten.md" in error for error in kb.load_errors)
+            )
+
+    def test_internal_secret_and_noncurrent_sources_never_retrieve(self) -> None:
+        for classification, status in (
+            ("INTERNAL", "CURRENT"),
+            ("SECRET", "CURRENT"),
+            ("PUBLIC", "HISTORICAL"),
+            ("PUBLIC", "SUPERSEDED"),
+            ("PUBLIC", "EXCLUDED"),
+        ):
+            with self.subTest(classification=classification, status=status):
+                with tempfile.TemporaryDirectory() as tmp:
+                    root = Path(tmp)
+                    (root / "restricted.md").write_text(
+                        "# Restricted\nUnique forbidden material.\n",
+                        encoding="utf-8",
+                    )
+                    write_manifest(
+                        root,
+                        classification=classification,
+                        status=status,
+                    )
+                    kb = KnowledgeBase(root)
+                    self.assertEqual(
+                        kb.render_context("unique forbidden material"),
+                        "",
+                    )
+
+    def test_controlled_source_is_filtered_by_agent(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "controlled.md").write_text(
+                "# Architecture\nApproved controlled architecture summary.\n",
+                encoding="utf-8",
+            )
+            write_manifest(
+                root,
+                classification="CONTROLLED",
+                allowed_agents=["mimir"],
+            )
+            kb = KnowledgeBase(root)
+            self.assertEqual(
+                kb.render_context(
+                    "approved controlled architecture",
+                    agent_id="zion",
+                ),
+                "",
+            )
+            self.assertIn(
+                "Approved controlled architecture summary",
+                kb.render_context(
+                    "approved controlled architecture",
+                    agent_id="mimir",
+                ),
+            )
+
+    def test_unknown_agent_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "public.md").write_text(
+                "# Product\nPublic fact.\n",
+                encoding="utf-8",
+            )
+            write_manifest(root)
+            kb = KnowledgeBase(root)
+            self.assertEqual(
+                kb.render_context("public fact", agent_id="unknown"),
+                "",
+            )
 
     def test_product_knowledge_answers_basic_z_swap_question(self) -> None:
         root = Path(__file__).resolve().parents[1] / "knowledge"
@@ -131,8 +273,10 @@ class KnowledgeTests(unittest.TestCase):
             "Quais são os benefícios do plano piloto?"
         )
 
-        self.assertIn("suporte direto prioritário", rendered)
-        self.assertIn("status Founder", rendered)
+        self.assertIn("30 análises do ZION por dia", rendered)
+        self.assertIn("até 10 mesas de papel adiante", rendered)
+        self.assertIn("Automação avançada do Pilot pertence ao roadmap", rendered)
+        self.assertNotIn("Autopilot CEX disponível", rendered)
         self.assertNotIn("z-swap.md", rendered)
 
     def test_exact_pro_plan_is_not_confused_with_pilot(self) -> None:
@@ -176,9 +320,10 @@ class KnowledgeTests(unittest.TestCase):
         rendered = kb.render_context(
             "Qual a diferença entre Trader e Pilot?"
         )
+        flat = " ".join(rendered.split())
 
-        self.assertIn("Trader sobe para 25 análises", rendered)
-        self.assertIn("Pilot sobe para 30 análises", rendered)
+        self.assertIn("Trader sobe para 25 análises", flat)
+        self.assertIn("Pilot sobe para 30 análises", flat)
         self.assertIn(
             "[Contexto oficial: Plano Trader]",
             rendered,
@@ -191,6 +336,7 @@ class KnowledgeTests(unittest.TestCase):
     def test_current_plan_matrix_contains_canonical_product_facts(self):
         root = Path(__file__).resolve().parents[1] / "knowledge"
         text = (root / "z-swap-plans.md").read_text(encoding="utf-8")
+        flat = " ".join(text.split())
 
         expected = (
             "Free, Pro, Trader e Pilot",
@@ -198,20 +344,100 @@ class KnowledgeTests(unittest.TestCase):
             "10 análises do ZION por dia",
             "25 análises do ZION por dia",
             "30 análises do ZION por dia",
-            "US$ 7,90 por mês",
-            "US$ 20,90 por mês",
-            "US$ 159 por mês",
-            "taxa de swap do Pro nas redes EVM é 0,5%",
-            "taxa de swap do Trader nas redes EVM é 0,25%",
-            "taxa de swap do Pilot nas redes EVM é 0,10%",
-            "decisão atual do produto é não cobrar taxa de integração",
+            "platform fee EVM pública é 0,50%",
+            "platform fee EVM pública é 0,25%",
+            "platform fee EVM pública é 0,10%",
+            "platform fee da Z-SWAP está atualmente desabilitada",
+            "exatamente 36 meses de Premium",
+            "A venda não está aberta",
+            "preços públicos finais ainda não foram anunciados",
         )
         for fact in expected:
             with self.subTest(fact=fact):
-                self.assertIn(fact, text)
+                self.assertIn(fact, flat)
 
         self.assertNotIn("/home/", text)
         self.assertNotIn("src/", text)
+        for superseded in (
+            "US$ 7,90 por mês",
+            "US$ 20,90 por mês",
+            "US$ 159 por mês",
+            "1,5 SOL",
+            "4 SOL",
+            "30 SOL",
+            "1.500 passes",
+            "500 passes",
+            "50 passes",
+            "ou acesso até a versão 3",
+        ):
+            with self.subTest(superseded=superseded):
+                self.assertNotIn(superseded, flat)
+
+    def test_apn_canonical_source_preserves_all_21_pages(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        text = (
+            root / "docs" / "apn" / "Z-SWAP-APN-SOURCE.md"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn(
+            "f11814ff833a86f974b4ddd0fc14ad2e9372afe52ffd4dff206315de3a8b5c4d",
+            text,
+        )
+        for page in range(1, 22):
+            with self.subTest(page=page):
+                self.assertIn(f"## {page:02d} —", text)
+        self.assertIn("docs/PITCH-DECK.md", text)
+        self.assertIn("HISTORICAL / EXCLUDED", text)
+
+    def test_technical_paper_source_is_mixed_and_exact_route_is_not_invented(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        text = (
+            root
+            / "docs"
+            / "technical-paper"
+            / "Z-SWAP-TECHNICAL-PAPER-SOURCE.md"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("that exact file is absent", text)
+        self.assertIn("67 planned sections", text)
+        self.assertIn("| 42 | Database Security | INTERNAL |", text)
+        self.assertIn("| 13 | Supported Network Architecture | PUBLIC |", text)
+        self.assertIn("The raw source documents are never indexed directly", text)
+
+    def test_apn_and_technical_projections_follow_agent_matrix(self) -> None:
+        root = Path(__file__).resolve().parents[1] / "knowledge"
+        kb = KnowledgeBase(root)
+
+        apn = kb.render_context(
+            "parcerias creators comunidades protocolos",
+            agent_id="freyr",
+        )
+        self.assertIn("creators", apn)
+
+        mimir = kb.render_context(
+            "arquitetura pública roteamento DEX bridge",
+            agent_id="mimir",
+        )
+        self.assertIn("camadas de execução, inteligência e risco", mimir)
+
+        zion = kb.render_context(
+            "arquitetura pública roteamento DEX bridge",
+            agent_id="zion",
+        )
+        self.assertNotIn("camadas de execução, inteligência e risco", zion)
+
+    def test_current_corpus_rejects_superseded_founder_and_autopilot_claims(self) -> None:
+        root = Path(__file__).resolve().parents[1] / "knowledge"
+        corpus = "\n".join(
+            path.read_text(encoding="utf-8")
+            for path in sorted(root.glob("*.md"))
+            if path.name != "MANIFEST.md"
+        )
+
+        self.assertNotIn("acesso até a versão 3", corpus)
+        self.assertNotIn("Autopilot CEX é um recurso de automação em corretoras centralizadas. Começa no plano Pro", corpus)
+        self.assertNotIn("oferta planejada de 1.500 passes", corpus)
+        self.assertIn("uso público permanece desabilitado", corpus)
 
 
 

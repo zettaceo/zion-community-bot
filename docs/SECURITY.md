@@ -220,4 +220,43 @@ Production deployment requires a verified snapshot before the running service is
 
 Schema downgrades are guarded: a ZION build refuses to initialize a database whose recorded schema version is newer than the build supports.
 
+## Multi-agent token and authority boundary
+
+Each secondary Telegram token is bound to one immutable agent identity in the
+protected local identity store. Values remain outside Git, `.env`, SQLite,
+diagnostics, backups, prompts, and Control Center output. The store verifies its
+fixed parent, owner, `0700` directory, `0600` regular file, and rejects symlinks,
+hardlinks, unsafe paths, duplicate use of the primary token, and unsafe startup
+state. Logs register loaded values for redaction but expose only
+`CONFIGURED`, `MISSING`, or `UNSAFE`.
+
+Only ZION consumes group updates and owns Guardian tools. Secondary applications
+discard group updates and accept only their bounded private surface. The agent
+registry rejects any non-ZION moderation authority, so model output, username,
+Telegram role, or handoff cannot grant punishment capability.
+
+## Routing and partnership privacy
+
+Routing schema v4 deliberately omits message bodies, prompts, user IDs, chat
+IDs, usernames, contact data, and lead content. It retains only bounded hashes,
+authority labels, status codes, counts, and timestamps needed to prove routing
+health and the single-speaker contract. Rows are pruned on the operational
+retention cadence.
+
+FREYR parses labelled fields in memory, sends a qualified summary only through
+the primary ZION bot to allowlisted operators, and stores only a count/status
+audit record. If that channel is unavailable, delivery fails closed. EIR and
+FREYR both pass through deterministic credential and wallet-secret protection
+before any AI or workflow processing.
+
+## Encoded exfiltration and document reproduction
+
+The local confidentiality boundary inspects bounded percent-encoded and
+standalone Base64-like candidates for prompt/source exfiltration requests. It
+does not turn decoded material into normal conversation or knowledge queries.
+Model prompts separately treat every input field as untrusted data and prohibit
+full-document reproduction. Knowledge classification remains the primary
+control: INTERNAL, SECRET, non-current, and agent-disallowed chunks never enter
+the model context.
+
 Ephemeral operational data has bounded retention. Unknown delivery outcomes and the incident/action audit ledger are intentionally excluded from automatic destructive cleanup.

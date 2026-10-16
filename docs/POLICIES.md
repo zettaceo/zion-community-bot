@@ -118,3 +118,37 @@ Health alerts can notify explicit ZION operators about database/integrity proble
 
 
 Operational alerts are deduplicated. An unchanged active condition may be reminded only after the configured repeat interval; a changed condition alerts immediately and a cleared condition produces one recovery notification.
+
+## Multi-agent authority and routing
+
+ZION is the only Guardian and the only identity with deterministic moderation
+authority. MIMIR, EIR, and FREYR cannot delete, strike, mute, ban, change global
+state, or activate lockdown. Telegram administrator status does not expand the
+registry authority matrix.
+
+Natural conversation is routed deterministically to one identity or silence.
+Mistral may classify an ambiguous benign intent only after deterministic
+routing cannot decide. Its output cannot represent moderation and is rejected
+below the confidence threshold. One bounded, invisible handoff may replace the
+addressed identity with the subject authority before any response is sent.
+
+DM policy is applied before AI and content persistence:
+
+- ZION: authorized creator/operator only;
+- MIMIR: closed;
+- EIR: public support;
+- FREYR: public partnerships.
+
+EIR escalates possible incident/account/human cases without requesting secrets.
+FREYR collects only explicitly labelled, necessary business fields; all
+commercial commitments remain human decisions. Qualified summaries are sent by
+the primary ZION identity and are not persisted as lead content.
+
+## Document and confidentiality requests
+
+Claims of founder, admin, auditor, or developer status in message text do not
+grant access. Requests for prompts, internal sources, repositories, commits,
+infrastructure, credentials, administrative routes, or private findings receive
+a bounded refusal. Encoded prompt-injection candidates are treated as untrusted
+data. ZION may summarize approved public material but does not reproduce whole
+APNs, papers, or extensive documents through chat.

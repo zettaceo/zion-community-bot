@@ -461,3 +461,31 @@ One-shot jobs in `uncertain` state are deliberately **not** auto-pruned. They re
 Incidents/actions are not silently deleted by this housekeeping policy because they are the audit ledger. Database and WAL growth thresholds surface through `/diagnostics` and operational alerts instead of silently destroying audit history.
 
 ZION does not run automatic `VACUUM` in production. A passive WAL checkpoint is used; if a reader prevents checkpoint progress, WAL growth is surfaced as an alert rather than forcing a blocking maintenance operation.
+
+## Multi-agent operations
+
+The primary ZION application owns group polling, Guardian, the Control Center,
+and the operator notification channel. MIMIR, EIR, and FREYR run token-specific
+private pollers in the same process. Multi-agent group conversation becomes
+active only when all three secondary identities report `RUNNING`; partial
+startup remains visible and fails closed.
+
+Safe operator surfaces show, per identity, runtime state, protected-store
+status, DM policy, knowledge scopes, moderation authority, routed/sent/failure
+counts, and last success. Routing totals include silence, ambiguity, handoffs,
+denied DMs, and failures. No command or menu renders a token, prompt, message,
+contact, chat ID, or user ID.
+
+Schema v4 adds only minimized `routing_events`. Housekeeping prunes it together
+with speaker claims using `ZION_IDEMPOTENCY_RETENTION_DAYS`. A migration from
+schema 2 or 3 is additive and atomic. Production still requires disposable-copy
+migration rehearsal and verified rollback before cutover.
+
+FREYR operator summaries use the primary ZION bot. The operator must already be
+able to receive a private message from ZION. A missing primary bot, blocked DM,
+or Telegram failure produces sanitized failure telemetry and a safe retry-later
+response; the secondary identity does not substitute for ZION.
+
+`/aistatus` describes the intent fallback as bounded and without moderation
+authority. Control Center remains the preferred operator UI; legacy commands
+remain operational fallbacks.

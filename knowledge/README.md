@@ -1,6 +1,8 @@
 # ZION Knowledge Base
 
-Markdown files in this directory are treated as approved local context for Mistral support answers.
+Markdown files in this directory are eligible for local context only when they
+have a valid entry in `MANIFEST.md`. The loader applies classification, status,
+version, source identity, and per-agent access before context reaches Mistral.
 
 Rules:
 
@@ -13,6 +15,9 @@ Rules:
 7. When product tiers, pricing, quotas or availability change, update the plan
    matrix and its retrieval tests in the same release. Never document only one
    paid tier as though it represented the others.
+8. A source without manifest metadata is rejected. `INTERNAL`, `SECRET`,
+   `HISTORICAL`, `SUPERSEDED`, and `EXCLUDED` sources never enter public model
+   context.
 
 The retrieval implementation is deliberately local and simple in v1. It can later be replaced by embeddings/vector search without changing the safety contract.
 
