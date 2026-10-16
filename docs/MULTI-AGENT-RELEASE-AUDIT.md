@@ -218,8 +218,10 @@ Unresolved repository findings:
 - audited implementation candidate SHA:
   `2dc52ee40179218d2115e680a14f22bcae65f4f9`;
 - audit/report commit: documentation-only descendant of that candidate;
-- integrated `zion-v1.1-dev` SHA: pending PR review/merge;
-- development CI: pending the exact pushed feature/integration SHA;
+- integrated implementation `zion-v1.1-dev` SHA:
+  `1e639f063497fd7528b58193610fa9dda181c2d0` (PR #59);
+- development CI: ZION CI #1328, run `38981413006`, job
+  `117242891135`, SUCCESS on the exact integrated implementation SHA;
 - production `zion-v1` SHA: pending production PR;
 - Acer deployed SHA/runtime: pending controlled cutover.
 
@@ -229,17 +231,14 @@ acceptance.
 
 ## Remaining gates
 
-1. Commit and push the exact feature candidate.
-2. Open, review, validate, and merge the PR into `zion-v1.1-dev`.
-3. Confirm CI on the exact integrated development SHA.
-4. Open and merge a production PR into `zion-v1` only after all release gates.
-5. Revalidate the exact production merge SHA and prepare its immutable runtime.
-6. Rehearse schema 4 on a disposable verified copy of the Acer database.
-7. Provision real secondary tokens locally on the Acer without chat/history
+1. Open and merge a production PR into `zion-v1` only after all release gates.
+2. Revalidate the exact production merge SHA and prepare its immutable runtime.
+3. Rehearse schema 4 on a disposable verified copy of the Acer database.
+4. Provision real secondary tokens locally on the Acer without chat/history
    exposure; validate identity while revealing only safe status.
-8. Configure MIMIR, EIR, and FREYR with minimum Telegram privileges.
-9. Execute the controlled cutover and all 17 live group/DM acceptance cases.
-10. Prove service, database, stores, one-speaker behavior, Guardian authority,
+5. Configure MIMIR, EIR, and FREYR with minimum Telegram privileges.
+6. Execute the controlled cutover and all 17 live group/DM acceptance cases.
+7. Prove service, database, stores, one-speaker behavior, Guardian authority,
     logs, and rollback readiness after deployment.
 
 Until those gates are measured, production and live multi-agent acceptance are

@@ -40,6 +40,11 @@ deployment, real token provisioning, minimum Telegram privileges, and 17-case
 live acceptance must be recorded only after they actually occur. Do not treat
 this paragraph as production evidence.
 
+Development integration then completed through PR #59 at
+`1e639f063497fd7528b58193610fa9dda181c2d0`. ZION CI #1328 (run
+`38981413006`) succeeded on that exact implementation merge. Production and
+live acceptance remain separate gates.
+
 ---
 
 ## 1. Executive state

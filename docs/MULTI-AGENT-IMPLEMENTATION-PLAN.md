@@ -411,16 +411,19 @@ uncertain-delivery handling fail closed against duplicate speakers.
 - [x] P21.01 Create `docs/MULTI-AGENT-RELEASE-AUDIT.md`.
   - Evidence: adversarial boundary, validation, migration, file, matrix, finding,
     and pending external-gate evidence is recorded without production claims.
-- [~] P21.02 Verify clean tree, exact SHA, CI, migrations, runtime, rollback, and all evidence.
-  - Evidence so far: implementation candidate
+- [x] P21.02 Verify clean tree, exact SHA, CI, migrations, runtime, rollback, and all evidence.
+  - Evidence: implementation candidate
     `2dc52ee40179218d2115e680a14f22bcae65f4f9`, clean worktree, migration and
-    rollback tests, and 714-test local validation. Exact-SHA GitHub CI and
-    release runtime evidence remain PR/release gates.
+    rollback tests, 714-test local validation, and exact integrated SHA
+    `1e639f063497fd7528b58193610fa9dda181c2d0` with ZION CI #1328 SUCCESS.
+    Exact production runtime/rehearsal remains Phase 22 rather than dev evidence.
 - [x] P21.03 Review the full diff for authority/security/knowledge regressions.
   - Evidence: full 49-file base-to-candidate delta reviewed; no unresolved
     CRITICAL/HIGH/MEDIUM repository finding; one non-runtime LOW warning recorded.
-- [~] P21.04 Open PR to `zion-v1.1-dev`, obtain green CI/review, and merge.
-  - Evidence: feature branch is based on unchanged remote dev and is ready for push/PR.
+- [x] P21.04 Open PR to `zion-v1.1-dev`, obtain green CI/review, and merge.
+  - Evidence: PR #59 merged as
+    `1e639f063497fd7528b58193610fa9dda181c2d0`; PR CI run `38981339446`
+    and integrated push CI #1328 run `38981413006` both SUCCESS.
 
 ### PHASE 22 - Production promotion
 
@@ -469,3 +472,4 @@ uncertain-delivery handling fail closed against duplicate speakers.
 | 2026-10-16 | Full suite after fourth implementation increment | 682/682 PASS |
 | 2026-10-16 | Bounded fallback, one-hop handoff, EIR/FREYR workflows, schema v4 telemetry and Control Center | focused 60/60 PASS; degraded/security/persistence matrices PASS |
 | 2026-10-16 | Final development validation before release audit | runtime/imports/shell PASS; 714/714 tests; SECRET SCAN OK; ZION VALIDATION OK |
+| 2026-10-16 | PR #59 and exact integrated development SHA `1e639f0634...` | PR CI and ZION CI #1328 SUCCESS |
