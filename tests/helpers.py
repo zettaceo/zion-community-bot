@@ -65,6 +65,12 @@ def make_settings(root: Path) -> Settings:
         ai_daily_token_budget=50000,
         ai_circuit_failures=3,
         ai_circuit_seconds=120,
+        telegram_identity_secret_dir=(
+            root.parent
+            / f"{root.name}-state"
+            / "secrets"
+            / "telegram-identities"
+        ),
         mistral_secret_path=(
             root.parent
             / f"{root.name}-state"
