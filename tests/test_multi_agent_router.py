@@ -46,6 +46,27 @@ class MultiAgentRouterTests(unittest.TestCase):
             AgentId.FREYR,
         )
 
+    def test_live_acceptance_partnership_plural_routes_to_freyr(self) -> None:
+        self.assert_route(
+            "Como funciona as parcerias?",
+            ConversationIntent.PARTNERSHIP,
+            AgentId.FREYR,
+        )
+
+    def test_live_acceptance_support_diminutive_routes_to_eir(self) -> None:
+        self.assert_route(
+            "Tive um probleminha na plataforma como posso resolver?",
+            ConversationIntent.SUPPORT,
+            AgentId.EIR,
+        )
+
+    def test_live_acceptance_launch_schedule_routes_to_zion(self) -> None:
+        self.assert_route(
+            "Qual o cronograma de lançamento da plataforma?",
+            ConversationIntent.COMMUNITY,
+            AgentId.ZION,
+        )
+
     def test_community_routes_to_zion(self) -> None:
         self.assert_route(
             "Que grupo é esse e o que é a Z-SWAP?",
