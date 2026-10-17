@@ -378,6 +378,47 @@ class ConversationTests(unittest.TestCase):
         self.assertEqual(row["selected_agent"], "mimir")
         self.assertEqual(row["status"], "sent")
 
+    def test_live_acceptance_phrases_select_one_expected_speaker(self) -> None:
+        class CapturingTransport:
+            def __init__(self) -> None:
+                self.calls = []
+
+            async def send_message(self, **kwargs):
+                self.calls.append(kwargs)
+                return SimpleNamespace(message_id=9100 + len(self.calls))
+
+        transport = CapturingTransport()
+        self.runtime.multi_agent_transport = transport
+        self.context.application.bot_data["zion_multi_agent_started"] = True
+        cases = (
+            ("Como funciona as parcerias?", AgentId.FREYR),
+            (
+                "Tive um probleminha na plataforma como posso resolver?",
+                AgentId.EIR,
+            ),
+            (
+                "Qual o cronograma de lançamento da plataforma?",
+                AgentId.ZION,
+            ),
+        )
+
+        for offset, (text, expected) in enumerate(cases, start=1):
+            with self.subTest(text=text, expected=expected):
+                update = make_update(
+                    text,
+                    chat_type="supergroup",
+                    message_id=9100 + offset,
+                    user_id=9100 + offset,
+                )
+                asyncio.run(moderation_handler(update, self.context))
+                self.assertEqual(
+                    transport.calls[-1]["agent_id"],
+                    expected,
+                )
+                self.assertEqual(update.effective_message.replies, [])
+
+        self.assertEqual(len(transport.calls), len(cases))
+
     def test_addressed_agent_handoff_has_only_final_speaker(self) -> None:
         class CapturingTransport:
             def __init__(self) -> None:

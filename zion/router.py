@@ -23,22 +23,24 @@ def _fold(value: str) -> str:
 
 
 _PARTNERSHIP = re.compile(
-    r"\b(?:parceria|partner(?:ship)?|business|comercial|b2b|empresa|"
+    r"\b(?:parcerias?|partner(?:ship)?|business|comercial|b2b|empresa|"
     r"projeto|integracao comercial|integrar (?:nossa|minha)|afiliad|"
     r"patrocin|sponsor|listing|market maker|liquidez institucional)\b"
 )
 _SUPPORT = re.compile(
-    r"\b(?:nao conecta|nao consigo|erro|falha|bug|problema|travou|"
+    r"\b(?:nao conecta|nao consigo|erro|falha|bug|problem(?:a|inha)|travou|"
     r"carteira|wallet|saldo|transacao|swap|bridge|ordem|plano|assinatura|"
-    r"como (?:faco|usar|conectar|trocar|comprar|vender)|passo a passo|"
+    r"como (?:faco|usar|conectar|trocar|comprar|vender|"
+    r"(?:posso )?resolver)|passo a passo|"
     r"ajuda|support|suporte|troubleshoot)\b"
 )
 _SUPPORT_PROBLEM = re.compile(
-    r"\b(?:nao|erro|falha|bug|problema|travou|pendente|sumiu|"
+    r"\b(?:nao|erro|falha|bug|problem(?:a|inha)|travou|pendente|sumiu|"
     r"recusad|rejeitad|nao consigo|ajuda|suporte|support)\b"
 )
 _SUPPORT_ACTION = re.compile(
-    r"\b(?:como (?:faco|usar|conectar|trocar|comprar|vender)|"
+    r"\b(?:como (?:faco|usar|conectar|trocar|comprar|vender|"
+    r"(?:posso )?resolver)|"
     r"passo a passo|preciso de ajuda|me ajuda)\b"
 )
 _TECHNICAL = re.compile(
@@ -52,7 +54,9 @@ _TECHNICAL = re.compile(
 _COMMUNITY = re.compile(
     r"\b(?:zion|z[- ]?swap|comunidade|community|grupo|regras|guardian|"
     r"moderacao|onboarding|quem (?:sao|e)|o que e|bom dia|boa tarde|"
-    r"boa noite|ola|oi|salve|estou perdido|nao estou entendendo)\b"
+    r"boa noite|ola|oi|salve|estou perdido|nao estou entendendo|"
+    r"cronograma (?:de |do |da )?lancamento|lancamento da plataforma|"
+    r"roadmap)\b"
 )
 _CONFIDENTIALITY = re.compile(
     r"\b(?:system prompt|prompt do sistema|ignore (?:as )?instrucoes|"
