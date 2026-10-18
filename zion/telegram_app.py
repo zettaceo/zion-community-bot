@@ -549,9 +549,11 @@ def _looks_like_project_question(
     folded = _fold_conversation_text(question)
     if re.search(
         r"\b(?:projeto|produto|plano|beneficio|beneficios|vantagem|vantagens|"
-        r"acesso|swap|bridge|ponte|token|parcerias?|"
+        r"acesso|swaps?|bridges?|ordem|ordens|ponte|token|parcerias?|"
         r"carteira|wallet|blockchain|rede|redes|terminal|backtest|"
-        r"arquitetura|roteamento|routing|multi[- ]?chain|api|sdk|"
+        r"arquitetura|roteamento|routing|multi[- ]?chain|apis?|sdks?|"
+        r"endpoints?|webhooks?|integracao|integrar|developer|development|"
+        r"desenvolvedor|desenvolvimento|conectar bot|"
         r"smart contract|contrato inteligente|indicador|ema|vwap|rsi|"
         r"macd|autopilot|arbitragem|liquidez|staking|mint|founder|cex|dex|"
         r"assinatura|suporte|problem(?:a|inha)|roadmap|whitepaper|taxa|taxas|"
