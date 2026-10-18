@@ -19,6 +19,7 @@ from .models import (
     OperatingState,
 )
 from .secret_store import SecretStore
+from .router import _fold
 
 
 logger = logging.getLogger("zion.ai")
@@ -459,6 +460,26 @@ class AIService:
                     "comunidade continua funcionando normalmente."
                 ),
                 model=self.settings.mistral_model,
+            )
+
+        # No developer interface is explicitly approved in the current public
+        # corpus. Refuse interface discovery before retrieval or history can
+        # introduce private routes. Public interface publication needs review.
+        interface_request = re.search(
+            r"\b(?:endpoints?|sdks?|webhooks?|developer|development|"
+            r"desenvolvedor|desenvolvimento|integracao|integrar)\b|"
+            r"\b(?:apis?|conectar)\b.*\bbot\b|"
+            r"\b(?:quais|listar?|conectar|usar)\b.*\bapis?\b",
+            _fold(question),
+        )
+        if selected_agent is AgentId.MIMIR and interface_request:
+            return AIAnswer(
+                text=(
+                    "Ainda não tenho uma interface pública oficialmente aprovada "
+                    "para indicar nessa integração. Não posso fornecer endpoints "
+                    "internos. Qual caso de uso você quer implementar no seu bot?"
+                ),
+                model="zion-local",
             )
 
         safe_question = sanitize_for_ai(question)

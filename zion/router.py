@@ -48,7 +48,9 @@ _TECHNICAL = re.compile(
     r"roteamento|routing|multi[- ]?chain|chain|blockchain|rede|evm|solana|"
     r"ethereum|arbitrum|optimism|polygon|avalanche|base|bnb|0x|lifi|"
     r"li\.fi|jupiter|cow protocol|dex|cex|api|sdk|smart contract|"
-    r"contrato inteligente|liquidez|slippage|terminal pro|indicador|"
+    r"contrato inteligente|liquidez|slippage|(?<!z-)(?<!z )swaps?|bridges?|ordem|ordens|"
+    r"endpoints?|apis?|sdks?|webhooks?|integracao|integrar|conectar bot|"
+    r"developer|development|desenvolvedor|desenvolvimento|terminal pro|indicador|"
     r"ema|vwap|bollinger|rsi|macd|stochastic|obv|atr|oco)\b"
 )
 _COMMUNITY = re.compile(

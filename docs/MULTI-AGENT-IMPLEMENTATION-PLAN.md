@@ -473,3 +473,30 @@ uncertain-delivery handling fail closed against duplicate speakers.
 | 2026-10-16 | Bounded fallback, one-hop handoff, EIR/FREYR workflows, schema v4 telemetry and Control Center | focused 60/60 PASS; degraded/security/persistence matrices PASS |
 | 2026-10-16 | Final development validation before release audit | runtime/imports/shell PASS; 714/714 tests; SECRET SCAN OK; ZION VALIDATION OK |
 | 2026-10-16 | PR #59 and exact integrated development SHA `1e639f0634...` | PR CI and ZION CI #1328 SUCCESS |
+
+## Final acceptance forward-fix — 2026-10-18
+
+Production baseline: `24b069afc38099e464742bfa9e3cf0d03d4721b4`.
+Development base: `3d053e87010a95ed239b0ce57e15fbaae7666fc0`.
+
+- [x] Reproduce short swap and developer-interface routing gaps without history.
+- [x] Recognize singular/plural swap, bridge, orders, routing, liquidity and
+  developer vocabulary in both the admission gate and deterministic router.
+- [x] Assert exactly one MIMIR delivery for all acceptance phrases through the
+  ordinary-message handler; no command or prior conversation required.
+- [x] Fail closed for interface discovery before retrieval/provider/history.
+  No developer interface is explicitly approved in the current public corpus.
+  MIMIR explains the boundary and asks for the intended use case. Publishing an
+  interface later requires a reviewed public authority contract; this change
+  does not infer approval from a URL or generic technical document.
+- [x] Add provider-contract regressions against best-price guarantees, universal
+  smart-contract execution claims, and categorical platform safety claims.
+- [x] Full regression: 724/724 PASS; runtime/imports/shell PASS;
+  SECRET SCAN OK; ZION VALIDATION OK. Focused routing/conversation: 64 PASS.
+- [ ] Repeat both exact failed messages in a controlled Telegram acceptance
+  environment; inspect actual MIMIR answers and one-speaker behavior.
+- [ ] Only after both real cases pass, consider a separately approved promotion.
+
+Quality tests assert the prompt contract; they do not certify every possible
+provider-generated response. Live answer quality acceptance remains required.
+The production service and release refs are not changed by this forward-fix.
