@@ -21,6 +21,7 @@ class ResponseCheck:
 
 _RULES = (
     ('internal_path', r'(?:/home/|/etc/|/var/|/tmp/|\.env\b|\b[a-z_]+\.sql\b)'),
+    ('internal_route', r'/api/(?:admin|internal|private)(?:[/\s?#]|$)|\b[a-z0-9.-]+\.(?:internal|local)\b'),
     ('internal_address', r'\b(?:\d{1,3}\.){3}\d{1,3}\b'),
     ('internal_provenance', r'\b(?:[a-f0-9]{40}|zettaceo/zion-community-bot|zetta-world/swap-z-app)\b'),
     ('unauthorized_action', r'\b(?:executei (?:a |sua |uma )?(?:ordem|transacao)|aprovei (?:a |sua )?parceria|garanto (?:seu |o )?lucro)\b'),
@@ -42,12 +43,18 @@ def validate_public_response(text: str, *, official_context: str) -> ResponseChe
     quality_rules = (
         ('best_price_guarantee', r"\b(?:garant\w*|assegur\w*)\b[^.!?\n]{0,60}\bmelhor(?:es)? (?:precos?|taxas?)\b"),
         ('universal_swap_execution', r"\btodos os swaps (?:sao (?:sempre )?(?:executados|realizados|processados) (?:por|via|em)|usam) (?:smart contracts?|contratos? inteligentes?)\b"),
-        ('absolute_safety', r"\b(?:e seguro usar|100% segur[oa]|totalmente segur[oa]|livre de risco)\b"),
+        ('absolute_safety', r"\b(?:e seguro usar|100% segur[oa]|totalmente segur[oa]|livre de riscos?)\b"),
     )
-    checked = folded.replace('nenhuma plataforma ou transacao e livre de risco', '')
+    checked = folded
     for reason, pattern in quality_rules:
         for match in re.finditer(pattern, checked):
-            prefix = checked[max(0, match.start() - 40):match.start()]
+            prefix = checked[max(0, match.start() - 100):match.start()]
+            # Explicit universal risk caveats, scoped to this exact claim.
+            # An earlier negation or a preceding 'mas' cannot excuse a guarantee.
+            if reason == 'absolute_safety' and re.search(
+                r"\b(?:nenhuma?|nenhum) (?:plataforma|transacao|sistema|servico)"
+                r"(?: ou (?:plataforma|transacao|sistema|servico))? e $", prefix):
+                continue
             if re.search(r"\b(?:nao|nunca|nem) (?:(?:podemos|posso|pode|e|e possivel) )?$", prefix):
                 continue
             return ResponseCheck(False, reason)

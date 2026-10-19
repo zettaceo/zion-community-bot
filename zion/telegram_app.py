@@ -2181,6 +2181,13 @@ def _control_center_view(
     if action == "ai":
         return (
             "AI & KNOWLEDGE\n"
+            "Active provider: Mistral\n"
+            f"Active model: {rt.settings.mistral_model}\n"
+            f"Tokens today UTC: {rt.ai.tokens_used_today()}/{rt.settings.ai_daily_token_budget}\n"
+            f"Accounting: {'OK' if rt.ai.accounting_healthy else 'FAIL-CLOSED'}\n"
+            f"Kimi store: {rt.kimi_secret_store.status()}\n"
+            "Kimi activation: BLOCKED — benchmark/policy acceptance pending\n"
+            "Kimi registration: /setkimikey (private operator chat only)\n"
             f"Provider ready: {rt.ai.enabled}\n"
             f"Circuit: {'OPEN' if rt.ai.circuit_open() else 'CLOSED'}\n"
             f"Knowledge chunks: {len(rt.knowledge.chunks)}\n"

@@ -1,6 +1,7 @@
 # AI provider architecture v2 — research checkpoint
 
-Status: DESIGN/RESEARCH, not implemented or enabled. Checked 2026-10-18.
+Status: implementation in isolated branch; Mistral remains the only active runtime provider.
+The research observations below are dated 2026-10-18; subsequent checkpoints supersede implementation status.
 
 The current code uses Mistral-specific Settings, client and accounting. Preserve
 its protected secret and deterministic Guardian separation while introducing a
@@ -54,7 +55,7 @@ selection is still unchanged; Kimi is NOT active in Telegram.
   and total caps across candidate models, restart-safe uncertain charges, one-time
   settlement and a persistent fail-closed flag for usage overruns. A dedicated
   evaluation DB is used; no production DB writes. Prices expire after one day.
-- `evaluations/cognitive-v2.jsonl`: 100 synthetic cases, 12 categories, single and
+- `evaluations/cognitive-v2.jsonl`: 100 synthetic cases, 13 categories, single and
   multiple turns. Gold expectations still require review, not auto-certification.
 - `scripts/evaluate-cognitive-v2.py`: offline by default; explicit live smoke uses
   five cases; full uses 100. PUBLIC-only retrieval is enforced before candidate

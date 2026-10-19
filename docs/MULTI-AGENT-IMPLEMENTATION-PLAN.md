@@ -42,6 +42,20 @@ universally disabled. `tier/types.ts`, `founders-commercial-truth.ts`,
 `chains.ts` and `founders-public/facts.ts` are unchanged from the prior snapshot.
 This comparison does not prove deployment/runtime availability of all app features.
 
+## Revised delivery sequence authorized by operator
+
+The operator will supply the Kimi credential through ZION private chat only
+AFTER publication. Release planning must therefore distinguish:
+
+1. Infrastructure/conversation release with Mistral retained and protected Kimi
+   registration present. It still needs ordinary code, CI, security, release and
+   controlled cutover checks; this change of sequence does not waive those gates.
+2. Post-registration synthetic/public A/B evaluation and account policy review.
+   Kimi remains inactive until those independent acceptance gates pass.
+3. Real Telegram acceptance, which cannot be inferred from unit tests or smoke.
+
+Never label deferred Kimi benchmarks PASS or the entire v2 mission complete.
+
 ## v2 phase tracking (mission sections 63–73)
 
 - [~] 00 Reconciliation: mandatory documents reviewed; remote identities/CI and
@@ -82,13 +96,13 @@ This comparison does not prove deployment/runtime availability of all app featur
 - [~] 28 Durable isolated evaluation reservation ledger implemented; production provider budgets pending.
 - [~] 29 Versioned 100-case synthetic dataset (13 categories), generation evaluator and human-review gate implemented.
 - [!] 30 Live A/B benchmark: requires certified store, official prices, credential,
-  synthetic/public-only evaluation inputs and bounded spend. Local hidden-entry provisioning requested; no Kimi credential confirmed.
+  synthetic/public-only evaluation inputs and bounded spend. Operator will provision through private ZION DM after release; Kimi evaluation deferred.
 - [ ] 31 Adversarial multi-turn evaluation.
 - [~] 32 Full regression: base 724 PASS; first increment 727/727 PASS, SECRET SCAN OK,
   ZION VALIDATION OK (`/tmp/zion-cognitive-v2-validation.log`).
 - [~] 33 Documentation: this checkpoint and cognitive routing contract added.
 - [ ] 34 Development release audit, exact commit CI and PR.
-- [ ] 35 Production promotion: blocked until all mission acceptance gates pass.
+- [ ] 35 Production promotion: scoped Mistral-retaining release requires release/security gates; Kimi activation separately blocked.
 - [ ] 36 Exact production SHA revalidation.
 - [ ] 37 Controlled Acer cutover.
 - [!] 38 Real Telegram acceptance: requires messages from a real human/test account;

@@ -70,6 +70,19 @@ class ControlCenterTests(unittest.TestCase):
         self.assertNotIn(self.runtime.settings.telegram_token, rendered)
         self.assertTrue(self.runtime.control_center_sessions)
 
+    def test_provider_panel_distinguishes_credential_from_activation(self):
+        main = self.update()
+        asyncio.run(send_control_center(main, self.context))
+        nonce = next(iter(self.runtime.control_center_sessions))
+        update = self.update(data=f"zc1:{nonce}:ai")
+        asyncio.run(control_center_callback(update, self.context))
+        text = update.callback_query.edits[0][0]
+        self.assertIn("Active provider: Mistral", text)
+        self.assertIn("Kimi store: MISSING", text)
+        self.assertIn("Kimi activation: BLOCKED", text)
+        self.assertIn("Tokens today UTC:", text)
+        self.assertNotIn(str(self.runtime.settings.mistral_secret_path), text)
+
     def test_non_operator_cannot_open_or_use_panel(self) -> None:
         update = self.update(user_id=9)
         self.assertFalse(
