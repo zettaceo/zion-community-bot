@@ -1,6 +1,25 @@
 # Z-SWAP — Platform Architecture & Technical Paper — Canonical Source
 
-## Source identity
+## Final-artifact discovery addendum — 2026-10-19
+
+This supersedes the historical claim below that only an editorial plan was
+available. Prior-session Drive discovery identified the completed PT-BR v1.0:
+[Z-SWAP — Guia Completo da Plataforma](https://drive.google.com/file/d/1baUgmKSH3kEwJaDZFddsqMVrgJ5wEagX/view),
+modified 2026-10-18, 28,292,993 bytes, 83 pages.
+SHA256: `e6a2f83905ce4f8ed633e41dbb1200c161b76cb5bd1645d0454bdb753fb1b27f`.
+The downloaded temporary copy is no longer available after temporary-directory
+loss; reacquire and verify this digest before any further source reconciliation.
+
+Recorded visual review of pages 2, 22, 77 and 78 found controlled-distribution
+classification, conditional Solana fees, and explicit distinctions between
+available, partial, disabled and unconfirmed functionality. These observations
+are source-discovery evidence, not fresh production measurements. The raw paper
+is not authorized for public indexing. Its classifications must be reconciled
+with current public authority and implementation before any curated projection.
+The old 67-section editorial classification below remains historical, not a
+page-by-page certification of this newer 83-page PDF.
+
+## Historical source identity
 
 - Planned source path named in the mission: `technical-paper/01-PAGE-BY-PAGE-ROUTE.md`
 - Verification result: that exact file is absent from the fetched Git history,

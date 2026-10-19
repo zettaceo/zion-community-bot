@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import asyncio
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 from tests.helpers import make_settings
 from tests.test_conversation import FakeContext, make_update
@@ -57,3 +58,42 @@ class ContextIsolationV2Tests(unittest.TestCase):
                     self.assertNotIn(first, session.retrieval_query)
                 finally:
                     rt.close()
+
+    def test_fragment_slots_do_not_cross_users_threads_or_expiry(self):
+        from zion.conversation_state import FragmentWindow
+        window = FragmentWindow()
+        key = (-10, 1, 2)
+        self.assertIsNone(window.observe(key, 'swap', now=0))
+        self.assertIsNone(window.observe((-10, 1, 3), 'deu erro', now=1))
+        self.assertIsNone(window.observe((-10, 2, 2), 'deu erro', now=1))
+        self.assertEqual(window.observe(key, 'deu erro', now=2), 'swap deu erro')
+        self.assertEqual(window.observe(key, 'na base', now=3), 'swap deu erro na rede base')
+        self.assertEqual(window.observe(key, 'com usdc', now=4), 'swap deu erro na rede base com usdc')
+        self.assertIsNone(window.observe(key, 'com usdt', now=91))
+        window.observe(key, 'swap', now=100)
+        self.assertIsNone(window.observe(key, 'Quais endpoints?', now=101))
+        self.assertIsNone(window.observe(key, 'deu erro', now=102))
+
+    def test_fragmented_support_routes_one_eir_per_received_turn(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp); (root / 'knowledge').mkdir()
+            rt = Runtime(make_settings(root))
+            try:
+                ctx = FakeContext(rt)
+                ctx.application.bot_data['zion_multi_agent_started'] = True
+                rt.multi_agent_transport = SimpleNamespace(send_message=AsyncMock(return_value=SimpleNamespace(message_id=900)))
+                rt.ai.answer = AsyncMock(return_value=AIAnswer(text='Resposta pública.', model='test'))
+                started = time.time()
+                for i, text in enumerate(('swap', 'deu erro', 'na base', 'com usdc')):
+                    # Realistic pauses: do not disable Guardian's 3/10s fixture.
+                    with patch('zion.guardian.time.time', return_value=started + i * 11):
+                        asyncio.run(moderation_handler(make_update(text, chat_type='supergroup', message_id=20+i), ctx))
+                self.assertEqual(rt.ai.answer.await_count, 3)
+                kwargs = rt.ai.answer.await_args.kwargs
+                self.assertEqual(kwargs['question'], 'com usdc')
+                self.assertEqual(kwargs['context_query'], 'swap deu erro na rede base com usdc')
+                self.assertNotIn('conversation_context', kwargs)
+                self.assertEqual(kwargs['agent_id'].value, 'eir')
+                self.assertEqual(rt.multi_agent_transport.send_message.await_count, 3)
+            finally:
+                rt.close()

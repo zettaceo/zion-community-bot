@@ -35,3 +35,49 @@ allowlist; sanitized errors; usage validation; conservative reservation includin
 reasoning/cache charges; persistent atomic budgets; bounded retries and circuit;
 response validator; official capability/rate-limit review; smoke then full A/B.
 No actual credential was read, requested or provisioned during research.
+
+## Implemented evaluation boundary — 2026-10-19
+
+This supersedes the research-only implementation label above. Runtime provider
+selection is still unchanged; Kimi is NOT active in Telegram.
+
+- `provider_secrets.py`: provider-bound fixed filenames reuse SecretStore atomic
+  rotation, private permissions, canonical path, owner and hardlink checks.
+- `providers.py`: completion protocol, existing Mistral adapter and text-only Kimi
+  transport with fixed official URL, reviewed model allowlist, redirect rejection,
+  no environment proxies, bounded messages/body, typed usage and sanitized errors.
+  No tool execution, implicit retries, hidden-reasoning export or fallback.
+- `scripts/provision-kimi.py`: interactive TTY-only, getpass-no-echo, metadata-only
+  authentication probe then atomic store. No argument/env/Telegram credential input.
+  Existing Mistral/Telegram secrets are untouched.
+- `evaluation_budget.py`: SQLite-atomic reservations before network, shared daily
+  and total caps across candidate models, restart-safe uncertain charges, one-time
+  settlement and a persistent fail-closed flag for usage overruns. A dedicated
+  evaluation DB is used; no production DB writes. Prices expire after one day.
+- `evaluations/cognitive-v2.jsonl`: 100 synthetic cases, 12 categories, single and
+  multiple turns. Gold expectations still require review, not auto-certification.
+- `scripts/evaluate-cognitive-v2.py`: offline by default; explicit live smoke uses
+  five cases; full uses 100. PUBLIC-only retrieval is enforced before candidate
+  requests, even for MIMIR. The harness measures generation, not Telegram routing.
+  Any provider/automated failure stops the run; human review remains mandatory.
+
+Official numeric rates were subsequently captured from the
+[official model cards](https://platform.kimi.ai/) on 2026-10-19 (USD per million):
+K2.6 input 0.95, output 4.00, cache hit 0.16; K3 input 3.00, output 15.00,
+cache write 3.00, cache hit 0.30. Reservations ignore cache discounts and include
+K3's default cache-write cost plus 20% budget headroom. They are estimates, not
+invoices or account-balance claims. Cap: USD 0.25/request, USD 2/day, USD 8 total.
+
+[Mistral's model card](https://docs.mistral.ai/models/ministral-3-8b-25-12)
+provides the current Ministral 8B price of USD 0.15/M input and output, captured
+on the same date. This baseline can be compared without rotating its credential.
+
+[K2.6 parameter reference](https://platform.kimi.ai/docs/guide/kimi-k2-6-quickstart):
+non-thinking mode explicitly disabled thinking; omit sampling overrides. K3 uses
+low reasoning effort. Both candidates cap completion at 700 tokens in evaluation;
+truncation must be a failure, not a falsely accepted answer. Account eligibility,
+actual latency, error recovery and comparative quality require live results.
+
+Validation at the second checkpoint: 749 tests PASS, SECRET SCAN OK, ZION
+VALIDATION OK (`/home/zetta/.codex/worktrees/zion-cognitive-v2-increment2-validation.log`). Later harness
+additions require another complete run. No live benchmark success is claimed here.

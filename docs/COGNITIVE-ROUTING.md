@@ -45,3 +45,31 @@ retrieval test across all four agents. The old assertion was factually obsolete,
 not removed to hide a failing implementation. Network/tier/Founder public
 source files checked for this comparison were byte-identical to the prior
 snapshot. This does not certify every other corpus fact or live app deployment.
+
+## Second increment — 2026-10-19
+
+`language_recovery.py` keeps the original input and derives a bounded ephemeral
+interpretation through a small reviewed alias map. It does not fuzzy-match
+operator identities, grant authority or replace the raw Guardian/security input.
+Confidence describes interpretation, not factual truth. Unknown short references
+need recent context or one clarification. Arbitrary typo correction is not proven.
+
+Product, plan, roadmap, security, competitive objection and API integration have
+explicit routing intents and one registry owner. Product/commercial objections
+stay with ZION; an explicit partnership goes to FREYR; technical integration goes
+to MIMIR; operational failures win and go to EIR. The schema-4 delivery ledger
+stores the stable parent family; routing reason carries the fine intent. Registry
+membership is validated before projecting the family. No DB migration is needed.
+
+Fragmented support has a 90-second, non-sliding window keyed by chat, thread and
+user, capped at 2048 entries. Only fixed product/problem/network/asset slots are
+kept, never raw text, secrets or generated reasoning. Unrelated input resets it.
+The four-message fixture uses normal pauses; flood protection still applies.
+Public group follow-ups retain the existing bounded shared-topic contract.
+
+The output guard rejects known absolute guarantees, unauthorized action claims,
+internal paths/addresses/provenance, credentials and URLs absent from retrieved
+context. It is deliberately NOT a complete factuality or leakage proof. Rejected
+answers are replaced before delivery and only a reason code is audited. Cost of
+the original provider call remains accounted. The shared prompt builder preserves
+the same grounding contract for candidate-provider generation comparisons.

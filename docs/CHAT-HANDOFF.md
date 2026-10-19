@@ -1,3 +1,20 @@
+## Active v2 recovery checkpoint — 2026-10-19
+
+Worktree: `/home/zetta/.codex/worktrees/zion-cognitive-v2`, branch
+`codex/multi-agent-cognitive-v2`. The former temporary worktree disappeared;
+commits were preserved and recorded source edits restored. Fresh 754 tests,
+secret scan and normal validation PASS. Full recovery log:
+`/home/zetta/.codex/worktrees/zion-cognitive-recovery-validation.log`.
+
+Kimi provisioning command now uses this persistent path:
+`PYTHONDONTWRITEBYTECODE=1 /home/zetta/.local/share/zion-community-bot/runtimes/current/bin/python /home/zetta/.codex/worktrees/zion-cognitive-v2/scripts/provision-kimi.py`.
+Only hidden local terminal input; never paste credentials into chat.
+Credential has NOT been confirmed. Provider evaluation is synthetic/public only.
+No production activation or full-mission acceptance is claimed.
+Remaining work is tracked at the top of MULTI-AGENT-IMPLEMENTATION-PLAN.md.
+
+---
+
 # 2026-10-18 — Cognitive v2 initial checkpoint (development only)
 
 The active mission is Cognitive Architecture v2. See the current section at the

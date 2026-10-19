@@ -41,7 +41,8 @@ from .agent_workflows import (
 )
 from .ai_service import AIService, sanitize_for_ai
 from .config import Settings
-from .conversation_state import changes_explicit_topic, explicit_topic
+from .language_recovery import recover_language
+from .conversation_state import FragmentWindow, changes_explicit_topic, explicit_topic
 from .db import ZION_APPLICATION_ID, ZionDB
 from .dm_policy import evaluate_dm_access
 from .guardian import (
@@ -265,6 +266,7 @@ class Runtime:
                 GroupConversationSession,
             ] = {}
             self.group_conversation_sessions_next_prune_at = 0.0
+            self.fragment_window = FragmentWindow()
             self.control_center_sessions: dict[
                 str,
                 ControlCenterSession,
@@ -422,7 +424,7 @@ def _looks_like_conversation_turn(value: str) -> bool:
     return bool(
         re.match(
             r"^\s*(?:o que|qual|quais|como|onde|quando|quem|por que|"
-            r"porque|posso|pode|tem|existe|me explica|explique|me fala|"
+            r"porque|quanto|quantas|quantos|manda|posso|pode|tem|existe|me explica|explique|me fala|"
             r"diga|conte|resuma|resume|quero saber|gostaria|e se|e qual|"
             r"e quais|e como|mas|mais eu|eu perguntei|nao foi isso|"
             r"entao|isso inclui|que\b|redes\b|planos\b|taxas\b|cex\b|"
@@ -551,12 +553,12 @@ def _looks_like_project_question(
     question: str,
     context: ContextTypes.DEFAULT_TYPE,
 ) -> bool:
-    if not _looks_like_conversation_turn(question):
+    if not _looks_like_conversation_turn(recover_language(question).canonical):
         return False
 
-    folded = _fold_conversation_text(question)
+    folded = recover_language(question).canonical
     if re.search(
-        r"\b(?:projeto|produto|plano|beneficio|beneficios|vantagem|vantagens|"
+        r"\b(?:projeto|produto|pro|pilot|trader|plano|beneficio|beneficios|vantagem|vantagens|"
         r"acesso|swaps?|bridges?|ordem|ordens|ponte|token|parcerias?|"
         r"carteira|wallet|blockchain|rede|redes|terminal|backtest|"
         r"arquitetura|roteamento|routing|multi[- ]?chain|apis?|sdks?|"
@@ -587,14 +589,14 @@ def _looks_like_project_question(
 def _looks_like_high_confidence_actionable_intent(value: str) -> bool:
     """Recognize support/business requests that do not need question syntax."""
 
-    folded = _fold_conversation_text(value)
+    folded = recover_language(value).canonical
     return bool(
         re.search(
             r"\b(?:conta (?:foi )?invadida|transacao (?:desconhecida|"
             r"nao reconhecida)|nao reconheco (?:esta |essa )?transacao|"
-            r"fundos? sumiu|saldo sumiu|carteira nao conecta|wallet nao "
-            r"conecta|(?:swap|bridge|ordem) (?:falhou|travou|esta pendente)|"
-            r"quero (?:propor|fazer) (?:uma )?parceria|proposta de parceria|"
+            r"fundos? sumiu|saldo sumiu|carteira nao conectar|wallet nao "
+            r"conectar|nao consigo conectar carteira|(?:swap|bridge|ordem) (?:falhou|travou|esta pendente|deu erro)|"
+            r"quero (?:(?:propor|fazer) (?:uma )?)?parceria|proposta de parceria|"
             r"nossa empresa quer (?:integrar|uma parceria))\b",
             folded,
         )
@@ -677,7 +679,7 @@ def natural_conversation_question(
         and getattr(replied_user, "id", None) == bot_id
     )
 
-    folded = _fold_conversation_text(question)
+    folded = recover_language(question).canonical
     username_mention = bool(
         bot_username
         and re.search(
@@ -703,7 +705,7 @@ def natural_conversation_question(
             folded,
         )
     )
-    question_like = _looks_like_conversation_turn(question)
+    question_like = _looks_like_conversation_turn(recover_language(question).canonical)
     active_session = _active_group_conversation(update, context)
     recent_follow_up = _continues_active_group_topic(
         question,
@@ -711,6 +713,9 @@ def natural_conversation_question(
     )
     project_question = _looks_like_project_question(question, context)
     actionable_intent = _looks_like_high_confidence_actionable_intent(question)
+    interpreted_request = bool(re.search(
+        r"\b(?:z-swap e segur[oa]|uniswap nao faz igual|isso ai ja existe|"
+        r"por que eu pagaria|e no pro)\b", folded))
 
     if not (
         is_reply
@@ -720,6 +725,7 @@ def natural_conversation_question(
         or (product_topic and (question_like or active_session is not None))
         or project_question
         or actionable_intent
+        or interpreted_request
         or recent_follow_up
     ):
         return None
@@ -798,10 +804,10 @@ def _security_refusal_reply(question: str) -> str | None:
     internal_target = bool(
         re.search(
             r"\b(?:ip(?: do)? servidor|servidor|host|ssh|firewall|tailscale|"
-            r"schema|sql|banco interno|database interno|rota admin|rotas admin|"
-            r"endpoint admin|endpoints admin|api key|chave api|credencial|"
+            r"schema|sql|banco interno|database interno|rotas? admin(?:istrativas?)?|"
+            r"endpoints? (?:admin|internos?)|api key|chave api|credenciais|credencial|leads|"
             r"segredo|secret|prompt do sistema|system prompt|fontes internas|"
-            r"arquivos internos|repositorio|repository|commit|infraestrutura|"
+            r"arquivos internos|repositorios?|repository|commits?|infraestrutura|"
             r"deploy|variavel de ambiente|env)\b",
             folded,
         )
@@ -809,7 +815,7 @@ def _security_refusal_reply(question: str) -> str | None:
     imperative = bool(
         re.search(
             r"\b(?:me passe|passe|mostre|revele|forneca|liste|envie|"
-            r"exiba|mostra|revela|mostre-me|give me|show me|reveal)\b",
+            r"exiba|mostra|revela|mostre-me|me diga|give me|show me|reveal)\b",
             folded,
         )
     )
@@ -822,7 +828,11 @@ def _security_refusal_reply(question: str) -> str | None:
             folded,
         )
     )
-    if (imperative and internal_target) or prompt_exfiltration:
+    direct_private_discovery = bool(re.search(
+        r"\b(?:quais (?:credenciais|leads)|quais sao (?:as )?(?:credenciais|rotas administrativas))\b",
+        folded,
+    ))
+    if (imperative and internal_target) or prompt_exfiltration or direct_private_discovery:
         return (
             "Posso explicar o funcionamento público e as proteções em alto "
             "nível, mas não forneço credenciais, infraestrutura interna, "
@@ -942,7 +952,7 @@ def _record_routing_decision(
                 else None
             ),
             selected_agent=selected.value if selected is not None else None,
-            intent=decision.intent.value,
+            intent=decision.intent.delivery_family,
             outcome=outcome,
             reason=decision.reason,
             handoff_count=decision.handoff_count,
@@ -1030,6 +1040,16 @@ async def answer_natural_conversation(
         context,
         raw_question,
     )
+    fragment_query = None
+    if multi_agent_group and route not in {
+        ConversationRoute.MODERATE_ONLY, ConversationRoute.LOCAL_HELP,
+    }:
+        fragment_query = rt.fragment_window.observe(
+            (int(update.effective_chat.id),
+             getattr(update.effective_message, 'message_thread_id', None),
+             int(update.effective_user.id)), raw_question, now=time.monotonic())
+        if fragment_query:
+            route = ConversationRoute.AI_SUPPORT
     if route == ConversationRoute.IGNORE:
         if multi_agent_group:
             inbound = _routing_inbound(update, AgentId.ZION)
@@ -1066,8 +1086,13 @@ async def answer_natural_conversation(
             )
         else:
             addressed_agent = rt.intent_router.addressed_agent(raw_question)
+            routing_question = fragment_query or raw_question
+            active = _active_group_conversation(update, context)
+            if (route == ConversationRoute.FOLLOW_UP and active is not None
+                    and explicit_topic(raw_question) is None):
+                routing_question = active.retrieval_query + '\n' + raw_question
             decision = rt.intent_router.route_group(
-                raw_question,
+                routing_question,
                 explicitly_addressed=True,
                 addressed_agent=addressed_agent,
             )
@@ -1210,6 +1235,8 @@ async def answer_natural_conversation(
         context,
         raw_question,
     )
+    if fragment_query:
+        question = raw_question
     if question is None:
         return False
 
@@ -1240,6 +1267,8 @@ async def answer_natural_conversation(
             previous_session.transcript
         )
 
+    if fragment_query:
+        answer_kwargs["context_query"] = fragment_query
     answer = await rt.ai.answer(**answer_kwargs)
     rendered = telegram_ai_reply_text(answer.text)
     if selected_profile.agent_id is AgentId.EIR:

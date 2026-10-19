@@ -35,10 +35,11 @@ PHRASES = (
 
 class FinalAcceptanceTests(unittest.TestCase):
     def test_short_questions_route_without_history(self):
-        for phrase in PHRASES:
+        for index, phrase in enumerate(PHRASES):
             with self.subTest(phrase=phrase):
                 route = IntentRouter().route_group(phrase)
-                self.assertEqual(route.intent, ConversationIntent.TECHNICAL)
+                self.assertEqual(route.intent, ConversationIntent.TECHNICAL if index < 6
+                                 else ConversationIntent.API_INTEGRATION)
                 self.assertEqual(route.speaker.agent_id, AgentId.MIMIR)
 
     def test_real_handler_selects_one_mimir_without_history(self):

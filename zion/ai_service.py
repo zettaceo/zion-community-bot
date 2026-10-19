@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 import hashlib
 import logging
 import re
@@ -11,6 +12,7 @@ from .agents import AgentId
 from .config import Settings
 from .db import ZionDB
 from .knowledge import KnowledgeBase
+from .language_recovery import recover_language
 from .mistral import MistralClient
 from .models import (
     AIAnswer,
@@ -20,6 +22,7 @@ from .models import (
 )
 from .secret_store import SecretStore
 from .router import _fold
+from .response_guard import PUBLIC_FALLBACK, validate_public_response
 
 
 logger = logging.getLogger("zion.ai")
@@ -462,6 +465,15 @@ class AIService:
                 model=self.settings.mistral_model,
             )
 
+        interpretation = recover_language(question)
+        if not conversation_context and interpretation.clarification:
+            return AIAnswer(text=interpretation.clarification, model="zion-local")
+        if re.fullmatch(r"(?:a )?minha ordem sumiu[.!?]*", interpretation.canonical):
+            return AIAnswer(
+                text="Ela sumiu apenas da lista de ordens abertas ou também não aparece no histórico?",
+                model="zion-local",
+            )
+
         # No developer interface is explicitly approved in the current public
         # corpus. Refuse interface discovery before retrieval or history can
         # introduce private routes. Public interface publication needs review.
@@ -470,7 +482,7 @@ class AIService:
             r"desenvolvedor|desenvolvimento|integracao|integrar)\b|"
             r"\b(?:apis?|conectar)\b.*\bbot\b|"
             r"\b(?:quais|listar?|conectar|usar)\b.*\bapis?\b",
-            _fold(question),
+            recover_language(question).canonical,
         )
         if selected_agent is AgentId.MIMIR and interface_request:
             return AIAnswer(
@@ -483,7 +495,7 @@ class AIService:
             )
 
         safe_question = sanitize_for_ai(question)
-        safe_context_query = sanitize_for_ai(context_query or question)
+        safe_context_query = sanitize_for_ai(recover_language(context_query or question).canonical)
         safe_conversation_context = sanitize_for_ai(
             conversation_context or ""
         )[:6000]
@@ -639,6 +651,14 @@ class AIService:
                     "agent_id": selected_agent.value,
                 },
             )
+            check = validate_public_response(answer.text, official_context=context)
+            if not check.allowed:
+                self._record_ai_event(
+                    chat_id=chat_id, user_id=user_id, purpose="response_guard",
+                    model=answer.model, success=False, input_hash=question_hash,
+                    metadata={"reason": check.reason, "agent_id": selected_agent.value},
+                )
+                return replace(answer, text=PUBLIC_FALLBACK)
             return answer
 
         except Exception as exc:

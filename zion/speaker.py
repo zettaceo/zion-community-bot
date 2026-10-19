@@ -84,7 +84,7 @@ class SpeakerArbiter:
             update_id=inbound.update_id,
             update_kind=inbound.update_kind.value,
             selected_agent=speaker.agent_id.value,
-            intent=intent.value,
+            intent=intent.delivery_family,
             allow_failed_safe_retry=allow_failed_safe_retry,
             now=now,
         )

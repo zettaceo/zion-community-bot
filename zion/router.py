@@ -13,6 +13,7 @@ from .agents import (
     ConversationIntent,
 )
 from .models import AIRouteClassification
+from .language_recovery import recover_language
 
 
 def _fold(value: str) -> str:
@@ -24,18 +25,18 @@ def _fold(value: str) -> str:
 
 _PARTNERSHIP = re.compile(
     r"\b(?:parcerias?|partner(?:ship)?|business|comercial|b2b|empresa|"
-    r"projeto|integracao comercial|integrar (?:nossa|minha)|afiliad|"
-    r"patrocin|sponsor|listing|market maker|liquidez institucional)\b"
+    r"projeto|integracao comercial|integrar (?:nossa|minha)|afiliados?|"
+    r"patrocinio|sponsor|listing|market maker|liquidez institucional)\b"
 )
 _SUPPORT = re.compile(
-    r"\b(?:nao conecta|nao consigo|erro|falha|bug|problem(?:a|inha)|travou|"
+    r"\b(?:nao conectar|nao conecta|nao consigo|erro|falha|falhou|bug|problem(?:a|inha)|travou|"
     r"carteira|wallet|saldo|transacao|swap|bridge|ordem|plano|assinatura|"
     r"como (?:faco|usar|conectar|trocar|comprar|vender|"
     r"(?:posso )?resolver)|passo a passo|"
     r"ajuda|support|suporte|troubleshoot)\b"
 )
 _SUPPORT_PROBLEM = re.compile(
-    r"\b(?:nao|erro|falha|bug|problem(?:a|inha)|travou|pendente|sumiu|"
+    r"\b(?:nao|erro|falha|falhou|bug|problem(?:a|inha)|travou|pendente|sumiu|"
     r"recusad|rejeitad|nao consigo|ajuda|suporte|support)\b"
 )
 _SUPPORT_ACTION = re.compile(
@@ -45,7 +46,7 @@ _SUPPORT_ACTION = re.compile(
 )
 _TECHNICAL = re.compile(
     r"\b(?:arquitetura|technical paper|tecnico|tecnica|tecnologia|"
-    r"roteamento|routing|multi[- ]?chain|chain|blockchain|rede|evm|solana|"
+    r"roteamento|routing|multi[- ]?chain|chains?|blockchains?|redes?|evm|solana|"
     r"ethereum|arbitrum|optimism|polygon|avalanche|base|bnb|0x|lifi|"
     r"li\.fi|jupiter|cow protocol|dex|cex|api|sdk|smart contract|"
     r"contrato inteligente|liquidez|slippage|(?<!z-)(?<!z )swaps?|bridges?|ordem|ordens|"
@@ -62,12 +63,12 @@ _COMMUNITY = re.compile(
 )
 _CONFIDENTIALITY = re.compile(
     r"\b(?:system prompt|prompt do sistema|ignore (?:as )?instrucoes|"
-    r"ip do servidor|ssh|firewall|schema sql|rota admin|api key|token|"
-    r"segredo|secret|fonte interna|arquivo interno|repositorio|commit)\b"
+    r"ip do servidor|ssh|firewall|schema sql|rotas? admin(?:istrativas?)?|api key|token|credenciais|leads|endpoints? internos?|"
+    r"segredos?|secrets?|fontes? internas?|arquivos? internos?|repositorios?|commits?)\b"
 )
 _QUESTION = re.compile(
     r"\?|\b(?:como|qual|quais|quando|onde|porque|por que|o que|"
-    r"pode|podem|tem|existe|funciona)\b"
+    r"quanto|quantas|quantos|quero|manda|pode|podem|tem|existe|funciona)\b"
 )
 
 
@@ -152,7 +153,7 @@ class IntentRouter:
         explicitly_addressed: bool = False,
         addressed_agent: AgentId | None = None,
     ) -> RouteDecision:
-        folded = _fold(text).strip()
+        folded = recover_language(text).canonical
         if moderation_detected:
             return self._decision(
                 ConversationIntent.MODERATION,
@@ -196,6 +197,24 @@ class IntentRouter:
                 reason="explicit_partnership",
                 handoff_from=addressed_agent,
             )
+        # Reviewed product intents remain distinct from operational support.
+        # No confidence value here grants authorization or factual certainty.
+        specific = (
+            (ConversationIntent.SECURITY, r"\b(?:segur[oa]|seguranca|riscos?|seed)\b"),
+            (ConversationIntent.ROADMAP, r"\b(?:roadmap|cronograma|lancamento|buy|otc|p2p|launchpad|governance)\b"),
+            (ConversationIntent.API_INTEGRATION, r"\b(?:endpoints?|apis?|sdks?|webhooks?|integrar|integracao|conectar bot|developer|development)\b"),
+            (ConversationIntent.COMPETITIVE_OBJECTION, r"\b(?:uniswap|mais baratas?|ja existe|pagaria|diferencial|concorrente)\b"),
+            (ConversationIntent.PLAN, r"\b(?:taxas?|fees?|precos?|planos?|pro|pilot|trader|thrall|drengr|berserkr|einherjar)\b"),
+            (ConversationIntent.PRODUCT, r"\b(?:vantagem|beneficios?|produto)\b"),
+        )
+        for intent, pattern in specific:
+            if re.search(pattern, folded) and (question or explicitly_addressed):
+                # Terminal Pro is a technical product, not the paid Pro tier.
+                if intent is ConversationIntent.PLAN and 'terminal pro' in folded:
+                    continue
+                return self._decision(intent, confidence=0.90,
+                                      reason='explicit_' + intent.value,
+                                      handoff_from=addressed_agent)
         if technical and question:
             return self._decision(
                 ConversationIntent.TECHNICAL,
