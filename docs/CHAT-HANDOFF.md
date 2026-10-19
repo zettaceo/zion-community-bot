@@ -1,3 +1,13 @@
+## Latest implementation evidence — 2026-10-19
+
+774/774 tests PASS, SECRET SCAN OK, ZION VALIDATION OK. Added private provider
+panel, 24-turn context regression, safety-guarantee filtering and an allowlisted
+stronger Mistral evaluation candidate. Mistral baseline's five-case smoke needed
+review; v2-001 made a safety guarantee, now covered by rejection regression.
+Large 3 smoke stopped on HTTP 403; no quality result or winner. Kimi is deferred
+until operator provisioning after a scoped release. Production remains unchanged.
+See the active plan for evidence paths and remaining gates.
+
 ## Operator preference update — Kimi credential
 
 The operator now explicitly requests provisioning through the private ZION chat,

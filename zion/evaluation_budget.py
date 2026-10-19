@@ -41,6 +41,8 @@ class PriceSnapshot:
 PRICES = {
     # Official docs.mistral.ai/models/ministral-3-8b-25-12, same verification date.
     'ministral-8b-2512': PriceSnapshot('ministral-8b-2512', 150000, 150000, date(2026, 10, 19)),
+    # Official docs.mistral.ai/models/mistral-large-3-25-12, verified 2026-10-19.
+    'mistral-large-2512': PriceSnapshot('mistral-large-2512', 500000, 1500000, date(2026, 10, 19)),
     'kimi-k2.6': PriceSnapshot('kimi-k2.6', 950000, 4000000, date(2026, 10, 19)),
     'kimi-k3': PriceSnapshot('kimi-k3', 6000000, 15000000, date(2026, 10, 19)),
 }

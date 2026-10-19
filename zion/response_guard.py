@@ -43,6 +43,7 @@ def validate_public_response(text: str, *, official_context: str) -> ResponseChe
     quality_rules = (
         ('best_price_guarantee', r"\b(?:garant\w*|assegur\w*)\b[^.!?\n]{0,60}\bmelhor(?:es)? (?:precos?|taxas?)\b"),
         ('universal_swap_execution', r"\btodos os swaps (?:sao (?:sempre )?(?:executados|realizados|processados) (?:por|via|em)|usam) (?:smart contracts?|contratos? inteligentes?)\b"),
+        ('safety_guarantee', r'\b(?:garant\w*|assegur\w*)\b[^.!?\n]{0,80}\b(?:seguranca|segur[oa]s?)\b'),
         ('absolute_safety', r"\b(?:e seguro usar|100% segur[oa]|totalmente segur[oa]|livre de riscos?)\b"),
     )
     checked = folded

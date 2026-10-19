@@ -12,6 +12,8 @@ class ResponseGuardTests(unittest.TestCase):
             'É seguro usar a Z-SWAP.',
             'Não cobramos aqui, mas é seguro usar a Z-SWAP.',
             'É totalmente seguro.',
+            'Usa provedores confiáveis para garantir que a transação seja segura e transparente.',
+            'Garantimos a segurança de todas as transações.',
             'Esta plataforma é livre de riscos.',
             'Nenhuma plataforma é livre de risco, mas é seguro usar a Z-SWAP.',
             'Aprovei sua parceria.',
@@ -22,6 +24,7 @@ class ResponseGuardTests(unittest.TestCase):
     def test_caveats_and_route_specific_explanation_are_allowed(self):
         for value in (
             'Não podemos garantir o melhor preço.',
+            'Não podemos garantir que a transação seja segura.',
             'Não é seguro usar qualquer plataforma sem avaliar os riscos.',
             'A Z-SWAP implementa controles para reduzir riscos, mas nenhuma plataforma ou transação é livre de risco.',
             'Nenhuma plataforma é livre de riscos.',

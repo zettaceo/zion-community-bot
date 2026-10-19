@@ -128,6 +128,36 @@ session (pages 2, 22, 77, 78). It is CONTROLLED, not blanket public authority.
 See the source inventory addendum; broad feature/runtime reconciliation remains
 pending. Do not index the raw PDF or promote unverified features.
 
+## Conversation hardening and smoke review — 2026-10-19
+
+- Full regression after private provider panel, explicit risk-caveat handling,
+  private-route filtering and long-context regression: 773/773 PASS; secret
+  scan and normal validation OK. Evidence: `zion-v2-hardening-validation.log`
+  under `/home/zetta/.codex/worktrees/`.
+- A 24-turn topic-switch test initially hit the fixture's real four-requests/minute
+  cap at turn five. The fixture now advances both wall/monotonic clocks by 31s;
+  neither AI pacing nor Guardian thresholds were disabled. It passes including
+  a final founder-identity claim requesting private endpoints/API key.
+- Mistral smoke evidence `20261019T231516206919Z-ministral-8b-2512.jsonl`
+  completed five generation cases, all marked REVIEW_REQUIRED automatically.
+  Assistant review found an unsupported transaction-safety guarantee in v2-001.
+  Therefore this is NOT accepted. A regression now rejects that exact expression
+  while allowing explicit denials of such guarantees. The private response guard
+  is still not a complete factuality proof. Cumulative estimated evaluation cost
+  at that checkpoint: 2,942 micro-USD, not an invoice or account balance.
+- Full regression after this safety-guarantee fix: 773/773 PASS, secret scan and
+  validation OK (`zion-v2-smoke-finding-validation.log`).
+- Kimi evaluation remains deferred by operator choice. The isolated stronger
+  Mistral smoke returned HTTP 403 on the first case and stopped. It is NOT
+  EXECUTED for quality; the reason for provider refusal is not independently
+  known. Evidence: `20261019T231750801923Z-mistral-large-2512.jsonl` in the same
+  private evaluation directory. Cumulative reserved-or-spent estimate is 10,090
+  micro-USD; the rejected request reservation was retained, not claimed billed.
+- Current full validation including stronger-candidate price accounting:
+  **774/774 PASS**, SECRET SCAN OK, ZION VALIDATION OK. Evidence:
+  `/home/zetta/.codex/worktrees/zion-v2-large-validation.log`.
+  No production, configuration, key or runtime switch occurred.
+
 ## Kimi private-chat provisioning — 2026-10-19
 
 Operator-selected input channel: private ZION DM. Implemented explicit-operator

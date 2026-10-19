@@ -101,3 +101,15 @@ Telegram receives the credential in transit: deletion does not certify removal
 from all Telegram copies. No real credential is used in tests or printed.
 These commands require a release containing the handlers; they are not available
 in the currently running production SHA merely because this code exists.
+
+
+## Stronger Mistral candidate — isolated evaluation only
+
+The official [Large 3 model card](https://docs.mistral.ai/models/mistral-large-3-25-12)
+and [pricing](https://docs.mistral.ai/inference/pricing) were checked on
+2026-10-19: `mistral-large-2512`, USD 0.50/M input and 1.50/M output.
+The evaluator now allowlists this exact model using the existing protected
+Mistral credential. It shares the same durable evaluation caps and 20% cost
+headroom; cached-input discounts are ignored. This does not change Settings,
+Telegram provider selection, production model or key. No model winner is inferred
+from catalog descriptions or a small smoke result.

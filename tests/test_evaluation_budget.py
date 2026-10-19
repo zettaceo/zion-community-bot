@@ -20,6 +20,17 @@ class EvaluationBudgetTests(unittest.TestCase):
         self.db = ZionDB(self.path); self.db.initialize(); self.addCleanup(self.db.close)
         self.budget = EvaluationBudget(self.db)
 
+    def test_stronger_mistral_uses_verified_price_and_shared_budget(self):
+        price = EvaluationBudget.price('mistral-large-2512', TODAY)
+        self.assertEqual(price.cost(1000, 500), 1500)
+        reservation = self.budget.reserve('mistral-large-2512',
+            [{'role': 'user', 'content': 'synthetic ' * 1000}], 700, today=TODAY)
+        self.assertGreater(self.budget.total_micro_usd(), 1500)
+        charged = self.budget.settle(reservation,
+            Completion('Approved answer', 'mistral-large-2512', 1000, 500, 1))
+        self.assertEqual(charged, 1500)
+        self.assertEqual(self.budget.total_micro_usd(), 1500)
+
     def test_uncertain_charge_survives_new_connection_and_settlement_is_once(self):
         reservation = self.budget.reserve('kimi-k2.6', MESSAGES, 128, today=TODAY)
         reserved = self.budget.total_micro_usd()

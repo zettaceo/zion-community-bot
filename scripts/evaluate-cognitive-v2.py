@@ -38,7 +38,7 @@ async def run(args) -> int:
         return 0
     state = Path.home() / '.local/state/zion-community-bot'
     secrets = state / 'secrets'
-    if args.model == 'ministral-8b-2512':
+    if args.model in {'ministral-8b-2512', 'mistral-large-2512'}:
         config = SimpleNamespace(ai_enabled=True, mistral_model=args.model,
             mistral_api_url='https://api.mistral.ai/v1/chat/completions',
             mistral_min_request_interval_ms=1000, mistral_max_tokens=700,
@@ -89,7 +89,7 @@ async def run(args) -> int:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument('--model', choices=('kimi-k2.6', 'kimi-k3', 'ministral-8b-2512'), default='kimi-k2.6')
+    parser.add_argument('--model', choices=('kimi-k2.6', 'kimi-k3', 'ministral-8b-2512', 'mistral-large-2512'), default='kimi-k2.6')
     parser.add_argument('--live', action='store_true')
     parser.add_argument('--full', action='store_true')
     args = parser.parse_args()
