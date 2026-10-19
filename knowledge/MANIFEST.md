@@ -29,7 +29,7 @@ model context is built.
       "file": "z-swap-plans.md",
       "classification": "PUBLIC",
       "status": "CURRENT",
-      "version": "166fd5be9c28fb2ffaaffd9413bf61c40f492698@2026-10-16",
+      "version": "986ae759c1c76fe23967a8e61489d986b2bb9a51@2026-10-18",
       "source_identity": "zswap-public-plan-matrix",
       "allowed_agents": ["zion", "mimir", "eir", "freyr"]
     },

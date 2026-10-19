@@ -48,6 +48,22 @@ def write_manifest(
 
 
 class KnowledgeTests(unittest.TestCase):
+    def test_solana_fees_retrieve_current_qualified_policy_for_every_agent(self):
+        kb = KnowledgeBase(ROOT / "knowledge")
+        for agent in ("zion", "mimir", "eir", "freyr"):
+            with self.subTest(agent=agent):
+                rendered = " ".join(kb.render_context(
+                    "Quais as taxas Solana Jupiter LI.FI?", agent_id=agent,
+                ).split())
+                for fact in (
+                    "Free/Thrall 1,00%", "Pro/Drengr 0,50%",
+                    "Trader/Berserkr 0,25%", "Pilot/Einherjar 0,10%",
+                    "USDC ou SOL", "Outros pares Solana não têm",
+                    "LI.FI saindo da Solana", "swap prossegue sem",
+                ):
+                    self.assertIn(fact, rendered)
+                self.assertNotIn("platform fee da Z-SWAP está atualmente desabilitada", rendered)
+
     def test_retrieval(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -347,7 +363,7 @@ class KnowledgeTests(unittest.TestCase):
             "platform fee EVM pública é 0,50%",
             "platform fee EVM pública é 0,25%",
             "platform fee EVM pública é 0,10%",
-            "platform fee da Z-SWAP está atualmente desabilitada",
+            "Outros pares Solana não têm platform fee da Z-SWAP",
             "exatamente 36 meses de Premium",
             "A venda não está aberta",
             "preços públicos finais ainda não foram anunciados",

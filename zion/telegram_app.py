@@ -41,6 +41,7 @@ from .agent_workflows import (
 )
 from .ai_service import AIService, sanitize_for_ai
 from .config import Settings
+from .conversation_state import changes_explicit_topic, explicit_topic
 from .db import ZION_APPLICATION_ID, ZionDB
 from .dm_policy import evaluate_dm_access
 from .guardian import (
@@ -104,6 +105,7 @@ class GroupConversationSession:
     retrieval_query: str
     transcript: str
     last_reply_at: float
+    active_topic: str | None = None
 
 
 @dataclass(frozen=True)
@@ -509,12 +511,18 @@ def _continues_active_group_topic(
     if session is None:
         return False
 
+    # Explicit new subjects take precedence over "E..." and lexical overlap.
+    # Only user-request metadata determines the topic; generated answers may
+    # mention unrelated subjects and must not make those subjects sticky.
+    if changes_explicit_topic(question, session.active_topic):
+        return False
+
     if _is_explicit_active_follow_up(question):
         return True
 
     current_tokens = _conversation_topic_tokens(question)
     previous_tokens = _conversation_topic_tokens(
-        session.retrieval_query + "\n" + session.transcript
+        session.retrieval_query
     )
     if len(current_tokens & previous_tokens) < 2:
         return False
@@ -641,6 +649,9 @@ def _remember_group_conversation(
         retrieval_query=retrieval_query,
         transcript=transcript,
         last_reply_at=now,
+        active_topic=explicit_topic(question) or (
+            previous.active_topic if previous else None
+        ),
     )
 
 

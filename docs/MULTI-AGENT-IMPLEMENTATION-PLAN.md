@@ -1,3 +1,112 @@
+# Cognitive Architecture v2 — current execution checkpoint
+
+Date: 2026-10-18. Status: IN PROGRESS, not production accepted.
+This section supersedes older current-state labels below; the prior mission's
+checklists remain historical evidence, not proof of v2 completion.
+
+## Measured identity and environment
+
+- main: `d5db6a1c4308243a0bbb8d811e2ac8f0af408a0e`; CI run 36140123319 SUCCESS.
+- development: `57a10444422373271fbd602acc083199346b5031`; CI run 39163089575 SUCCESS.
+- production: `472a4b3f0ce73a8635d400c0073701013c357b92`; CI run 39163164036 SUCCESS.
+- Production is four history commits ahead of development, with identical tracked content.
+- Working branch: `codex/multi-agent-cognitive-v2` at `/tmp/zion-cognitive-v2`.
+- The operator explicitly authorized an isolated worktree on the Acer after the
+  mission's section 64 host restriction was raised. Production checkout is not
+  a development directory.
+- Measured service: active/running, PID 534477, NRestarts 0; current runtime
+  resolves to the exact production SHA above. No restart/deploy in this increment.
+- Open unrelated PR #11 remains untouched. Recent related merged PRs: #59–65.
+- Rulesets and production protection endpoints returned HTTP 403 (account plan
+  restriction). Governance is NOT PROVEN. Prior waivers are not silently renewed.
+- Fresh local baseline: 724 tests PASS, SECRET SCAN OK, ZION VALIDATION OK.
+  Log: `/tmp/zion-cognitive-v2-baseline.log`. This is base evidence, not v2 evidence.
+
+## Existing architecture and gaps
+
+One ZION group intake already selects bounded identities; registry, DM gates,
+protected secondary identity store, durable speaker arbitration, minimized
+routing telemetry, Control Center and agent-filtered Knowledge already exist.
+Mistral-specific Settings/client/accounting remain the current provider path.
+No Kimi production activation or benchmark result is claimed.
+
+The user-reported endpoint-to-swap contamination was reproduced for five
+explicit topic-switch variants. Existing follow-up heuristics accepted `E...`
+before checking the new subject. The exact unprefixed swap question passed the
+baseline fixture; the real Telegram failure is not claimed reproduced verbatim.
+
+The Z-SWAP source repo is now `/home/zetta/swap-z-app`; fetched main is
+`986ae759c1c76fe23967a8e61489d986b2bb9a51`. Its public source of truth and fee
+implementation supersede the bot's old claim that Solana platform fees are
+universally disabled. `tier/types.ts`, `founders-commercial-truth.ts`,
+`chains.ts` and `founders-public/facts.ts` are unchanged from the prior snapshot.
+This comparison does not prove deployment/runtime availability of all app features.
+
+## v2 phase tracking (mission sections 63–73)
+
+- [~] 00 Reconciliation: mandatory documents reviewed; remote identities/CI and
+  fresh baseline measured. Older deployment labels need continued reconciliation.
+- [~] 01 Threat model and architecture: preserve existing boundaries; extend for
+  provider data handling, cost admission, context isolation and output validation.
+- [~] 02 Registry/authority: existing implementation, expanded intent taxonomy pending.
+- [~] 03 Telegram store: existing implementation, primary-token migration decision pending.
+- [ ] 04 Multi-provider abstraction and Kimi adapter.
+- [ ] 05 Provider-aware secure Kimi store and local no-echo provisioning.
+- [~] 06 DM enforcement: existing tests pass; new cognitive paths must reuse the gate.
+- [ ] 07 Language recovery and confidence tiers.
+- [ ] 08 Expanded intent routing and noisy-language matrix.
+- [~] 09 Context isolation: first bounded topic-label increment implemented; six
+  switch pairs, including five baseline failures, now pass. Structured user/issue
+  state, fragmented turns, compression and adversarial long conversation pending.
+- [~] 10 Speaker arbitration: existing implementation; v2 concurrency revalidation pending.
+- [~] 11 Identity transport: existing implementation; official API revalidation pending.
+- [~] 12 Control Center: existing UI; provider/model/cost views pending.
+- [~] 13 Knowledge classification: existing pre-generation filter; channel-aware review pending.
+- [~] 14 APN/paper: canonical APN transcript and 67-section editorial plan found.
+  A completed 83-page paper is NOT proven by that plan. Current external artifact
+  reconciliation remains pending; archival source text is not silently rewritten.
+- [~] 15 Manifest/freshness: plans snapshot updated after current source/code check;
+  general freshness/supersession enforcement still pending.
+- [ ] 16 Allowlisted tools.
+- [ ] 17 Complexity/risk gate.
+- [ ] 18 Response planner.
+- [ ] 19 ZION executive behavior.
+- [ ] 20 MIMIR technical behavior.
+- [ ] 21 EIR support behavior.
+- [ ] 22 FREYR business behavior.
+- [~] 23 Handoff: existing one-hop implementation; structured context policy pending.
+- [~] 24 Confidentiality: preserve existing refusal/retrieval boundary; v2 matrix pending.
+- [~] 25 Injection: preserve existing controls; expanded source/provider matrix pending.
+- [ ] 26 Fact/authority response validator.
+- [ ] 27 Provider resilience/fallback.
+- [ ] 28 Provider/model cost caps and conservative accounting.
+- [ ] 29 Versioned benchmark dataset and objective rubric.
+- [!] 30 Live A/B benchmark: requires certified store, official prices, credential,
+  synthetic/public-only evaluation inputs and bounded spend. No key requested yet.
+- [ ] 31 Adversarial multi-turn evaluation.
+- [~] 32 Full regression: base 724 PASS; first increment 727/727 PASS, SECRET SCAN OK,
+  ZION VALIDATION OK (`/tmp/zion-cognitive-v2-validation.log`).
+- [~] 33 Documentation: this checkpoint and cognitive routing contract added.
+- [ ] 34 Development release audit, exact commit CI and PR.
+- [ ] 35 Production promotion: blocked until all mission acceptance gates pass.
+- [ ] 36 Exact production SHA revalidation.
+- [ ] 37 Controlled Acer cutover.
+- [!] 38 Real Telegram acceptance: requires messages from a real human/test account;
+  sending with a bot is not a substitute. New v2 behavior is not deployed.
+
+## Increment evidence and limitations
+
+- Focused: 84 tests PASS (`/tmp/zion-cognitive-v2-focused.log`).
+- Baseline failure: `/tmp/zion-context-v2-before.log`, five failing switch variants.
+- New code is a bounded lexical topic discriminator, NOT complete semantic routing.
+- No DB/schema, Guardian, authority, dependencies, services or real secrets changed.
+- No paid provider requests; benchmark cost incurred in this increment: USD 0.
+- Implementation commit: pending local validated checkpoint; no new remote CI yet.
+
+---
+
+# Historical implementation plan (v1 multi-agent mission)
+
 # ZION Multi-Agent Command System - Implementation Plan
 
 ## Mission status

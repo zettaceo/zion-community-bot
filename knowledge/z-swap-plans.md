@@ -1,6 +1,6 @@
 # Matriz pública atual dos planos da Z-SWAP
 
-Versão factual reconciliada: 16 de outubro de 2026.
+Versão factual reconciliada: 18 de outubro de 2026.
 
 Os quatro níveis, do básico ao mais completo, são Free, Pro, Trader e Pilot.
 Pro nunca significa Pilot, e Trader fica entre os dois. Os níveis aumentam cotas
@@ -16,9 +16,24 @@ simulado de até US$ 1.000, 1 estratégia salva, janela histórica de até 365 d
 e até 3 ativos por teste. Não inclui mesa de papel adiante.
 
 A platform fee da Z-SWAP nas rotas EVM suportadas onde o mecanismo está ativo
-é 1,00%. Na Solana, a platform fee da Z-SWAP está atualmente desabilitada; gas,
-slippage, spread e custos de rede, DEX, bridge, exchange ou terceiros ainda
-podem existir.
+é 1,00%. A política de taxas Solana está descrita na seção específica abaixo;
+gas, slippage, spread e custos de rede, DEX, bridge, exchange ou terceiros
+podem existir além da platform fee.
+
+# Taxas Solana, Jupiter e LI.FI
+
+Desde 16 de outubro de 2026, as rotas Solana elegíveis usam a mesma escada
+de platform fee: Free/Thrall 1,00%, Pro/Drengr 0,50%, Trader/Berserkr 0,25%
+e Pilot/Einherjar 0,10%.
+
+Na Jupiter, essa cobrança se aplica quando USDC ou SOL é um dos lados do swap.
+Outros pares Solana não têm platform fee da Z-SWAP. A política também abrange
+rotas LI.FI saindo da Solana. Se a conta de recebimento da taxa estiver
+indisponível, o swap prossegue sem a platform fee da Z-SWAP.
+
+Isso não significa operação sem custo: rede, DEX, agregador, bridge ou exchange
+podem cobrar separadamente. Confira os custos apresentados para a rota antes
+de confirmar.
 
 # Plano Pro ou profissional
 
