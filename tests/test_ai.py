@@ -302,6 +302,27 @@ class AITests(unittest.TestCase):
         self.assertNotIn("Fontes ZION:", answer.text)
         self.assertNotIn("official.md", answer.text)
 
+    def test_rejected_provider_answer_is_charged_but_not_delivered_or_persisted(self):
+        from zion.response_guard import PUBLIC_FALLBACK
+        (self.root / "knowledge" / "official.md").write_text(
+            "# Security\nNever share a seed phrase.\n", encoding="utf-8")
+        ai = AIService(replace(self.settings, ai_enabled=True), self.db,
+                       KnowledgeBase(self.settings.knowledge_dir))
+        class FakeClient:
+            configured = True
+            async def answer(self, **kwargs):
+                return AIAnswer(text="Internal data /home/operator/hidden-value",
+                                model="test", input_tokens=11, output_tokens=7, latency_ms=1)
+        ai.client = FakeClient()
+        result = asyncio.run(ai.answer(chat_id=1, user_id=2, question="seed phrase security"))
+        self.assertEqual(result.text, PUBLIC_FALLBACK)
+        self.assertEqual((result.input_tokens, result.output_tokens), (11, 7))
+        dump = "\n".join(self.db._conn.iterdump())
+        self.assertNotIn("hidden-value", dump)
+        self.assertIn("internal_path", dump)
+        self.assertIn("response_guard", dump)
+        self.assertTrue(ai.accounting_healthy)
+
     def test_context_query_grounds_a_short_follow_up(self) -> None:
         (self.root / "knowledge" / "official.md").write_text(
             "# Plano Pilot\nO plano Pilot oferece suporte prioritário.\n",

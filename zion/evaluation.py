@@ -7,8 +7,8 @@ from pathlib import Path
 
 from .agents import AgentId
 from .evaluation_budget import EvaluationBudget
-from .knowledge import KnowledgeBase, KnowledgeClassification
-from .language_recovery import recover_language
+from .knowledge import KnowledgeBase
+from .knowledge_tools import KnowledgeTools
 from .mistral import build_answer_messages
 from .providers import CompletionProvider
 from .response_guard import validate_public_response
@@ -28,12 +28,9 @@ def load_cases(path: Path) -> list[dict]:
 
 
 def public_context(knowledge: KnowledgeBase, question: str, agent_id: str) -> str:
-    # No real user data or CONTROLLED projections go to a candidate provider.
-    chunks = knowledge.search(recover_language(question).canonical,
-                              limit=12, agent_id=agent_id)
-    return '\n\n'.join('[Contexto oficial: ' + chunk.heading + ']\n' + chunk.text
-                       for chunk in chunks
-                       if chunk.authority.classification is KnowledgeClassification.PUBLIC)[:8000]
+    return KnowledgeTools(knowledge).call(
+        'search_approved_knowledge', {'query': question}, agent_id=agent_id,
+    ).render()
 
 
 async def evaluate_case(case: dict, *, knowledge: KnowledgeBase,

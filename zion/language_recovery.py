@@ -54,6 +54,8 @@ def recover_language(text: str) -> LanguageInterpretation:
         nonlocal changed
         token = match.group()
         replacement = _ALIASES.get(token, token)
+        if token == 'cm' and re.match(r'\s+funciona(?:m)?\b', folded[match.end():]):
+            replacement = 'como'
         changed |= replacement != token
         return replacement
 
@@ -61,7 +63,6 @@ def recover_language(text: str) -> LanguageInterpretation:
     canonical = re.sub(r'\bdeu ruim\b', 'deu erro', canonical)
     canonical = re.sub(r'\bz swap\b', 'z-swap', canonical)
     canonical = re.sub(r'\be segurar usar\b', 'e seguro usar', canonical)
-    canonical = re.sub(r'\bcm funciona\b', 'como funciona', canonical)
     canonical = re.sub(r'\s+', ' ', canonical).strip()
     if _LOW.fullmatch(canonical):
         confidence = InterpretationConfidence.LOW

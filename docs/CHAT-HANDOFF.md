@@ -2,8 +2,8 @@
 
 Worktree: `/home/zetta/.codex/worktrees/zion-cognitive-v2`, branch
 `codex/multi-agent-cognitive-v2`. The former temporary worktree disappeared;
-commits were preserved and recorded source edits restored. Fresh 754 tests,
-secret scan and normal validation PASS. Full recovery log:
+commits were preserved and recorded source edits restored. Recovery: 754 tests PASS. Subsequent knowledge-tool/planner increment:
+763 tests, secret scan and normal validation PASS. Full recovery log:
 `/home/zetta/.codex/worktrees/zion-cognitive-recovery-validation.log`.
 
 Kimi provisioning command now uses this persistent path:
@@ -11,6 +11,8 @@ Kimi provisioning command now uses this persistent path:
 Only hidden local terminal input; never paste credentials into chat.
 Credential has NOT been confirmed. Provider evaluation is synthetic/public only.
 No production activation or full-mission acceptance is claimed.
+Mistral synthetic smoke stopped on absolute_safety at v2-031; no benchmark
+acceptance. Prompt changed afterward, so a new common-input baseline is needed.
 Remaining work is tracked at the top of MULTI-AGENT-IMPLEMENTATION-PLAN.md.
 
 ---

@@ -13,6 +13,7 @@ from urllib.parse import urlparse
 
 import httpx
 
+from .response_planner import plan_response
 from .config import Settings
 from .models import AIAnswer, AIClassification, AIRouteClassification
 from .secret_store import SecretStore, SecretStoreError
@@ -306,7 +307,8 @@ def build_answer_messages(*, question: str, context: str,
         raise ValueError("unknown_agent_identity")
 
     system = (
-        identity + " "
+        identity + " " + plan_response(agent_id=agent_id, question=question,
+                                      has_evidence=bool(context.strip())).instruction() + " "
         "Converse de forma humana, acolhedora, clara e direta. "
         "Fale com membros da comunidade, não como se estivesse escrevendo "
         "para desenvolvedores ou para uma equipe de TI. Comece pela resposta "

@@ -73,3 +73,31 @@ context. It is deliberately NOT a complete factuality or leakage proof. Rejected
 answers are replaced before delivery and only a reason code is audited. Cost of
 the original provider call remains accounted. The shared prompt builder preserves
 the same grounding contract for candidate-provider generation comparisons.
+
+
+## Local knowledge operations and response shape — 2026-10-19
+
+`KnowledgeTools` exposes only fixed reviewed operations. Search accepts one
+bounded query; fixed fact operations accept no arguments. Identity is supplied
+by the trusted caller, never from model arguments. It rechecks CURRENT status,
+PUBLIC classification and agent audience after retrieval. Invalid manifests
+fail closed. Whole chunks fit an 8,000-character result budget; a finite list is
+never silently cut in half. Results represent reviewed corpus snapshots, not
+live availability probes. There is no shell, URL fetch, SQL or arbitrary path
+operation. Public API capabilities remain NOT_PUBLISHED until a reviewed
+interface authority contract exists.
+
+The synthetic evaluation harness uses this layer. Provider-native function-call
+transport and live dynamic tools are not enabled or certified by this increment.
+
+`ResponsePlan` supplies fixed response-shape instructions to the shared answer
+prompt. It recognizes explanation, comparison, objection, support diagnosis,
+clarification, partnership qualification and security explanation. Its bounded
+risk/complexity labels are advisory; they do not choose a model, grant authority,
+authorize financial actions or change Guardian decisions. No user text or chain
+of thought is copied into the system instruction. Missing evidence asks for
+clarification. This remains a reviewed lexical planner, not general reasoning.
+
+The shared prompt and retrieval inputs changed after the first Mistral smoke.
+That historical smoke is not an A/B baseline for this newer prompt; any future
+comparison must use identical input hashes and current source versions.

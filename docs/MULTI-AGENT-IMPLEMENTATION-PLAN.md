@@ -67,9 +67,9 @@ This comparison does not prove deployment/runtime availability of all app featur
   reconciliation remains pending; archival source text is not silently rewritten.
 - [~] 15 Manifest/freshness: plans snapshot updated after current source/code check;
   general freshness/supersession enforcement still pending.
-- [ ] 16 Allowlisted tools.
-- [ ] 17 Complexity/risk gate.
-- [ ] 18 Response planner.
+- [~] 16 Local public knowledge tool registry integrated into evaluation; provider-native function transport pending.
+- [~] 17 Bounded advisory complexity/risk labels implemented; evaluated model policy pending.
+- [~] 18 Fixed response-mode planner integrated into shared provider prompt; live quality acceptance pending.
 - [ ] 19 ZION executive behavior.
 - [ ] 20 MIMIR technical behavior.
 - [ ] 21 EIR support behavior.
@@ -113,6 +113,16 @@ The final PT-BR 83-page paper was discovered and visually reviewed in the prior
 session (pages 2, 22, 77, 78). It is CONTROLLED, not blanket public authority.
 See the source inventory addendum; broad feature/runtime reconciliation remains
 pending. Do not index the raw PDF or promote unverified features.
+
+## Tools/planner checkpoint — 2026-10-19
+
+Fresh full validation after local knowledge operations, response planning,
+contextual `cm` recovery and provider-output persistence regression:
+**763/763 PASS**, SECRET SCAN OK, ZION VALIDATION OK.
+Evidence: `/home/zetta/.codex/worktrees/zion-cognitive-tools-planner-validation.log`.
+Focused tools/evaluation/language: 14 PASS. Planner/boundaries/acceptance: 18 PASS.
+The service was independently read as active/running with NRestarts=0, still at
+production `472a4b3f0ce73a8635d400c0073701013c357b92`; no cutover occurred.
 
 ## Live baseline smoke — 2026-10-19
 
