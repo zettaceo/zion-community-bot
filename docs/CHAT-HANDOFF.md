@@ -1,3 +1,26 @@
+# 2026-10-18 — Cognitive v2 initial checkpoint (development only)
+
+The active mission is Cognitive Architecture v2. See the current section at the
+top of `MULTI-AGENT-IMPLEMENTATION-PLAN.md`; historical readiness statements below
+must not be interpreted as current host or v2 completion evidence.
+
+- Feature: `codex/multi-agent-cognitive-v2`, isolated `/tmp/zion-cognitive-v2`.
+- Base dev: `57a10444422373271fbd602acc083199346b5031`.
+- First increment: `1c0cff7ae5c318eb96c3d67a747e1c29eb9dc4b9`.
+- Fresh baseline 724 PASS; increment full suite 727 PASS; secret scan/validation OK.
+- Fix: explicit topic switches do not inherit previous retrieval/history merely
+  because they begin with a follow-up conjunction. Six paired scenarios pass;
+  five failed before the fix. This is not complete semantic language recovery.
+- Public Solana fee policy reconciled against Z-SWAP `986ae759...`; current
+  projection corrected, APN archival text preserved with supersession notice.
+- Provider research started; no Kimi implementation, paid requests or credentials.
+- Measured production remains `472a4b3f0ce73a8635d400c0073701013c357b92`, active,
+  PID 534477/NRestarts 0. No production mutation in this increment.
+- Full v2 implementation, official provider review, secure provisioning, benchmark,
+  release audit, promotion and live Telegram acceptance remain pending.
+
+---
+
 # ZION — CHAT HANDOFF / CURRENT STATE
 
 Date: 2026-09-20  

@@ -101,7 +101,8 @@ This comparison does not prove deployment/runtime availability of all app featur
 - New code is a bounded lexical topic discriminator, NOT complete semantic routing.
 - No DB/schema, Guardian, authority, dependencies, services or real secrets changed.
 - No paid provider requests; benchmark cost incurred in this increment: USD 0.
-- Implementation commit: pending local validated checkpoint; no new remote CI yet.
+- First increment implementation commit: `1c0cff7ae5c318eb96c3d67a747e1c29eb9dc4b9`.
+  Local full validation 727/727 PASS; no new remote CI or production acceptance yet.
 
 ---
 
