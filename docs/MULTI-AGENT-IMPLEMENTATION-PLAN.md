@@ -114,6 +114,17 @@ session (pages 2, 22, 77, 78). It is CONTROLLED, not blanket public authority.
 See the source inventory addendum; broad feature/runtime reconciliation remains
 pending. Do not index the raw PDF or promote unverified features.
 
+## Kimi private-chat provisioning — 2026-10-19
+
+Operator-selected input channel: private ZION DM. Implemented explicit-operator
+capture, delete-before-validation, bounded TTL, cancellation, metadata-only
+status/audit, rollback on audit failure, and mutually exclusive Mistral capture.
+No automatic provider activation. Full validation: **771/771 PASS**, SECRET SCAN
+OK, ZION VALIDATION OK. Focused provisioning/application tests: 13 PASS.
+Evidence: `/home/zetta/.codex/worktrees/zion-kimi-dm-validation.log`.
+Production delivery is pending an approved release containing these handlers;
+do not invite the operator to paste a credential into the running older bot.
+
 ## Tools/planner checkpoint — 2026-10-19
 
 Fresh full validation after local knowledge operations, response planning,

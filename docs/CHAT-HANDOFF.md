@@ -1,3 +1,12 @@
+## Operator preference update — Kimi credential
+
+The operator now explicitly requests provisioning through the private ZION chat,
+not terminal input. `/setkimikey`, `/cancelkimikey`, `/kimistatus` and an early
+private capture handler have been implemented in the isolated branch. Do not
+ask the operator to run the earlier terminal command or send a key until the
+new DM flow is actually included in an approved production release.
+No real Kimi key was received or provisioned during implementation.
+
 ## Active v2 recovery checkpoint — 2026-10-19
 
 Worktree: `/home/zetta/.codex/worktrees/zion-cognitive-v2`, branch

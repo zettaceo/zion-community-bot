@@ -114,6 +114,9 @@ class ApplicationBuildTests(unittest.TestCase):
             application = build_application(settings)
             runtime = application.bot_data["zion_runtime"]
             try:
+                from zion.kimi_provisioning import kimi_secret_capture_handler
+                self.assertIn(-4, application.handlers)
+                self.assertIs(application.handlers[-4][0].callback, kimi_secret_capture_handler)
                 self.assertIn(-3, application.handlers)
                 self.assertIn(-2, application.handlers)
                 self.assertIn(-1, application.handlers)

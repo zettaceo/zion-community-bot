@@ -40,6 +40,10 @@ from .agent_workflows import (
     triage_support,
 )
 from .ai_service import AIService, sanitize_for_ai
+from .provider_secrets import ProviderSecretStore
+from .providers import KimiCompletionProvider
+from .kimi_provisioning import (set_kimi_key_command, kimi_secret_capture_handler,
+                                cancel_kimi_key_command, kimi_status_command)
 from .config import Settings
 from .language_recovery import recover_language
 from .conversation_state import FragmentWindow, changes_explicit_topic, explicit_topic
@@ -257,6 +261,9 @@ class Runtime:
             self.delivery_guard_last_error: str | None = None
             self.delivery_health_blocked = False
             self.delivery_health_block_reasons: tuple[str, ...] = ()
+            self.kimi_secret_captures: dict[tuple[int, int], float] = {}
+            self.kimi_secret_store = ProviderSecretStore(settings.mistral_secret_path.parent / "providers").for_provider("kimi")
+            self.kimi_provisioning_client = KimiCompletionProvider(self.kimi_secret_store, model="kimi-k2.6")
             self.mistral_secret_captures: dict[
                 tuple[int, int],
                 float,
@@ -2844,6 +2851,7 @@ async def set_mistral_key_command(
         )
         return
 
+    rt.kimi_secret_captures.pop((chat.id, update.effective_user.id), None)
     rt.mistral_secret_captures[(chat.id, update.effective_user.id)] = (
         time.monotonic() + MISTRAL_SECRET_CAPTURE_TTL_SECONDS
     )
@@ -5642,7 +5650,7 @@ async def command_idempotency_guard_handler(
         command_parts = stripped.split(maxsplit=1)
         command_head = command_parts[0] if command_parts else ""
         command_name = command_head.split("@", 1)[0].lower()
-        if command_name == "/setmistralkey" and len(command_parts) > 1:
+        if command_name in {"/setmistralkey", "/setkimikey"} and len(command_parts) > 1:
             register_sensitive_value(command_parts[1].strip())
             chat = update.effective_chat
             deleted = bool(
@@ -5659,12 +5667,12 @@ async def command_idempotency_guard_handler(
                     chat.id,
                     (
                         "A chave não pode ser enviada no comando. "
-                        "A mensagem foi removida; use /setmistralkey sem "
+                        f"A mensagem foi removida; use {command_name} sem "
                         "argumentos."
                         if deleted
                         else
                         "Não consegui remover o comando que continha dados "
-                        "após /setmistralkey. Exclua a mensagem manualmente."
+                        f"após {command_name}. Exclua a mensagem manualmente."
                     ),
                 )
             raise ApplicationHandlerStop
@@ -7492,6 +7500,9 @@ def build_application(settings: Settings | None = None) -> Application:
         "translate": translate_command,
         "help": help_command,
         "aistatus": ai_status_command,
+        "setkimikey": set_kimi_key_command,
+        "cancelkimikey": cancel_kimi_key_command,
+        "kimistatus": kimi_status_command,
         "setmistralkey": set_mistral_key_command,
         "clearmistralkey": clear_mistral_key_command,
         "stats": stats_command,
@@ -7528,6 +7539,9 @@ def build_application(settings: Settings | None = None) -> Application:
         "amaclose": ama_close_command,
         "reloadkb": reload_knowledge_command,
     }
+
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND,
+                                   kimi_secret_capture_handler), group=-4)
 
     # Group -3 captures only an explicitly armed private Mistral secret.
     # It runs before generic credential protection, persistence and moderation.

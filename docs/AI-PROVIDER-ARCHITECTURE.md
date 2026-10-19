@@ -81,3 +81,22 @@ actual latency, error recovery and comparative quality require live results.
 Validation at the second checkpoint: 749 tests PASS, SECRET SCAN OK, ZION
 VALIDATION OK (`/home/zetta/.codex/worktrees/zion-cognitive-v2-increment2-validation.log`). Later harness
 additions require another complete run. No live benchmark success is claimed here.
+
+
+## Operator-requested Kimi provisioning through ZION DM
+
+The operator explicitly selected ZION private chat instead of terminal entry.
+`/setkimikey` (no arguments) arms a single private capture for an explicit
+operator, for 120 seconds. It cancels any Mistral capture, and vice versa.
+The next non-command text is deleted before provider validation or storage.
+Delete failure blocks validation/storage. Expired captures are also consumed
+and deleted, preventing a late secret from entering normal conversation.
+`/cancelkimikey` cancels capture; `/kimistatus` returns protected-store status only.
+
+Validation uses the fixed official Kimi models endpoint, never an LLM prompt.
+Atomic protected storage is followed by metadata-only audit; audit failure rolls
+back the credential. Neither receipt nor validation activates Kimi for users.
+Telegram receives the credential in transit: deletion does not certify removal
+from all Telegram copies. No real credential is used in tests or printed.
+These commands require a release containing the handlers; they are not available
+in the currently running production SHA merely because this code exists.
