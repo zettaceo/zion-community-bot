@@ -42,6 +42,14 @@ universally disabled. `tier/types.ts`, `founders-commercial-truth.ts`,
 `chains.ts` and `founders-public/facts.ts` are unchanged from the prior snapshot.
 This comparison does not prove deployment/runtime availability of all app features.
 
+## Production authorization boundary — latest operator instruction
+
+Prepare and finish the implementation and available validations first. Deliver
+an evidence-backed final report for operator review. Production merge and deploy
+require a NEW explicit approval after that report. Prior statements permitting
+production work do not authorize bypassing this latest boundary. Until then,
+work remains in the isolated development branch/draft PR.
+
 ## Revised delivery sequence authorized by operator
 
 The operator will supply the Kimi credential through ZION private chat only
@@ -157,6 +165,27 @@ pending. Do not index the raw PDF or promote unverified features.
   **774/774 PASS**, SECRET SCAN OK, ZION VALIDATION OK. Evidence:
   `/home/zetta/.codex/worktrees/zion-v2-large-validation.log`.
   No production, configuration, key or runtime switch occurred.
+
+## Structured state and replay hardening — 2026-10-19
+
+- Structured ephemeral summaries track only bounded topic/agent/entity labels,
+  unverified open issue and objection state. Whole exchanges replace arbitrary
+  character slicing. A different participant cannot inherit another user's issue.
+- Monetary claims absent from approved context are rejected by currency/amount.
+  This does not certify attribution to the correct plan or network.
+- Full validation of these changes: 779 tests PASS, SECRET SCAN OK, ZION
+  VALIDATION OK (`zion-structured-state-validation.log`).
+- A regression reproduced Kimi capture re-entry after failed validation and a
+  runtime restart: the capture handler returned without stopping dispatch.
+  A minimized message-identity marker now blocks replays within the configured
+  idempotency retention window. No candidate/hash is stored in that marker;
+  schema unchanged. Metadata is persisted before deletion/provider validation
+  so a crash does not discard the replay boundary. DB failures stop dispatch.
+  Full regression: 782 tests PASS, SECRET SCAN OK, ZION VALIDATION OK;
+  evidence: `/home/zetta/.codex/worktrees/zion-v2-replay-validation.log`.
+  The focused restart regression passes. This is not a guarantee about arbitrary
+  unsolicited keys or credentials first sent after an expired/lost capture arm.
+- Production remains untouched and requires approval after the final report.
 
 ## Kimi private-chat provisioning — 2026-10-19
 

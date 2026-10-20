@@ -7,6 +7,7 @@ Never persist the rejected answer or its matching sensitive substring.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
 import re
 import unicodedata
 
@@ -26,6 +27,42 @@ _RULES = (
     ('internal_provenance', r'\b(?:[a-f0-9]{40}|zettaceo/zion-community-bot|zetta-world/swap-z-app)\b'),
     ('unauthorized_action', r'\b(?:executei (?:a |sua |uma )?(?:ordem|transacao)|aprovei (?:a |sua )?parceria|garanto (?:seu |o )?lucro)\b'),
 )
+
+
+def _monetary_claims(text: str) -> set[tuple[str, str]]:
+    # Numeric presence is necessary, not sufficient: this does NOT prove that
+    # a price was attributed to the correct plan/network/time period.
+    units = {'us$': 'USD', '$': 'USD', 'usd': 'USD', 'dolares': 'USD',
+             'r$': 'BRL', 'brl': 'BRL', 'reais': 'BRL', 'eur': 'EUR', '€': 'EUR'}
+    folded = ''.join(c for c in unicodedata.normalize('NFKD', text)
+                     if not unicodedata.combining(c)).casefold()
+    number = r'\d+(?:[.,]\d+)*'
+    claims = []
+    for match in re.finditer(r'(us\$|r\$|\$|usd\b|brl\b|eur\b|€)\s*(' + number + ')', folded):
+        claims.append((match[1], match[2]))
+    for match in re.finditer(r'(' + number + r')\s*(usd|brl|eur|reais|dolares)\b', folded):
+        claims.append((match[2], match[1]))
+    result = set()
+    for unit, value in claims:
+        if len(value) > 32:
+            result.add((units[unit], 'invalid_amount'))
+            continue
+        if ',' in value and '.' in value:
+            decimal_separator = ',' if value.rfind(',') > value.rfind('.') else '.'
+            value = value.replace('.' if decimal_separator == ',' else ',', '').replace(',', '.')
+        elif re.fullmatch(r'[1-9]\d*[.,]\d{3}', value):
+            # Ambiguous grouping: require identical notation rather than
+            # silently interpreting a thousands separator as a decimal.
+            result.add((units[unit], 'ambiguous:' + value))
+            continue
+        else:
+            value = value.replace(',', '.')
+        try:
+            amount = str(Decimal(value).normalize())
+        except InvalidOperation:
+            amount = 'invalid_amount'
+        result.add((units[unit], amount))
+    return result
 
 
 def validate_public_response(text: str, *, official_context: str) -> ResponseCheck:
@@ -59,6 +96,10 @@ def validate_public_response(text: str, *, official_context: str) -> ResponseChe
             if re.search(r"\b(?:nao|nunca|nem) (?:(?:podemos|posso|pode|e|e possivel) )?$", prefix):
                 continue
             return ResponseCheck(False, reason)
+    monetary_claims = _monetary_claims(text)
+    if (any(value == 'invalid_amount' for _, value in monetary_claims)
+            or monetary_claims - _monetary_claims(official_context)):
+        return ResponseCheck(False, 'unsupported_monetary_claim')
     approved_urls = set(re.findall(r'https?://[^\s<>]+', official_context))
     for url in re.findall(r'https?://[^\s<>]+', text):
         if url.rstrip('.,);') not in {u.rstrip('.,);') for u in approved_urls}:

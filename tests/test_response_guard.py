@@ -44,3 +44,14 @@ class ResponseGuardTests(unittest.TestCase):
             self.assertFalse(validate_public_response(value, official_context='').allowed)
         self.assertTrue(validate_public_response('Veja https://public.example/help.',
             official_context='Ajuda pública: https://public.example/help').allowed)
+
+    def test_monetary_claim_requires_currency_and_amount_in_official_context(self):
+        for answer in ('O plano custa US$ 99.', 'A taxa custa 40 reais.', 'Custa € 12.'):
+            with self.subTest(answer=answer):
+                result = validate_public_response(answer, official_context='Preço ainda não publicado.')
+                self.assertFalse(result.allowed)
+                self.assertEqual(result.reason, 'unsupported_monetary_claim')
+        self.assertTrue(validate_public_response('Custa US$ 0.10.', official_context='Preço: USD 0,10').allowed)
+        self.assertFalse(validate_public_response('Custa R$ 10.', official_context='Preço: US$ 10').allowed)
+        self.assertFalse(validate_public_response('Custa US$ 1.000.', official_context='Preço: USD 1').allowed)
+        self.assertTrue(validate_public_response('Nenhuma plataforma é 100% segura.', official_context='').allowed)

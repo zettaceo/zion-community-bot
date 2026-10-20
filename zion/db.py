@@ -1729,6 +1729,16 @@ class ZionDB:
 
         return cursor.rowcount == 1
 
+    def has_active_idempotency_key(self, key: str, *, now: float | None = None) -> bool:
+        """Read a minimized replay marker without extending its retention."""
+        ts = time.time() if now is None else now
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT 1 FROM idempotency_keys WHERE key=? AND expires_at>?",
+                (key.strip()[:200], ts),
+            ).fetchone()
+        return row is not None
+
     def prune_idempotency_keys(
         self,
         before: float | None = None,

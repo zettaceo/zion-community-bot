@@ -101,3 +101,20 @@ clarification. This remains a reviewed lexical planner, not general reasoning.
 The shared prompt and retrieval inputs changed after the first Mistral smoke.
 That historical smoke is not an A/B baseline for this newer prompt; any future
 comparison must use identical input hashes and current source versions.
+
+
+## Structured ephemeral conversation summary
+
+The public thread session now combines up to three whole, sanitized recent
+exchanges with fixed operational metadata: topic, agent, public entity labels,
+reported issue, objection flag and capped turn count. Generated replies never
+populate the summary as facts. A new explicit topic clears old labels. A
+reported issue is not inherited by another user. Existing ten-minute expiry,
+2,048-session cap and the 3,000-character context bound remain. No new DB table,
+raw-message persistence, chain of thought or model-based summarizer was added.
+Oversized exchanges are omitted rather than retaining arbitrary suffixes.
+
+The output guard also requires monetary currency/amount pairs to occur in the
+approved context. This catches missing prices and currency substitutions;
+it does not prove the amount belongs to the correct plan, network or period.
+Factual attribution and relational claims still require evaluation/review.

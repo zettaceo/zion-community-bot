@@ -84,6 +84,32 @@ class KimiProvisioningTests(unittest.TestCase):
         asyncio.run(cancel_kimi_key_command(make_update(user_id=1), ctx))
         self.assertFalse(self.rt.kimi_secret_captures)
 
+    def test_replayed_capture_is_blocked_after_runtime_restart(self):
+        ctx = self.arm()
+        self.rt.kimi_provisioning_client.validate_candidate = AsyncMock(side_effect=RuntimeError())
+        self.capture(ctx)
+        self.rt.close()
+        self.rt = fixtures.Runtime(self.settings)
+        ctx = FakeContext(self.rt)
+        self.rt.kimi_provisioning_client.validate_candidate = AsyncMock()
+        self.capture(ctx)
+        self.rt.kimi_provisioning_client.validate_candidate.assert_not_awaited()
+        self.assertNotIn(SECRET_A, '\n'.join(self.rt.db._conn.iterdump()))
+
+    def test_marker_failure_blocks_provider_and_storage(self):
+        ctx = self.arm()
+        self.rt.kimi_provisioning_client.validate_candidate = AsyncMock()
+        with patch.object(self.rt.db, 'claim_idempotency_key', side_effect=RuntimeError()):
+            self.capture(ctx)
+        self.rt.kimi_provisioning_client.validate_candidate.assert_not_awaited()
+        self.assertEqual(self.rt.kimi_secret_store.status(), SecretStore.MISSING)
+        self.assertIn((1001, 2), ctx.bot.deleted)
+
+    def test_marker_expiration_does_not_extend_on_read(self):
+        self.rt.db.claim_idempotency_key('synthetic-marker', ttl_seconds=60, now=100)
+        self.assertTrue(self.rt.db.has_active_idempotency_key('synthetic-marker', now=159))
+        self.assertFalse(self.rt.db.has_active_idempotency_key('synthetic-marker', now=160))
+
     def test_command_argument_deleted_before_durable_command_claim(self):
         ctx = FakeContext(self.rt)
         with self.assertRaises(ApplicationHandlerStop):

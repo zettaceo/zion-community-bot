@@ -7,6 +7,8 @@ Unknown subjects remain unknown rather than receiving invented semantic certaint
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
+from .agents import AgentId
 from .language_recovery import recover_language
 
 
@@ -82,3 +84,58 @@ class FragmentWindow:
         return ' '.join((slots['product'], slots['problem'],
                          'na rede ' + slots['network'] if 'network' in slots else '',
                          'com ' + slots['asset'] if 'asset' in slots else '')).strip()
+
+
+# Fixed operational labels only: generated answers never become source facts.
+
+
+@dataclass(frozen=True, slots=True)
+class DialogueSummary:
+    topic: str | None
+    agent: str
+    entities: tuple[str, ...] = ()
+    open_issue: str | None = None
+    objection_seen: bool = False
+    turns: int = 0
+
+    def render(self) -> str:
+        return ('Estado de conversa (não é fonte factual nem autorização): '
+                f'tema={self.topic or "indefinido"}; agente={self.agent}; '
+                f'entidades={",".join(self.entities) or "nenhuma"}; '
+                f'relato={self.open_issue or "nenhum"}; '
+                f'objeção={"sim" if self.objection_seen else "não"}; turnos={self.turns}.')
+
+
+def summarize_dialogue(question: str, agent_id: str, previous: DialogueSummary | None,
+                       *, same_user: bool) -> DialogueSummary:
+    agent = AgentId(agent_id).value
+    text = recover_language(question).canonical
+    topic = explicit_topic(question)
+    if previous and topic and topic != previous.topic:
+        previous = None
+    entities = set(previous.entities if previous else ())
+    entities.update(re.findall(
+        r'\b(?:ethereum|solana|base|polygon|arbitrum|optimism|avalanche|bnb|usdc|usdt|eth|sol|pro|pilot|trader)\b', text))
+    issue = previous.open_issue if previous and same_user else None
+    if re.search(r'\b(?:erro|falhou|travou|sumiu|nao consigo|nao conectar)\b', text):
+        issue = 'problema relatado, não verificado'
+    if re.search(r'\b(?:resolveu|resolvido|funcionou)\b', text):
+        issue = None
+    objection = bool(re.search(r'\b(?:discordo|nao concordo|faz igual|ja existe|nao vale)\b', text))
+    return DialogueSummary(topic or (previous.topic if previous else None), agent,
+        tuple(sorted(entities))[:16], issue,
+        objection or bool(previous and previous.objection_seen),
+        min(999, (previous.turns if previous else 0) + 1))
+
+
+def bounded_exchanges(previous: tuple[tuple[str, str], ...], question: str,
+                      answer: str, *, speaker: str) -> tuple[tuple[str, str], ...]:
+    """Keep whole recent exchanges, never arbitrary mid-message suffixes."""
+    AgentId(speaker.lower())
+    exchange = (question, f'Membro: {question}\n{speaker}: {answer}')
+    if len(exchange[1]) > 2400:
+        return ()  # Summary still survives; oversized raw text is not retained.
+    values = list(previous[-2:]) + [exchange]
+    while sum(len(value[1]) + 2 for value in values) > 2400:
+        values.pop(0)
+    return tuple(values)

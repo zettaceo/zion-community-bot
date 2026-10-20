@@ -46,7 +46,8 @@ from .kimi_provisioning import (set_kimi_key_command, kimi_secret_capture_handle
                                 cancel_kimi_key_command, kimi_status_command)
 from .config import Settings
 from .language_recovery import recover_language
-from .conversation_state import FragmentWindow, changes_explicit_topic, explicit_topic
+from .conversation_state import (FragmentWindow, DialogueSummary, bounded_exchanges,
+                                 summarize_dialogue, changes_explicit_topic, explicit_topic)
 from .db import ZION_APPLICATION_ID, ZionDB
 from .dm_policy import evaluate_dm_access
 from .guardian import (
@@ -111,6 +112,9 @@ class GroupConversationSession:
     transcript: str
     last_reply_at: float
     active_topic: str | None = None
+    summary: DialogueSummary | None = None
+    recent_exchanges: tuple[tuple[str, str], ...] = ()
+    last_user_id: int | None = None
 
 
 @dataclass(frozen=True)
@@ -644,20 +648,23 @@ def _remember_group_conversation(
         )
         sessions.pop(oldest, None)
 
-    previous_query = previous.retrieval_query if previous else ""
-    previous_transcript = previous.transcript if previous else ""
-    retrieval_query = "\n".join(
-        part for part in (previous_query, question) if part
-    )[-GROUP_CONVERSATION_QUERY_MAX_CHARS:]
-    exchange = f"Membro: {question}\n{speaker_name}: {answer}"
-    transcript = "\n\n".join(
-        part for part in (previous_transcript, exchange) if part
-    )[-GROUP_CONVERSATION_CONTEXT_MAX_CHARS:]
+    safe_question, safe_answer = sanitize_for_ai(question), sanitize_for_ai(answer)
+    user_id = update.effective_user.id if update.effective_user else None
+    summary = summarize_dialogue(safe_question, speaker_name.lower(),
+        previous.summary if previous else None,
+        same_user=bool(previous and previous.last_user_id == user_id))
+    exchanges = bounded_exchanges(previous.recent_exchanges if previous else (),
+        safe_question, safe_answer, speaker=speaker_name)
+    retrieval_query = "\n".join(item[0] for item in exchanges)
+    if not retrieval_query:
+        retrieval_query = safe_question[:GROUP_CONVERSATION_QUERY_MAX_CHARS]
+    transcript = summary.render() + "\n\n" + "\n\n".join(item[1] for item in exchanges)
     sessions[key] = GroupConversationSession(
         expires_at=now + GROUP_CONVERSATION_TTL_SECONDS,
         retrieval_query=retrieval_query,
         transcript=transcript,
         last_reply_at=now,
+        summary=summary, recent_exchanges=exchanges, last_user_id=user_id,
         active_topic=explicit_topic(question) or (
             previous.active_topic if previous else None
         ),

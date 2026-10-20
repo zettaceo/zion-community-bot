@@ -49,11 +49,33 @@ async def kimi_secret_capture_handler(update, context):
         return
     rt = runtime(context)
     key = (chat.id, user.id)
+    # Only message identity is retained, never the candidate or its hash.
+    # The marker survives failed validation and process restarts for the normal
+    # update-retention window; a replay must never reach generic conversation.
+    replay_key = f"kimi_capture:{chat.id}:{user.id}:{message.message_id}"
+    try:
+        replayed = rt.db.has_active_idempotency_key(replay_key)
+    except Exception:
+        raise ApplicationHandlerStop
+    if replayed:
+        if message.text:
+            register_sensitive_value(message.text)
+        await delete_message_safe(context, chat.id, message.message_id)
+        raise ApplicationHandlerStop
     expiry = rt.kimi_secret_captures.get(key)
     if expiry is None or not message.text or message.text.startswith('/'):
         return
     rt.kimi_secret_captures.pop(key, None)
     register_sensitive_value(message.text)
+    try:
+        claimed = rt.db.claim_idempotency_key(
+            replay_key, ttl_seconds=rt.settings.idempotency_retention_days * 86400)
+    except Exception:
+        await delete_message_safe(context, chat.id, message.message_id)
+        raise ApplicationHandlerStop
+    if not claimed:
+        await delete_message_safe(context, chat.id, message.message_id)
+        raise ApplicationHandlerStop
     # Consume even expired/revoked captures: never let a late credential reach
     # generic conversation, telemetry, model input or ordinary message storage.
     deleted = await delete_message_safe(context, chat.id, message.message_id)
