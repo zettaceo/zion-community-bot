@@ -17,6 +17,7 @@ class ResponseGuardTests(unittest.TestCase):
             'Esta plataforma é livre de riscos.',
             'Nenhuma plataforma é livre de risco, mas é seguro usar a Z-SWAP.',
             'Aprovei sua parceria.',
+            'Nenhuma rota é livre de riscos, mas a nossa é totalmente segura.',
         ):
             with self.subTest(value=value):
                 self.assertFalse(validate_public_response(value, official_context='').allowed)
@@ -29,6 +30,8 @@ class ResponseGuardTests(unittest.TestCase):
             'A Z-SWAP implementa controles para reduzir riscos, mas nenhuma plataforma ou transação é livre de risco.',
             'Nenhuma plataforma é livre de riscos.',
             'Nenhuma transação é totalmente segura.',
+            'Nenhuma rota é livre de riscos.',
+            'Nenhum swap é 100% seguro.',
             'As rotas são comparadas conforme as condições daquele momento.',
             'A execução depende da rede, rota e provedor.',
             'Não posso fornecer endpoints internos. Qual caso de uso você quer implementar?',
@@ -44,6 +47,20 @@ class ResponseGuardTests(unittest.TestCase):
             self.assertFalse(validate_public_response(value, official_context='').allowed)
         self.assertTrue(validate_public_response('Veja https://public.example/help.',
             official_context='Ajuda pública: https://public.example/help').allowed)
+
+    def test_observed_free_swap_and_unapproved_competitor_claims_are_blocked(self):
+        self.assertEqual(validate_public_response(
+            'A Z-SWAP não cobra por transações de swap, mas taxas podem variar conforme a rede.',
+            official_context='Taxas da plataforma variam por plano e rota.').reason, 'unsupported_free_swap')
+        self.assertFalse(validate_public_response('Os swaps são gratuitos.', official_context='').allowed)
+        self.assertEqual(validate_public_response(
+            'Uniswap, PancakeSwap, 1inch Network, Raydium e Bisq já são bem estabelecidas.',
+            official_context='GeckoTerminal e DexScreener são fontes de dados.').reason,
+            'unapproved_market_service_claim')
+        self.assertTrue(validate_public_response('A execução pode usar Uniswap.',
+            official_context='A execução pode usar Uniswap.').allowed)
+        self.assertTrue(validate_public_response('Taxas dependem do plano, da rota e da rede.',
+            official_context='Taxas da plataforma variam por plano e rota.').allowed)
 
     def test_monetary_claim_requires_currency_and_amount_in_official_context(self):
         for answer in ('O plano custa US$ 99.', 'A taxa custa 40 reais.', 'Custa € 12.'):

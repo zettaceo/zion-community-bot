@@ -17,8 +17,9 @@ from zion.providers import Completion, ProviderError
 class EvaluationHarnessTests(unittest.TestCase):
     def test_dataset_is_versioned_synthetic_and_never_auto_accepted(self):
         cases = load_cases(Path(__file__).resolve().parents[1] / 'evaluations/cognitive-v2.jsonl')
-        self.assertEqual(len(cases), 100)
-        self.assertGreaterEqual(len({c['category'] for c in cases}), 10)
+        self.assertEqual(len(cases), 108)
+        self.assertGreaterEqual(len({c['category'] for c in cases}), 17)
+        self.assertEqual(len([c for c in cases if c['category'] == 'competitive_objection']), 3)
         self.assertTrue(all(c['human_review_required'] for c in cases))
         self.assertTrue(any(len(c['turns']) == 4 for c in cases))
 
@@ -33,6 +34,14 @@ class EvaluationHarnessTests(unittest.TestCase):
                 self.assertIsNotNone(decision.speaker)
                 self.assertEqual(decision.speaker.agent_id.value, case['expected_speaker'])
                 self.assertFalse(decision.used_ai_fallback)
+
+    def test_generation_followup_uses_user_history_but_resets_explicit_topic(self):
+        from zion.evaluation import evaluation_context_query
+        self.assertIn('Minha ordem sumiu', evaluation_context_query(
+            ['Minha ordem sumiu', 'Isso é caro e não funciona, resolve agora']))
+        changed = evaluation_context_query(['Como faço parceria?', 'Como funciona o swap?'])
+        self.assertNotIn('parceria', changed)
+        self.assertEqual(changed, 'Como funciona o swap?')
 
     def test_reserves_before_network_and_failure_is_not_refunded(self):
         with tempfile.TemporaryDirectory() as tmp:

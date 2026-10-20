@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 
 from .agents import AgentId
+from .conversation_state import explicit_topic
 from .evaluation_budget import EvaluationBudget
 from .knowledge import KnowledgeBase
 from .knowledge_tools import KnowledgeTools
@@ -33,11 +34,31 @@ def public_context(knowledge: KnowledgeBase, question: str, agent_id: str) -> st
     ).render()
 
 
+def evaluation_context_query(turns: list[str]) -> str:
+    """Bounded user-only continuity; explicit new topics clear older questions.
+
+    This improves generation fixtures, but is not a substitute for runtime
+    routing/thread/participant acceptance.
+    """
+    active = None
+    retained = []
+    for turn in turns:
+        topic = explicit_topic(turn)
+        if active and topic and topic != active:
+            retained = []
+        active = topic or active
+        retained.append(turn)
+        retained = retained[-3:]
+        while sum(len(item) + 1 for item in retained) > 6000:
+            retained.pop(0)
+    return '\n'.join(retained)
+
+
 async def evaluate_case(case: dict, *, knowledge: KnowledgeBase,
                         provider: CompletionProvider, model: str,
                         budget: EvaluationBudget) -> dict:
     question = case['turns'][-1]
-    context = public_context(knowledge, question, case['expected_speaker'])
+    context = public_context(knowledge, evaluation_context_query(case['turns']), case['expected_speaker'])
     messages = build_answer_messages(question=question, context=context,
         conversation_context='\n'.join('User: ' + t for t in case['turns'][:-1]),
         agent_id=case['expected_speaker'])

@@ -64,6 +64,19 @@ class KnowledgeTests(unittest.TestCase):
                     self.assertIn(fact, rendered)
                 self.assertNotIn("platform fee da Z-SWAP está atualmente desabilitada", rendered)
 
+    def test_partnership_pricing_criticism_prioritizes_business_scope(self):
+        kb = KnowledgeBase(ROOT / 'knowledge')
+        hits = kb.search('A parceria está cara, concorrentes fazem a mesma coisa', agent_id='freyr')
+        self.assertEqual(hits[0].heading, 'Comunidade e parcerias')
+        self.assertIn('Uma conversa não equivale', hits[0].text)
+        self.assertNotIn('taxa', hits[0].text.casefold())
+
+    def test_exact_competitive_objection_retrieves_institutional_value_before_market_data(self):
+        kb = KnowledgeBase(ROOT / 'knowledge')
+        hits = kb.search('Concerteza deve ter plataformas mais baratas, que oferecem a mesma coisa que a zswap e já consolidadas no mercado', agent_id='zion')
+        self.assertIn('Posicionamento institucional', hits[0].heading)
+        self.assertIn('produto antes de promessa', {h.heading.casefold() for h in hits})
+
     def test_retrieval(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

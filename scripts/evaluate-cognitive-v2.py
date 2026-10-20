@@ -33,8 +33,16 @@ def private_directory(path: Path) -> None:
 
 async def run(args) -> int:
     cases = load_cases(ROOT / 'evaluations/cognitive-v2.jsonl')
+    if args.case_ids:
+        by_id = {case['id']: case for case in cases}
+        if (len(args.case_ids) > 10 or len(set(args.case_ids)) != len(args.case_ids)
+            or any(case_id not in by_id for case_id in args.case_ids)):
+            raise ValueError('invalid_case_selection')
+        selected = [by_id[case_id] for case_id in args.case_ids]
+    else:
+        selected = cases if args.full else [cases[i] for i in (0, 30, 40, 60, 90)]
     if not args.live:
-        print(f'DATASET_OK cases={len(cases)} provider_calls=0')
+        print(f'DATASET_OK cases={len(cases)} selected={len(selected)} provider_calls=0')
         return 0
     state = Path.home() / '.local/state/zion-community-bot'
     secrets = state / 'secrets'
@@ -63,7 +71,6 @@ async def run(args) -> int:
         if knowledge.load_errors:
             raise ValueError('knowledge_load_errors')
         # Smoke covers one technical, noisy, support, boundary and finite case.
-        selected = cases if args.full else [cases[i] for i in (0, 30, 40, 60, 90)]
         stamp = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')
         path = directory / (stamp + '-' + args.model + '.jsonl')
         fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
@@ -91,7 +98,9 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument('--model', choices=('kimi-k2.6', 'kimi-k3', 'ministral-8b-2512', 'mistral-large-2512'), default='kimi-k2.6')
     parser.add_argument('--live', action='store_true')
-    parser.add_argument('--full', action='store_true')
+    selection = parser.add_mutually_exclusive_group()
+    selection.add_argument('--full', action='store_true')
+    selection.add_argument('--case-ids', nargs='+')
     args = parser.parse_args()
     try:
         return asyncio.run(run(args))

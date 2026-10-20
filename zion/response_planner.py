@@ -23,7 +23,7 @@ _HINTS = {
     ResponseMode.DIRECT_ANSWER: 'Responda diretamente e preserve listas oficiais completas.',
     ResponseMode.EXPLANATION: 'Explique o mecanismo sustentado pelas fontes, suas condições e limitações.',
     ResponseMode.COMPARISON: 'Compare pelos mesmos critérios e diga quando faltam dados; não invente superioridade.',
-    ResponseMode.OBJECTION: 'Reconheça a objeção e responda com diferenças verificáveis, sem pressão comercial.',
+    ResponseMode.OBJECTION: 'Reconheça a parte válida da objeção; compare diferenças verificáveis e limites relevantes. Indique dados ausentes, não invente superioridade, economia ou retorno e não pressione pela compra. Responda ao ponto atual sem despejar um catálogo de recursos. Não atribua características ou preços a concorrentes sem evidência comparativa explícita no contexto. Parceria comercial não é taxa de swap; não invente uma política comercial quando faltarem termos publicados.',
     ResponseMode.SUPPORT_DIAGNOSIS: 'Separe o relato do usuário de fatos confirmados. Peça apenas o próximo detalhe público necessário; não conclua execução, cancelamento ou perda sem evidência.',
     ResponseMode.CLARIFICATION: 'Faça uma pergunta curta para esclarecer o recurso ou objetivo; não preencha lacunas por suposição.',
     ResponseMode.PARTNERSHIP_QUALIFICATION: 'Entenda o tipo e objetivo da parceria; não aprove acordos, descontos ou prazos.',
@@ -58,12 +58,12 @@ def plan_response(*, agent_id: AgentId | str, question: str, has_evidence: bool)
         mode = ResponseMode.SECURITY_EXPLANATION
     elif agent is AgentId.EIR:
         mode = ResponseMode.SUPPORT_DIAGNOSIS
-    elif agent is AgentId.FREYR:
-        mode = ResponseMode.PARTNERSHIP_QUALIFICATION
     elif re.search(r'\b(?:compare|comparar|diferenca|versus|vs)\b', text):
         mode = ResponseMode.COMPARISON
-    elif re.search(r'\b(?:ja existe|faz igual|pagaria|caro|nao vale)\b', text):
+    elif re.search(r'\b(?:ja existe|faz igual|mesma coisa|pagaria|por que pagar|car[oa]s?|nao vale|mais barat[oa]s?|concorrentes?)\b', text):
         mode = ResponseMode.OBJECTION
+    elif agent is AgentId.FREYR:
+        mode = ResponseMode.PARTNERSHIP_QUALIFICATION
     elif re.search(r'\b(?:como|explique|explica|porque|por que)\b', text):
         mode = ResponseMode.EXPLANATION
     else:

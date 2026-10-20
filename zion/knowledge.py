@@ -41,6 +41,8 @@ STOPWORDS = {
 # member says "plano profissional", retrieval must reach the same approved
 # facts as "plano Pro", while unrelated words are left untouched.
 TOKEN_ALIASES = (
+    frozenset({"parceria", "parcerias", "parceiro", "parceiros", "partnership", "comercial"}),
+    frozenset({"concorrente", "concorrentes", "concorrencia", "consolidada", "consolidadas"}),
     frozenset({"plano", "planos", "tier", "tiers", "nivel", "niveis"}),
     frozenset({
         "beneficio", "beneficios", "vantagem", "vantagens", "recurso",
@@ -140,6 +142,13 @@ def _canonical_heading_bonus(
     heading: str,
 ) -> float:
     normalized_heading = _normalize(heading)
+    if query_tokens & {"parceria", "parcerias", "partnership"} and normalized_heading == "comunidade e parcerias":
+        return 3.0
+    if query_tokens & {"concorrente", "concorrentes", "consolidadas", "consolidada"}:
+        if normalized_heading.endswith("posicionamento institucional publico"):
+            return 3.0
+        if normalized_heading in {"produto antes de promessa", "mapa publico da plataforma"}:
+            return 2.5
     if (
         query_tokens & {"ordem", "ordens", "order", "orders"}
         and normalized_heading == "painel de ordens"
@@ -514,16 +523,14 @@ class KnowledgeBase:
 
             chunk_tokens = _tokens(chunk.heading + "\n" + chunk.text)
             overlap = query_tokens & chunk_tokens
-            if not overlap:
+            canonical_bonus = _canonical_heading_bonus(query_tokens, chunk.heading)
+            if not overlap and canonical_bonus <= 0:
                 continue
 
             score = len(overlap) / max(1, len(query_tokens))
             heading_overlap = query_tokens & _tokens(chunk.heading)
             score += 0.35 * len(heading_overlap)
-            score += _canonical_heading_bonus(
-                query_tokens,
-                chunk.heading,
-            )
+            score += canonical_bonus
             if (
                 requested_tiers
                 and heading_tiers.intersection(requested_tiers)

@@ -95,10 +95,10 @@ Never label deferred Kimi benchmarks PASS or the entire v2 mission complete.
 - [~] 16 Local public knowledge tool registry integrated into evaluation; provider-native function transport pending.
 - [~] 17 Bounded advisory complexity/risk labels implemented; evaluated model policy pending.
 - [~] 18 Fixed response-mode planner integrated into shared provider prompt; live quality acceptance pending.
-- [ ] 19 ZION executive behavior.
-- [ ] 20 MIMIR technical behavior.
-- [ ] 21 EIR support behavior.
-- [ ] 22 FREYR business behavior.
+- [~] 19 ZION executive response policy implemented; live competitive quality still FAIL/PENDING.
+- [~] 20 MIMIR mechanism/evidence policy implemented; live response acceptance still pending.
+- [~] 21 EIR diagnosis/claim boundaries implemented; observed cost hallucination now guarded, live retest pending.
+- [~] 22 FREYR objection planning and business retrieval corrected; live pricing-context retest pending.
 - [~] 23 Handoff: existing one-hop implementation; structured context policy pending.
 - [~] 24 Confidentiality: preserve existing refusal/retrieval boundary; v2 matrix pending.
 - [~] 25 Injection: preserve existing controls; expanded source/provider matrix pending.
@@ -107,7 +107,7 @@ Never label deferred Kimi benchmarks PASS or the entire v2 mission complete.
   now has durable admission. Cross-provider fallback remains blocked by acceptance.
 - [~] 28 Isolated monetary evaluation ledger and integrated runtime provider/model
   token reservations implemented. Runtime currency pricing/escalation remains pending.
-- [~] 29 Versioned 100-case synthetic dataset (13 categories), generation evaluator and human-review gate implemented.
+- [~] 29 Versioned 108-case synthetic dataset (18 categories), generation evaluator and human-review gate implemented.
 - [!] 30 Live A/B benchmark: requires certified store, official prices, credential,
   synthetic/public-only evaluation inputs and bounded spend. Operator will provision through private ZION DM after release; Kimi evaluation deferred.
 - [ ] 31 Adversarial multi-turn evaluation.
@@ -172,6 +172,22 @@ pending. Do not index the raw PDF or promote unverified features.
   **774/774 PASS**, SECRET SCAN OK, ZION VALIDATION OK. Evidence:
   `/home/zetta/.codex/worktrees/zion-v2-large-validation.log`.
   No production, configuration, key or runtime switch occurred.
+
+## Executive quality checkpoint — 2026-10-20
+
+- Competitive objection planning and role instructions implemented; the exact
+  mission objection is now included alongside seven additional synthetic cases.
+  Original 100 evaluation cases preserved. Selection supports bounded exact IDs.
+- Initial four-case live round failed human/automated review. Retrieval and
+  evaluator continuation issues were fixed, and observed unsupported output
+  received regression guards. The exact retest stopped at the first case because
+  an unapproved market-service reference was blocked. Remaining three cases were
+  NOT EXECUTED in that retest, not PASS.
+- Full local regression: 810 tests PASS, SECRET SCAN OK, ZION VALIDATION OK.
+  Live quality is still FAILED/PENDING. See
+  `docs/COGNITIVE-V2-QUALITY-FINDINGS.md` for evidence and limitations, and
+  `docs/EXECUTIVE-ARGUMENTATION.md` for the response contract.
+- Kimi remains unactivated. No production configuration, service or token changed.
 
 ## Runtime budgets and primary identity — 2026-10-20
 

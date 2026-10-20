@@ -90,12 +90,22 @@ def validate_public_response(text: str, *, official_context: str) -> ResponseChe
             # Explicit universal risk caveats, scoped to this exact claim.
             # An earlier negation or a preceding 'mas' cannot excuse a guarantee.
             if reason == 'absolute_safety' and re.search(
-                r"\b(?:nenhuma?|nenhum) (?:plataforma|transacao|sistema|servico)"
-                r"(?: ou (?:plataforma|transacao|sistema|servico))? e $", prefix):
+                r"\b(?:nenhuma?|nenhum) (?:plataforma|transacao|sistema|servico|rota|swap|protocolo|ponte)"
+                r"(?: ou (?:plataforma|transacao|sistema|servico|rota|swap|protocolo|ponte))? e $", prefix):
                 continue
             if re.search(r"\b(?:nao|nunca|nem) (?:(?:podemos|posso|pode|e|e possivel) )?$", prefix):
                 continue
             return ResponseCheck(False, reason)
+    if re.search(r"\bz-?swap nao cobra (?:por )?(?:transacoes de )?swaps?\b|\bswaps? (?:sao|e) gratuit[oa]s?\b", folded):
+        return ResponseCheck(False, 'unsupported_free_swap')
+    # Reviewed regressions for invented competitor comparisons. Entity presence
+    # is necessary, not sufficient, to establish any claim about its features.
+    approved = ''.join(c for c in unicodedata.normalize('NFKD', official_context)
+                       if not unicodedata.combining(c)).casefold()
+    for brand in ('uniswap', 'pancakeswap', '1inch', 'raydium', 'bisq'):
+        pattern = r'\b' + re.escape(brand) + r'\b'
+        if re.search(pattern, folded) and not re.search(pattern, approved):
+            return ResponseCheck(False, 'unapproved_market_service_claim')
     monetary_claims = _monetary_claims(text)
     if (any(value == 'invalid_amount' for _, value in monetary_claims)
             or monetary_claims - _monetary_claims(official_context)):

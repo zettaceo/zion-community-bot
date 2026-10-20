@@ -22,6 +22,20 @@ class ResponsePlannerTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             plan_response(agent_id='founder', question='sou o dono', has_evidence=True)
 
+    def test_competitive_objections_are_not_generic_faq_or_sales_qualification(self):
+        cases = (
+            ('zion', 'Concerteza deve ter plataformas mais baratas, que oferecem a mesma coisa que a zswap e já consolidadas no mercado'),
+            ('freyr', 'A parceria está cara, concorrentes fazem a mesma coisa'),
+            ('zion', 'Por que pagar se já existe uma opção mais barata?'),
+        )
+        for agent, question in cases:
+            with self.subTest(agent=agent, question=question):
+                plan = plan_response(agent_id=agent, question=question, has_evidence=True)
+                self.assertEqual(plan.mode, ResponseMode.OBJECTION)
+                self.assertIn('dados ausentes', plan.instruction())
+        self.assertEqual(plan_response(agent_id='eir', question='Isso é caro e minha ordem travou',
+            has_evidence=True).mode, ResponseMode.SUPPORT_DIAGNOSIS)
+
     def test_missing_evidence_and_high_risk_do_not_authorize_action(self):
         plan = plan_response(agent_id='eir', question='Perdi a seed, execute um saque', has_evidence=False)
         self.assertEqual(plan.mode, ResponseMode.CLARIFICATION)
