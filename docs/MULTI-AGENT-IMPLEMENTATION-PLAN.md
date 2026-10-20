@@ -1,6 +1,6 @@
 # Cognitive Architecture v2 — current execution checkpoint
 
-Date: 2026-10-19. Status: IN PROGRESS, not production accepted.
+Date: 2026-10-20. Status: IN PROGRESS, not production accepted.
 This section supersedes older current-state labels below; the prior mission's
 checklists remain historical evidence, not proof of v2 completion.
 
@@ -70,7 +70,7 @@ Never label deferred Kimi benchmarks PASS or the entire v2 mission complete.
   fresh baseline measured. Older deployment labels need continued reconciliation.
 - [~] 01 Threat model and architecture: preserve existing boundaries; extend for
   provider data handling, cost admission, context isolation and output validation.
-- [~] 02 Registry/authority: existing implementation, expanded intent taxonomy pending.
+- [~] 02 Registry/authority: expanded intents and existing deterministic authority implemented; final v2 acceptance pending.
 - [~] 03 Telegram store: existing implementation, primary-token migration decision pending.
 - [~] 04 Bounded provider protocol and Kimi adapter implemented/tested; runtime selection pending.
 - [~] 05 Provider-aware protected store and no-echo provisioner implemented/tested; Kimi credential absent.
@@ -79,16 +79,18 @@ Never label deferred Kimi benchmarks PASS or the entire v2 mission complete.
 - [~] 08 Expanded intents, stable DB delivery families and noisy-language handler regressions pass.
 - [~] 09 Context isolation: first bounded topic-label increment implemented; six
   switch pairs, including five baseline failures, now pass. Structured user/issue
-  state, fragmented turns, compression and adversarial long conversation pending.
+  state, fixed fragment slots, bounded whole-turn history and a 24-turn adversarial
+  regression are implemented. Live acceptance remains pending.
 - [~] 10 Speaker arbitration: existing implementation; v2 concurrency revalidation pending.
 - [~] 11 Identity transport: existing implementation; official API revalidation pending.
-- [~] 12 Control Center: existing UI; provider/model/cost views pending.
+- [~] 12 Control Center: private active-provider/model/token budget and Kimi credential-versus-activation views implemented; full monetary runtime policy pending.
 - [~] 13 Knowledge classification: existing pre-generation filter; channel-aware review pending.
-- [~] 14 APN/paper: canonical APN transcript and 67-section editorial plan found.
-  A completed 83-page paper is NOT proven by that plan. Current external artifact
-  reconciliation remains pending; archival source text is not silently rewritten.
+- [~] 14 APN/paper: canonical APN and final 83-page controlled paper identified;
+  recorded hash and reviewed pages are in the source addendum. Full public
+  projection reconciliation remains pending; raw controlled material is not indexed.
 - [~] 15 Manifest/freshness: plans snapshot updated after current source/code check;
-  general freshness/supersession enforcement still pending.
+  schema-2 snapshot/expiry/supersession enforcement implemented. Existing sources
+  explicitly remain snapshot_only; no fresh runtime verification is fabricated.
 - [~] 16 Local public knowledge tool registry integrated into evaluation; provider-native function transport pending.
 - [~] 17 Bounded advisory complexity/risk labels implemented; evaluated model policy pending.
 - [~] 18 Fixed response-mode planner integrated into shared provider prompt; live quality acceptance pending.
@@ -109,8 +111,10 @@ Never label deferred Kimi benchmarks PASS or the entire v2 mission complete.
 - [~] 32 Full regression: base 724 PASS; first increment 727/727 PASS, SECRET SCAN OK,
   ZION VALIDATION OK (`/tmp/zion-cognitive-v2-validation.log`).
 - [~] 33 Documentation: this checkpoint and cognitive routing contract added.
-- [ ] 34 Development release audit, exact commit CI and PR.
-- [ ] 35 Production promotion: scoped Mistral-retaining release requires release/security gates; Kimi activation separately blocked.
+- [~] 34 Draft PR #66 open against development. CI passed at cb41171 (run 39394345786);
+  subsequent commits need their own exact-SHA checks and final release audit.
+- [!] 35 Production promotion: requires NEW user approval after the final report,
+  plus release/security gates. Kimi activation separately blocked.
 - [ ] 36 Exact production SHA revalidation.
 - [ ] 37 Controlled Acer cutover.
 - [!] 38 Real Telegram acceptance: requires messages from a real human/test account;
@@ -165,6 +169,20 @@ pending. Do not index the raw PDF or promote unverified features.
   **774/774 PASS**, SECRET SCAN OK, ZION VALIDATION OK. Evidence:
   `/home/zetta/.codex/worktrees/zion-v2-large-validation.log`.
   No production, configuration, key or runtime switch occurred.
+
+## Knowledge freshness enforcement — 2026-10-20
+
+- Manifest schema 2 carries source ID/title/type, snapshot date, authority,
+  reciprocal supersession, freshness, expiry and notes. Schema 1 remains readable
+  for legacy fixtures with the previous status semantics.
+- DRAFT and UNVERIFIED are explicitly excluded; a CURRENT source cannot also be
+  superseded. Unknown, conflicting, duplicate or cyclic links reject the manifest.
+- Expiry is checked on every retrieval in UTC, including after the reload date.
+  Existing approved projections are labelled snapshot_only, not freshly verified.
+- Focused retrieval/freshness tests: 42 PASS. Full validation: 787 tests PASS,
+  SECRET SCAN OK, ZION VALIDATION OK. Evidence:
+  `/home/zetta/.codex/worktrees/zion-v2-freshness-validation.log`. This does not semantically reconcile contradictory claims in
+  different current documents; those still require source review.
 
 ## Structured state and replay hardening — 2026-10-19
 

@@ -5,6 +5,7 @@ import json
 import re
 import unicodedata
 from dataclasses import dataclass
+from datetime import date, datetime, timezone
 from enum import Enum
 from pathlib import Path
 
@@ -224,6 +225,8 @@ class KnowledgeSourceStatus(str, Enum):
     HISTORICAL = "HISTORICAL"
     SUPERSEDED = "SUPERSEDED"
     EXCLUDED = "EXCLUDED"
+    DRAFT = "DRAFT"
+    UNVERIFIED = "UNVERIFIED"
 
 
 @dataclass(frozen=True, slots=True)
@@ -234,10 +237,22 @@ class KnowledgeSource:
     version: str
     source_identity: str
     allowed_agents: frozenset[AgentId]
+    source_id: str = ""
+    title: str = ""
+    source_type: str = ""
+    snapshot_date: str = ""
+    authority: str = ""
+    supersedes: tuple[str, ...] = ()
+    superseded_by: str | None = None
+    freshness: str = "snapshot_only"
+    valid_until: date | None = None
+    notes: str = ""
 
     def allows(self, agent_id: AgentId) -> bool:
         return (
             self.status is KnowledgeSourceStatus.CURRENT
+            and not self.superseded_by
+            and (self.valid_until is None or datetime.now(timezone.utc).date() <= self.valid_until)
             and self.classification
             in {
                 KnowledgeClassification.PUBLIC,
@@ -323,7 +338,8 @@ class KnowledgeBase:
         if match is None:
             raise ValueError("manifest_json_missing")
         payload = json.loads(match.group(1))
-        if payload.get("schema_version") != 1:
+        schema_version = payload.get("schema_version")
+        if schema_version not in (1, 2):
             raise ValueError("manifest_schema_unsupported")
         rows = payload.get("sources")
         if not isinstance(rows, list):
@@ -367,6 +383,35 @@ class KnowledgeBase:
                 raise ValueError("manifest_enum_invalid") from exc
             if not agents:
                 raise ValueError("manifest_agents_empty")
+            metadata = {}
+            if schema_version == 2:
+                for field in ("id", "title", "source_type", "snapshot_date", "authority", "freshness", "notes"):
+                    if not isinstance(raw.get(field), str) or not raw[field].strip():
+                        raise ValueError("manifest_metadata_incomplete")
+                date.fromisoformat(raw["snapshot_date"])
+                supersedes = raw.get("supersedes")
+                superseded_by = raw.get("superseded_by")
+                if (not isinstance(supersedes, list)
+                    or any(not isinstance(item, str) or not item for item in supersedes)
+                    or len(set(supersedes)) != len(supersedes)
+                    or (superseded_by is not None and (not isinstance(superseded_by, str) or not superseded_by))):
+                    raise ValueError("manifest_supersession_invalid")
+                if raw["freshness"] not in {"snapshot_only", "expires"}:
+                    raise ValueError("manifest_freshness_invalid")
+                expiry = raw.get("valid_until")
+                if raw["freshness"] == "expires":
+                    if not isinstance(expiry, str):
+                        raise ValueError("manifest_expiry_missing")
+                    expiry = date.fromisoformat(expiry)
+                    if expiry < date.fromisoformat(raw["snapshot_date"]):
+                        raise ValueError("manifest_expiry_invalid")
+                elif expiry is not None:
+                    raise ValueError("manifest_expiry_unexpected")
+                metadata = dict(source_id=raw["id"], title=raw["title"],
+                    source_type=raw["source_type"], snapshot_date=raw["snapshot_date"],
+                    authority=raw["authority"], supersedes=tuple(supersedes),
+                    superseded_by=superseded_by, freshness=raw["freshness"],
+                    valid_until=expiry, notes=raw["notes"])
             sources[filename] = KnowledgeSource(
                 filename=filename,
                 classification=classification,
@@ -374,7 +419,32 @@ class KnowledgeBase:
                 version=version,
                 source_identity=source_identity,
                 allowed_agents=agents,
+                **metadata,
             )
+        if schema_version == 2:
+            by_id = {source.source_id: source for source in sources.values()}
+            if len(by_id) != len(sources):
+                raise ValueError("manifest_duplicate_source_id")
+            for source in sources.values():
+                for prior in source.supersedes:
+                    if prior not in by_id or by_id[prior].superseded_by != source.source_id:
+                        raise ValueError("manifest_supersession_conflict")
+                if source.superseded_by:
+                    successor = by_id.get(source.superseded_by)
+                    if not successor or source.source_id not in successor.supersedes:
+                        raise ValueError("manifest_supersession_conflict")
+                    if source.status is KnowledgeSourceStatus.CURRENT:
+                        raise ValueError("manifest_current_source_superseded")
+                visited = {source.source_id}
+                cursor = source
+                while cursor.superseded_by:
+                    if cursor.superseded_by in visited:
+                        raise ValueError("manifest_supersession_cycle")
+                    visited.add(cursor.superseded_by)
+                    next_source = by_id.get(cursor.superseded_by)
+                    if next_source is None:
+                        raise ValueError("manifest_supersession_unknown")
+                    cursor = next_source
         return sources
 
     def _parse_file(
