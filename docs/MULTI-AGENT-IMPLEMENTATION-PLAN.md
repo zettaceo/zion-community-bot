@@ -74,7 +74,9 @@ Never label deferred Kimi benchmarks PASS or the entire v2 mission complete.
 - [~] 03 Telegram store: protected primary-token resolution and matching release
   preflight implemented; actual primary-token migration deferred to approved cutover.
 - [~] 04 Bounded provider protocol and Kimi adapter implemented/tested; runtime selection pending.
-- [~] 05 Provider-aware protected store and no-echo provisioner implemented/tested; Kimi credential absent.
+- [~] 05 Provider-aware protected store and private DM provisioner implemented;
+  pending Kimi capture survives restart as interception-only metadata, with fresh
+  authorization required for storage. Kimi credential absent.
 - [~] 06 DM enforcement: existing tests pass; new cognitive paths must reuse the gate.
 - [~] 07 Bounded reviewed aliases and confidence tiers implemented; wider evaluation pending.
 - [~] 08 Expanded intents, stable DB delivery families and noisy-language handler regressions pass.
@@ -100,7 +102,10 @@ Never label deferred Kimi benchmarks PASS or the entire v2 mission complete.
 - [~] 21 EIR diagnosis/claim boundaries implemented; observed cost hallucination now guarded, live retest pending.
 - [~] 22 FREYR objection planning and business retrieval corrected; live pricing-context retest pending.
 - [~] 23 Handoff: existing one-hop implementation; structured context policy pending.
-- [~] 24 Confidentiality: preserve existing refusal/retrieval boundary; v2 matrix pending.
+- [~] 24 Confidentiality: shared AIService output boundary tested across all four
+  identities with 24 malicious/unsupported outputs, plus rejection-to-safe-answer
+  recovery. Rejected content is absent from SQLite and usage remains accounted.
+  This is deterministic simulated-provider evidence, not live model acceptance.
 - [~] 25 Injection: preserve existing controls; expanded source/provider matrix pending.
 - [~] 26 Deterministic output guard implemented; not a complete factuality or confidentiality proof.
 - [~] 27 Mistral timeout/bounded 429 retry/circuit preserved; every HTTP attempt
@@ -114,7 +119,7 @@ Never label deferred Kimi benchmarks PASS or the entire v2 mission complete.
 - [~] 32 Full regression: base 724 PASS; first increment 727/727 PASS, SECRET SCAN OK,
   ZION VALIDATION OK (`/tmp/zion-cognitive-v2-validation.log`).
 - [~] 33 Documentation: this checkpoint and cognitive routing contract added.
-- [~] 34 Draft PR #66 open against development. CI passed at cb41171 (run 39394345786);
+- [~] 34 Draft PR #66 open against development. CI passed at 36634bf (run 39433802728);
   subsequent commits need their own exact-SHA checks and final release audit.
 - [!] 35 Production promotion: requires NEW user approval after the final report,
   plus release/security gates. Kimi activation separately blocked.
@@ -122,6 +127,24 @@ Never label deferred Kimi benchmarks PASS or the entire v2 mission complete.
 - [ ] 37 Controlled Acer cutover.
 - [!] 38 Real Telegram acceptance: requires messages from a real human/test account;
   sending with a bot is not a substitute. New v2 behavior is not deployed.
+
+## Private capture and shared output checkpoint — 2026-10-20
+
+- Restart before the first Kimi candidate now preserves an interception-only
+  latch. The candidate is deleted/refused, never validated or sent to AI; a fresh
+  command is required to authorize storage. Explicit cancellation and switching
+  to Mistral clear the latch durably. Failure to persist/read/clear it fails closed.
+- Focused private provisioning: 34 tests PASS. Full suite at that source state:
+  815 PASS, SECRET SCAN OK, ZION VALIDATION OK.
+- Additional output matrix: six rejected output classes for each of four agents,
+  with untrusted founder authorization in conversation context; eight sequential
+  rejected/safe responses verify recovery without poisoning the circuit. Focused
+  AI suite: 31 PASS. No network, live token or production state used.
+- Evidence: `zion-v2-capture-restart-validation.log` under the persistent worktrees
+  directory. Final combined regression: **817 tests PASS**, SECRET SCAN OK,
+  ZION VALIDATION OK, in `zion-v2-capture-output-validation.log`.
+- The earlier real Mistral quality failures remain open in
+  `docs/COGNITIVE-V2-QUALITY-FINDINGS.md`. These controls do not certify factuality.
 
 ## Recovery checkpoint — 2026-10-19
 

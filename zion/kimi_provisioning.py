@@ -6,6 +6,16 @@ from .logging_safe import register_sensitive_value
 from .secret_store import SecretStore
 
 
+def _pending_key(chat_id, user_id):
+    return f'kimi_pending_capture:{chat_id}:{user_id}'
+
+
+def clear_pending_kimi_capture(rt, chat_id, user_id):
+    """Clear metadata before allowing another provider's capture to start."""
+    rt.db.set_setting(_pending_key(chat_id, user_id), 'closed')
+    rt.kimi_secret_captures.pop((chat_id, user_id), None)
+
+
 async def set_kimi_key_command(update, context):
     from .telegram_app import runtime, _explicit_operator, delete_message_safe, _send_secret_status
     message, chat, user = update.effective_message, update.effective_chat, update.effective_user
@@ -26,6 +36,13 @@ async def set_kimi_key_command(update, context):
         await message.reply_text('O cofre Kimi está inseguro. O recebimento está bloqueado.')
         return
     key = (chat.id, user.id)
+    try:
+        # A restart invalidates authorization to store, not the obligation to
+        # intercept the next candidate. No candidate or hash is persisted.
+        rt.db.set_setting(_pending_key(chat.id, user.id), 'pending')
+    except Exception:
+        await message.reply_text('Não foi possível preparar o recebimento seguro. Não envie a chave.')
+        return
     rt.mistral_secret_captures.pop(key, None)
     rt.kimi_secret_captures[key] = time.monotonic() + 120
     await message.reply_text(
@@ -63,7 +80,15 @@ async def kimi_secret_capture_handler(update, context):
         await delete_message_safe(context, chat.id, message.message_id)
         raise ApplicationHandlerStop
     expiry = rt.kimi_secret_captures.get(key)
-    if expiry is None or not message.text or message.text.startswith('/'):
+    if not message.text or message.text.startswith('/'):
+        return
+    try:
+        pending = rt.db.get_setting(_pending_key(chat.id, user.id))
+    except Exception:
+        register_sensitive_value(message.text)
+        await delete_message_safe(context, chat.id, message.message_id)
+        raise ApplicationHandlerStop
+    if expiry is None and pending in (None, 'closed'):
         return
     rt.kimi_secret_captures.pop(key, None)
     register_sensitive_value(message.text)
@@ -76,6 +101,13 @@ async def kimi_secret_capture_handler(update, context):
     if not claimed:
         await delete_message_safe(context, chat.id, message.message_id)
         raise ApplicationHandlerStop
+    try:
+        # The replay marker is durable before this latch is cleared. A crash
+        # cannot send the consumed candidate through the normal conversation.
+        clear_pending_kimi_capture(rt, chat.id, user.id)
+    except Exception:
+        await delete_message_safe(context, chat.id, message.message_id)
+        raise ApplicationHandlerStop
     # Consume even expired/revoked captures: never let a late credential reach
     # generic conversation, telemetry, model input or ordinary message storage.
     deleted = await delete_message_safe(context, chat.id, message.message_id)
@@ -83,7 +115,8 @@ async def kimi_secret_capture_handler(update, context):
         await _send_secret_status(context, chat.id,
             'Não consegui excluir a mensagem. Nada foi armazenado. Exclua-a manualmente.')
         raise ApplicationHandlerStop
-    if user.id not in rt.settings.admin_user_ids or time.monotonic() > expiry:
+    if (user.id not in rt.settings.admin_user_ids or expiry is None
+            or pending != 'pending' or time.monotonic() > expiry):
         await _send_secret_status(context, chat.id,
             'Solicitação expirada ou sem autorização. Nada foi armazenado.')
         raise ApplicationHandlerStop
@@ -123,7 +156,11 @@ async def kimi_secret_capture_handler(update, context):
 async def cancel_kimi_key_command(update, context):
     from .telegram_app import runtime, _explicit_operator
     if update.effective_chat.type == 'private' and _explicit_operator(update, context):
-        runtime(context).kimi_secret_captures.pop((update.effective_chat.id, update.effective_user.id), None)
+        try:
+            clear_pending_kimi_capture(runtime(context), update.effective_chat.id, update.effective_user.id)
+        except Exception:
+            await update.effective_message.reply_text('Não foi possível confirmar o cancelamento. Não envie a chave.')
+            return
         await update.effective_message.reply_text('Recebimento da chave Kimi cancelado.')
 
 

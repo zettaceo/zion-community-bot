@@ -96,6 +96,59 @@ class KimiProvisioningTests(unittest.TestCase):
         self.rt.kimi_provisioning_client.validate_candidate.assert_not_awaited()
         self.assertNotIn(SECRET_A, '\n'.join(self.rt.db._conn.iterdump()))
 
+    def test_first_candidate_after_restart_is_deleted_without_validation(self):
+        self.arm()
+        self.rt.close()
+        self.rt = fixtures.Runtime(self.settings)
+        ctx = FakeContext(self.rt)
+        self.rt.kimi_provisioning_client.validate_candidate = AsyncMock()
+        self.capture(ctx)
+        self.assertIn((1001, 2), ctx.bot.deleted)
+        self.rt.kimi_provisioning_client.validate_candidate.assert_not_awaited()
+        self.assertEqual(self.rt.kimi_secret_store.status(), SecretStore.MISSING)
+        self.assertIn('expirada', ctx.bot.sent[-1][1])
+        self.assertNotIn(SECRET_A, '\n'.join(self.rt.db._conn.iterdump()))
+        self.assertEqual(self.rt.db.get_setting('kimi_pending_capture:1001:1'), 'closed')
+        # The consumed message is still blocked after its latch is closed.
+        self.capture(ctx)
+        # A distinct ordinary message is no longer swallowed.
+        asyncio.run(kimi_secret_capture_handler(
+            make_update(user_id=1, message_id=3, text='Olá'), ctx))
+
+    def test_restart_requires_fresh_command_to_authorize_storage(self):
+        self.arm()
+        self.rt.close()
+        self.rt = fixtures.Runtime(self.settings)
+        ctx = self.arm()
+        self.rt.kimi_provisioning_client.validate_candidate = AsyncMock()
+        self.capture(ctx)
+        self.rt.kimi_provisioning_client.validate_candidate.assert_awaited_once()
+        self.assertEqual(self.rt.kimi_secret_store.read(), SECRET_A)
+
+    def test_pending_write_failure_never_invites_secret_submission(self):
+        ctx = FakeContext(self.rt)
+        update = make_update(user_id=1)
+        with patch.object(self.rt.db, 'set_setting', side_effect=RuntimeError(SECRET_A)):
+            asyncio.run(set_kimi_key_command(update, ctx))
+        self.assertFalse(self.rt.kimi_secret_captures)
+        self.assertNotIn(SECRET_A, str(update.effective_message.replies))
+
+    def test_latch_clear_failure_deletes_and_does_not_validate(self):
+        ctx = self.arm()
+        self.rt.kimi_provisioning_client.validate_candidate = AsyncMock()
+        with patch.object(self.rt.db, 'set_setting', side_effect=RuntimeError()):
+            self.capture(ctx)
+        self.assertIn((1001, 2), ctx.bot.deleted)
+        self.rt.kimi_provisioning_client.validate_candidate.assert_not_awaited()
+        self.assertEqual(self.rt.db.get_setting('kimi_pending_capture:1001:1'), 'pending')
+
+    def test_cancel_and_other_provider_clear_latch_durably(self):
+        for command in (cancel_kimi_key_command, set_mistral_key_command):
+            ctx = self.arm()
+            asyncio.run(command(make_update(user_id=1), ctx))
+            self.assertEqual(self.rt.db.get_setting('kimi_pending_capture:1001:1'), 'closed')
+            self.assertFalse(self.rt.kimi_secret_captures)
+
     def test_marker_failure_blocks_provider_and_storage(self):
         ctx = self.arm()
         self.rt.kimi_provisioning_client.validate_candidate = AsyncMock()

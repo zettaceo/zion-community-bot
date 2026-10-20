@@ -102,6 +102,23 @@ from all Telegram copies. No real credential is used in tests or printed.
 These commands require a release containing the handlers; they are not available
 in the currently running production SHA merely because this code exists.
 
+### Restart during private registration
+
+Arming Kimi capture persists only a pending/closed latch scoped to the authorized
+private chat and operator in existing settings. It contains no credential, hash
+or message content and requires no schema change. A restart loses the in-memory
+120-second authorization, but not the interception latch: the next non-command
+text is deleted, marked against replay and rejected as expired. A fresh command
+is required to validate and store a key.
+
+The latch remains pending until consumption, explicit cancellation or switching
+to Mistral capture; it does not silently expire into ordinary conversation.
+Failure to persist the latch prevents the invitation to submit a credential.
+Failure to read/clear it blocks dispatch and provider validation. The durable
+replay marker is written before clearing the latch. This protects the documented
+armed flow, not arbitrary unsolicited credentials sent after cancellation or
+without ever issuing the registration command.
+
 
 ## Stronger Mistral candidate — isolated evaluation only
 

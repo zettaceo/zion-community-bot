@@ -2874,7 +2874,12 @@ async def set_mistral_key_command(
         )
         return
 
-    rt.kimi_secret_captures.pop((chat.id, update.effective_user.id), None)
+    from .kimi_provisioning import clear_pending_kimi_capture
+    try:
+        clear_pending_kimi_capture(rt, chat.id, update.effective_user.id)
+    except Exception:
+        await message.reply_text("Não foi possível preparar o recebimento seguro. Não envie a chave.")
+        return
     rt.mistral_secret_captures[(chat.id, update.effective_user.id)] = (
         time.monotonic() + MISTRAL_SECRET_CAPTURE_TTL_SECONDS
     )
