@@ -2186,11 +2186,20 @@ def _control_center_view(
             markup,
         )
     if action == "ai":
+        try:
+            totals = rt.ai.provider_token_budget.totals()
+            provider_tokens = str(totals['providers'].get('mistral', 0))
+            model_tokens = str(totals['models'].get(rt.settings.mistral_model, 0))
+        except Exception:
+            provider_tokens = model_tokens = 'UNAVAILABLE'
         return (
             "AI & KNOWLEDGE\n"
             "Active provider: Mistral\n"
             f"Active model: {rt.settings.mistral_model}\n"
             f"Tokens today UTC: {rt.ai.tokens_used_today()}/{rt.settings.ai_daily_token_budget}\n"
+            f"Runtime ledger Mistral tokens (charged/reserved): {provider_tokens}\n"
+            f"Runtime ledger active model tokens (charged/reserved): {model_tokens}\n"
+            "Runtime ledger: UTC, starts at release adoption; not currency billing\n"
             f"Accounting: {'OK' if rt.ai.accounting_healthy else 'FAIL-CLOSED'}\n"
             f"Kimi store: {rt.kimi_secret_store.status()}\n"
             "Kimi activation: BLOCKED — benchmark/policy acceptance pending\n"
@@ -7468,7 +7477,7 @@ async def error_handler(
 
 
 def build_application(settings: Settings | None = None) -> Application:
-    settings = settings or Settings.from_env()
+    settings = (settings or Settings.from_env()).with_primary_telegram_identity()
 
     configure_logging(
         settings.log_path,
@@ -7477,7 +7486,7 @@ def build_application(settings: Settings | None = None) -> Application:
     )
 
     if not settings.telegram_token:
-        raise RuntimeError("TELEGRAM_BOT_TOKEN não configurado.")
+        raise RuntimeError("Identidade Telegram principal não configurada.")
     if settings.legacy_mistral_api_key_present:
         raise RuntimeError(
             "MISTRAL_API_KEY está depreciada e deve permanecer vazia; "

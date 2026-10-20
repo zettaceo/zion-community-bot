@@ -71,7 +71,8 @@ Never label deferred Kimi benchmarks PASS or the entire v2 mission complete.
 - [~] 01 Threat model and architecture: preserve existing boundaries; extend for
   provider data handling, cost admission, context isolation and output validation.
 - [~] 02 Registry/authority: expanded intents and existing deterministic authority implemented; final v2 acceptance pending.
-- [~] 03 Telegram store: existing implementation, primary-token migration decision pending.
+- [~] 03 Telegram store: protected primary-token resolution and matching release
+  preflight implemented; actual primary-token migration deferred to approved cutover.
 - [~] 04 Bounded provider protocol and Kimi adapter implemented/tested; runtime selection pending.
 - [~] 05 Provider-aware protected store and no-echo provisioner implemented/tested; Kimi credential absent.
 - [~] 06 DM enforcement: existing tests pass; new cognitive paths must reuse the gate.
@@ -102,8 +103,10 @@ Never label deferred Kimi benchmarks PASS or the entire v2 mission complete.
 - [~] 24 Confidentiality: preserve existing refusal/retrieval boundary; v2 matrix pending.
 - [~] 25 Injection: preserve existing controls; expanded source/provider matrix pending.
 - [~] 26 Deterministic output guard implemented; not a complete factuality or confidentiality proof.
-- [ ] 27 Provider resilience/fallback.
-- [~] 28 Durable isolated evaluation reservation ledger implemented; production provider budgets pending.
+- [~] 27 Mistral timeout/bounded 429 retry/circuit preserved; every HTTP attempt
+  now has durable admission. Cross-provider fallback remains blocked by acceptance.
+- [~] 28 Isolated monetary evaluation ledger and integrated runtime provider/model
+  token reservations implemented. Runtime currency pricing/escalation remains pending.
 - [~] 29 Versioned 100-case synthetic dataset (13 categories), generation evaluator and human-review gate implemented.
 - [!] 30 Live A/B benchmark: requires certified store, official prices, credential,
   synthetic/public-only evaluation inputs and bounded spend. Operator will provision through private ZION DM after release; Kimi evaluation deferred.
@@ -169,6 +172,28 @@ pending. Do not index the raw PDF or promote unverified features.
   **774/774 PASS**, SECRET SCAN OK, ZION VALIDATION OK. Evidence:
   `/home/zetta/.codex/worktrees/zion-v2-large-validation.log`.
   No production, configuration, key or runtime switch occurred.
+
+## Runtime budgets and primary identity — 2026-10-20
+
+- Every runtime Mistral HTTP attempt now reserves tokens durably before I/O,
+  including retries and route/classification calls. Shared/provider/model caps
+  use the existing daily token policy, without changing production configuration.
+- Unknown results retain the reservation across timeout, cancellation and restart.
+  Successful usage settles once; overrun/corruption fails closed. No prompts or
+  identities are stored in this ledger; SQLite schema is unchanged.
+- Private Control Center shows charged/reserved totals and reports unavailable
+  accounting explicitly. This is not a currency invoice. No Kimi activation,
+  model upgrade or automatic fallback occurred.
+- Budget checkpoint: 801 tests PASS, SECRET SCAN OK, ZION VALIDATION OK.
+  Evidence: `/home/zetta/.codex/worktrees/zion-v2-runtime-budget-final-validation.log`.
+- Primary Telegram resolution now supports the protected store in both startup
+  and release preflight. Unsafe storage blocks fallback; absent storage preserves
+  legacy behavior until an approved migration. No real token was read/moved.
+  Focused identity/application/config validation: 20 tests PASS.
+- Details: `docs/PROVIDER-RUNTIME-BUDGET.md` and
+  `docs/PRIMARY-TELEGRAM-IDENTITY.md`. Full combined validation: 805 tests
+  PASS, SECRET SCAN OK, ZION VALIDATION OK. Evidence:
+  `/home/zetta/.codex/worktrees/zion-v2-budget-identity-validation.log`.
 
 ## Knowledge freshness enforcement — 2026-10-20
 

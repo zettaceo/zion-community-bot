@@ -83,6 +83,17 @@ class ControlCenterTests(unittest.TestCase):
         self.assertIn("Tokens today UTC:", text)
         self.assertNotIn(str(self.runtime.settings.mistral_secret_path), text)
 
+    def test_provider_ledger_failure_shows_unavailable_not_zero(self):
+        from zion.provider_budget import ProviderTokenBudget
+        self.runtime.db.set_setting(ProviderTokenBudget.KEY, '{broken')
+        asyncio.run(send_control_center(self.update(), self.context))
+        nonce = next(iter(self.runtime.control_center_sessions))
+        update = self.update(data=f"zc1:{nonce}:ai")
+        asyncio.run(control_center_callback(update, self.context))
+        text = update.callback_query.edits[0][0]
+        self.assertIn('tokens (charged/reserved): UNAVAILABLE', text)
+        self.assertIn('Accounting: FAIL-CLOSED', text)
+
     def test_non_operator_cannot_open_or_use_panel(self) -> None:
         update = self.update(user_id=9)
         self.assertFalse(

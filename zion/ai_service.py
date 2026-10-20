@@ -14,6 +14,7 @@ from .db import ZionDB
 from .knowledge import KnowledgeBase
 from .language_recovery import recover_language
 from .mistral import MistralClient
+from .provider_budget import ProviderTokenBudget, ProviderBudgetError
 from .models import (
     AIAnswer,
     AIClassification,
@@ -83,7 +84,11 @@ class AIService:
         self.secret_store = secret_store or SecretStore(
             settings.mistral_secret_path
         )
-        self.client = MistralClient(settings, self.secret_store)
+        cap = max(0, settings.ai_daily_token_budget)
+        self.provider_token_budget = ProviderTokenBudget(db, daily_limit=cap,
+            provider_limits={'mistral': cap}, model_limits={settings.mistral_model: cap})
+        self.client = MistralClient(settings, self.secret_store,
+                                   token_budget=self.provider_token_budget)
         self._semaphore = asyncio.Semaphore(settings.ai_max_concurrency)
         self._budget_lock = threading.Lock()
         self._reserved_tokens = 0
@@ -137,6 +142,11 @@ class AIService:
 
     @property
     def accounting_healthy(self) -> bool:
+        if self._accounting_healthy:
+            try:
+                self.provider_token_budget.totals()
+            except Exception:
+                self._accounting_healthy = False
         return self._accounting_healthy
 
     def _safe_set_setting(self, key: str, value: str) -> bool:
@@ -404,7 +414,7 @@ class AIService:
             return 0
 
     def budget_remaining(self) -> int | None:
-        if not self._accounting_healthy:
+        if not self.accounting_healthy:
             return 0
 
         budget = self.settings.ai_daily_token_budget
@@ -413,6 +423,13 @@ class AIService:
 
         used = self.tokens_used_today()
         if not self._accounting_healthy:
+            return 0
+        try:
+            # The two ledgers overlap: use the larger conservative total,
+            # never sum them and double-charge successful calls.
+            used = max(used, self.provider_token_budget.totals()['total'])
+        except Exception:
+            self._accounting_healthy = False
             return 0
         return max(0, budget - used)
 
@@ -661,6 +678,10 @@ class AIService:
                 return replace(answer, text=PUBLIC_FALLBACK)
             return answer
 
+        except ProviderBudgetError:
+            return AIAnswer(text="O limite de uso da IA está indisponível ou foi atingido. Tente novamente mais tarde.",
+                            model=self.settings.mistral_model)
+
         except Exception as exc:
             self._record_provider_failure()
             self._charge_uncertain_budget(reservation)
@@ -753,6 +774,10 @@ class AIService:
                 input_hash=self._hash_text(safe_text),
             )
             return answer
+        except ProviderBudgetError:
+            return AIAnswer(text="O limite de uso da IA está indisponível ou foi atingido. Tente novamente mais tarde.",
+                            model=self.settings.mistral_model)
+
         except Exception as exc:
             self._record_provider_failure()
             self._charge_uncertain_budget(reservation)
@@ -852,6 +877,10 @@ class AIService:
                 metadata={"target_language": safe_target},
             )
             return answer
+        except ProviderBudgetError:
+            return AIAnswer(text="O limite de uso da IA está indisponível ou foi atingido. Tente novamente mais tarde.",
+                            model=self.settings.mistral_model)
+
         except Exception as exc:
             self._record_provider_failure()
             self._charge_uncertain_budget(reservation)
@@ -928,6 +957,9 @@ class AIService:
             )
             return result
 
+        except ProviderBudgetError:
+            return None
+
         except Exception as exc:
             self._record_provider_failure()
             self._charge_uncertain_budget(reservation)
@@ -988,6 +1020,9 @@ class AIService:
                 metadata={"authority": "interpretation_only"},
             )
             return result
+        except ProviderBudgetError:
+            return None
+
         except Exception as exc:
             self._record_provider_failure()
             self._charge_uncertain_budget(reservation)

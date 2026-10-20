@@ -14,6 +14,7 @@ from urllib.parse import urlparse
 import httpx
 
 from .response_planner import plan_response
+from .provider_budget import ProviderTokenBudget, ProviderBudgetError
 from .config import Settings
 from .models import AIAnswer, AIClassification, AIRouteClassification
 from .secret_store import SecretStore, SecretStoreError
@@ -400,8 +401,10 @@ class MistralClient:
         self,
         settings: Settings,
         secret_store: SecretStore | None = None,
+        *, token_budget: ProviderTokenBudget | None = None,
     ):
         self.settings = settings
+        self.token_budget = token_budget
         self.secret_store = secret_store or SecretStore(
             settings.mistral_secret_path
         )
@@ -465,11 +468,35 @@ class MistralClient:
         )
 
     async def _chat(
+        self, messages: list[dict[str, str]], *, temperature: float = 0.1,
+        max_tokens: int | None = None,
+    ) -> MistralRawResponse:
+        reservations: list[str] = []
+        try:
+            result = await self._chat_request(messages, temperature=temperature,
+                max_tokens=max_tokens, reservations=reservations)
+            if self.token_budget is not None and reservations:
+                if result.model != self.settings.mistral_model:
+                    raise ProviderBudgetError('unexpected_response_model')
+                self.token_budget.settle(reservations[-1], result.input_tokens, result.output_tokens)
+                reservations.pop()
+            return result
+        finally:
+            if self.token_budget is not None:
+                for reservation in reservations:
+                    try:
+                        self.token_budget.retain_uncertain(reservation)
+                    except Exception:
+                        # The durable pending reservation still carries its charge.
+                        logger.error("Provider budget reconciliation unavailable")
+
+    async def _chat_request(
         self,
         messages: list[dict[str, str]],
         *,
         temperature: float = 0.1,
         max_tokens: int | None = None,
+        reservations: list[str],
     ) -> MistralRawResponse:
         if not self.configured:
             raise RuntimeError(
@@ -515,6 +542,14 @@ class MistralClient:
         ) as client:
             for attempt in range(max_retries + 1):
                 await self._wait_for_request_slot()
+                if self.token_budget is not None:
+                    # Bound the fully serialized request, including system text.
+                    estimate = 2 * len(json.dumps(payload, ensure_ascii=False).encode('utf-8')) + 4096 + payload['max_tokens']
+                    try:
+                        reservation = self.token_budget.reserve('mistral', self.settings.mistral_model, estimate)
+                    except Exception:
+                        raise ProviderBudgetError('runtime_budget_unavailable') from None
+                    reservations.append(reservation)
                 response = await client.post(
                     self.settings.mistral_api_url,
                     headers=headers,
