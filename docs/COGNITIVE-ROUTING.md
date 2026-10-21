@@ -87,13 +87,14 @@ live availability probes. There is no shell, URL fetch, SQL or arbitrary path
 operation. Public API capabilities remain NOT_PUBLISHED until a reviewed
 interface authority contract exists.
 
-The synthetic evaluation harness uses this layer. Provider-native function-call
-transport and live dynamic tools are not enabled or certified by this increment.
+The synthetic evaluation harness uses this layer. The 2026-10-20 increment also
+wires native Mistral function calls into candidate runtime generation; see
+COGNITIVE-V2-GENERATION-POLICY.md. Tools still read snapshots, not live systems.
 
 `ResponsePlan` supplies fixed response-shape instructions to the shared answer
 prompt. It recognizes explanation, comparison, objection, support diagnosis,
 clarification, partnership qualification and security explanation. Its bounded
-risk/complexity labels are advisory; they do not choose a model, grant authority,
+risk/complexity labels are advisory inputs to host-approved model policy; they never grant authority,
 authorize financial actions or change Guardian decisions. No user text or chain
 of thought is copied into the system instruction. Missing evidence asks for
 clarification. This remains a reviewed lexical planner, not general reasoning.

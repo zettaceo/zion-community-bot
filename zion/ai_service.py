@@ -12,6 +12,13 @@ from .agents import AgentId
 from .config import Settings
 from .db import ZionDB
 from .knowledge import KnowledgeBase
+from .knowledge import KnowledgeClassification
+from .knowledge_tools import KnowledgeTools
+from .generation_policy import GenerationPolicy, GenerationFailure
+from .response_planner import plan_response
+from .mistral import build_answer_messages
+from .providers import CompletionProvider, MistralCompletionProvider
+from .runtime_cost import RuntimeCostBudget, RequestAdmission
 from .language_recovery import recover_language
 from .mistral import MistralClient
 from .provider_budget import ProviderTokenBudget, ProviderBudgetError
@@ -77,6 +84,9 @@ class AIService:
         db: ZionDB,
         knowledge: KnowledgeBase,
         secret_store: SecretStore | None = None,
+        *, generation_policy: GenerationPolicy | None = None,
+        completion_providers: dict[tuple[str, str], CompletionProvider] | None = None,
+        runtime_cost_budget: RuntimeCostBudget | None = None,
     ):
         self.settings = settings
         self.db = db
@@ -85,10 +95,28 @@ class AIService:
             settings.mistral_secret_path
         )
         cap = max(0, settings.ai_daily_token_budget)
+        self.generation_policy = generation_policy or GenerationPolicy(
+            settings.mistral_model, min(settings.mistral_max_tokens, 4096))
+        if self.generation_policy.baseline.model != settings.mistral_model:
+            raise ValueError('baseline_policy_mismatch')
+        self.completion_providers = dict(completion_providers or {})
+        approvals = self.generation_policy.approvals
         self.provider_token_budget = ProviderTokenBudget(db, daily_limit=cap,
-            provider_limits={'mistral': cap}, model_limits={settings.mistral_model: cap})
+            provider_limits={name: cap for name in {'mistral', *(a.provider for a in approvals)}},
+            model_limits={name: cap for name in {settings.mistral_model, *(a.model for a in approvals)}})
+        self.runtime_cost_budget = runtime_cost_budget
+        if runtime_cost_budget is not None:
+            self.provider_token_budget = RequestAdmission(self.provider_token_budget, runtime_cost_budget)
+        for (provider, model), adapter in self.completion_providers.items():
+            if isinstance(adapter, MistralCompletionProvider):
+                if provider != 'mistral' or adapter.client.settings.mistral_model != model:
+                    raise ValueError('candidate_adapter_mismatch')
+                # Mistral retries require admission at the HTTP-attempt level,
+                # not one reservation around an entire retriable completion.
+                adapter.client.token_budget = self.provider_token_budget
         self.client = MistralClient(settings, self.secret_store,
-                                   token_budget=self.provider_token_budget)
+                                   token_budget=self.provider_token_budget,
+                                   knowledge_tools=KnowledgeTools(knowledge))
         self._semaphore = asyncio.Semaphore(settings.ai_max_concurrency)
         self._budget_lock = threading.Lock()
         self._reserved_tokens = 0
@@ -448,6 +476,56 @@ class AIService:
             text.encode("utf-8", errors="ignore")
         ).hexdigest()[:24]
 
+    async def _generate_answer(self, kwargs: dict, *, agent: AgentId,
+                               context_query: str) -> AIAnswer:
+        chunks = self.knowledge.search(context_query, agent_id=agent)
+        public_only = bool(chunks) and all(
+            c.authority.classification is KnowledgeClassification.PUBLIC for c in chunks)
+        available = frozenset(key for key, client in self.completion_providers.items()
+                              if self.runtime_cost_budget is not None and client.configured)
+        selection = self.generation_policy.select(
+            plan_response(agent_id=agent, question=kwargs['question'], has_evidence=bool(chunks)),
+            has_evidence=bool(chunks), public_only=public_only, available=available)
+        if selection.reason == 'baseline':
+            try:
+                return await self.client.answer(**kwargs)
+            except ProviderBudgetError:
+                raise
+            except Exception:
+                raise GenerationFailure('mistral', self.settings.mistral_model) from None
+        # Candidate generation gets PUBLIC-only evidence and no tool authority.
+        # No implicit retry/fallback after an uncertain request or rejection.
+        evidence = KnowledgeTools(self.knowledge).call('search_approved_knowledge',
+            {'query': context_query}, agent_id=agent).render()
+        if not evidence:
+            raise ProviderBudgetError('candidate_evidence_unavailable')
+        messages = build_answer_messages(question=kwargs['question'], context=evidence,
+            # Historical assistant output may have been grounded in CONTROLLED
+            # material. It has no public classification and cannot be exported
+            # to a new provider merely because this turn retrieves PUBLIC data.
+            conversation_context='', agent_id=agent.value)
+        import json
+        upper = 2 * len(json.dumps(messages, ensure_ascii=False).encode('utf-8')) + 4096
+        adapter = self.completion_providers[(selection.provider, selection.model)]
+        reservation = (None if isinstance(adapter, MistralCompletionProvider) else
+            self.provider_token_budget.reserve(selection.provider, selection.model,
+                upper + selection.max_output_tokens))
+        try:
+            result = await adapter.complete(messages, max_tokens=selection.max_output_tokens)
+            if result.model != selection.model:
+                raise ProviderBudgetError('unexpected_response_model')
+            if reservation is not None:
+                self.provider_token_budget.settle(reservation, result.input_tokens, result.output_tokens)
+            return AIAnswer(result.text, result.model, result.input_tokens,
+                result.output_tokens, result.latency_ms, evidence)
+        except ProviderBudgetError:
+            raise
+        except Exception:
+            raise GenerationFailure(selection.provider, selection.model) from None
+        finally:
+            if reservation is not None:
+                self.provider_token_budget.retain_uncertain(reservation)
+
     async def answer(
         self,
         *,
@@ -637,7 +715,8 @@ class AIService:
                         client_kwargs["conversation_context"] = (
                             safe_conversation_context
                         )
-                    answer = await self.client.answer(**client_kwargs)
+                    answer = await self._generate_answer(client_kwargs, agent=selected_agent,
+                                                         context_query=safe_context_query)
             finally:
                 self._release_budget(reservation)
 
@@ -668,7 +747,8 @@ class AIService:
                     "agent_id": selected_agent.value,
                 },
             )
-            check = validate_public_response(answer.text, official_context=context)
+            check = validate_public_response(answer.text,
+                official_context=context + "\n" + answer.evidence_context)
             if not check.allowed:
                 self._record_ai_event(
                     chat_id=chat_id, user_id=user_id, purpose="response_guard",
@@ -685,15 +765,18 @@ class AIService:
         except Exception as exc:
             self._record_provider_failure()
             self._charge_uncertain_budget(reservation)
-            logger.warning("Falha na resposta Mistral: %s", exc)
+            failed_model = exc.model if isinstance(exc, GenerationFailure) else self.settings.mistral_model
+            failed_provider = exc.provider if isinstance(exc, GenerationFailure) else 'mistral'
+            logger.warning("Falha na geração | provider=%s | error=%s", failed_provider, type(exc).__name__)
             self._record_ai_event(
                 chat_id=chat_id,
                 user_id=user_id,
                 purpose="support_answer",
-                model=self.settings.mistral_model,
+                model=failed_model,
                 success=False,
                 input_hash=question_hash,
                 metadata={
+                    "provider": failed_provider,
                     "error_type": type(exc).__name__,
                     "budget_estimate_tokens": reservation,
                     "usage_outcome": "uncertain",
@@ -705,7 +788,7 @@ class AIService:
                     "alguns instantes; a proteção da comunidade continua "
                     "funcionando normalmente."
                 ),
-                model=self.settings.mistral_model,
+                model=failed_model,
             )
 
     async def summarize(

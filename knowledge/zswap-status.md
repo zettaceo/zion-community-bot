@@ -1,7 +1,7 @@
 # Z-SWAP — Estado Público do Produto
 
-Snapshot reconciliado em 16/10/2026 contra a fonte pública atual e o código de
-`zetta-world/swap-z-app` em `166fd5be9c28fb2ffaaffd9413bf61c40f492698`.
+Snapshot reconciliado em 16/10/2026 contra as fontes aprovadas do produto.
+Esta referência datada não é uma verificação da disponibilidade neste instante.
 
 Este arquivo serve para impedir que ZION trate um teaser, beta ou item de roadmap como se estivesse plenamente lançado.
 

@@ -14,10 +14,15 @@ revogáveis da exchange, com saque desabilitado e apenas o mínimo necessário.
 
 # Roteamento DEX e bridge
 
-O fluxo conceitual de swap é: solicitar cotação, comparar rotas, aplicar
-verificações públicas, confirmar na wallet, executar na blockchain e apresentar
-o resultado. As integrações públicas incluem 0x v2, LI.FI, Jupiter e CoW
-Protocol. A disponibilidade varia por rede, ativo, liquidez e provedor.
+O fluxo conceitual de swap é solicitar cotação, revisar a rota e seus custos,
+autorizar a operação aplicável e acompanhar o resultado. A execução depende
+da rede, da rota e do provedor; não há garantia de melhor preço ou ausência de risco.
+
+As fontes de cotação são selecionadas conforme a operação: 0x para a mesma
+rede EVM, Jupiter para a mesma rede Solana e LI.FI para operações entre redes.
+Isso não significa que todas essas fontes disputem toda cotação ao mesmo tempo.
+CoW Protocol é uma integração de ordens limitadas, não uma fonte de cotação do
+fluxo de Swap. A disponibilidade varia por rede, ativo, liquidez e provedor.
 
 No bridge, o usuário escolhe origem, destino, ativo e recipient, revisa custos
 e valor mínimo esperado e confirma a rota compatível. Nem toda combinação tem

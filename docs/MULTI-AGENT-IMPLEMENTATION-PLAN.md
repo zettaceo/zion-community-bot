@@ -1,6 +1,6 @@
 # Cognitive Architecture v2 — current execution checkpoint
 
-Date: 2026-10-20. Status: IN PROGRESS, not production accepted.
+Date: 2026-10-21. Status: IN PROGRESS, not production accepted.
 This section supersedes older current-state labels below; the prior mission's
 checklists remain historical evidence, not proof of v2 completion.
 
@@ -73,7 +73,7 @@ Never label deferred Kimi benchmarks PASS or the entire v2 mission complete.
 - [~] 02 Registry/authority: expanded intents and existing deterministic authority implemented; final v2 acceptance pending.
 - [~] 03 Telegram store: protected primary-token resolution and matching release
   preflight implemented; actual primary-token migration deferred to approved cutover.
-- [~] 04 Bounded provider protocol and Kimi adapter implemented/tested; runtime selection pending.
+- [~] 04 Bounded provider protocol and Kimi adapter implemented/tested; host-owned runtime selection and approval expiry implemented. No candidate is activated.
 - [~] 05 Provider-aware protected store and private DM provisioner implemented;
   pending Kimi capture survives restart as interception-only metadata, with fresh
   authorization required for storage. Kimi credential absent.
@@ -84,9 +84,9 @@ Never label deferred Kimi benchmarks PASS or the entire v2 mission complete.
   switch pairs, including five baseline failures, now pass. Structured user/issue
   state, fixed fragment slots, bounded whole-turn history and a 24-turn adversarial
   regression are implemented. Live acceptance remains pending.
-- [~] 10 Speaker arbitration: existing implementation; v2 concurrency revalidation pending.
+- [~] 10 Speaker arbitration: v2 duplicate-intake test exercises native two-request generation and proves one external speaker with usage counted once. Live concurrency acceptance remains pending.
 - [~] 11 Identity transport: existing implementation; official API revalidation pending.
-- [~] 12 Control Center: private active-provider/model/token budget and Kimi credential-versus-activation views implemented; full monetary runtime policy pending.
+- [~] 12 Control Center: private provider/model token usage, optional estimated currency accounting and credential-versus-activation views implemented. Currency caps are not imposed without a reviewed host policy.
 - [~] 13 Knowledge classification: existing pre-generation filter; channel-aware review pending.
 - [~] 14 APN/paper: canonical APN and final 83-page controlled paper identified;
   recorded hash and reviewed pages are in the source addendum. Full public
@@ -94,14 +94,14 @@ Never label deferred Kimi benchmarks PASS or the entire v2 mission complete.
 - [~] 15 Manifest/freshness: plans snapshot updated after current source/code check;
   schema-2 snapshot/expiry/supersession enforcement implemented. Existing sources
   explicitly remain snapshot_only; no fresh runtime verification is fabricated.
-- [~] 16 Local public knowledge tool registry integrated into evaluation; provider-native function transport pending.
-- [~] 17 Bounded advisory complexity/risk labels implemented; evaluated model policy pending.
+- [~] 16 PUBLIC knowledge registry now wired to native Mistral function transport: one validated batch, bounded outputs, no second tool round and no arbitrary operations. Kimi remains text-only.
+- [~] 17 Host-owned model-selection policy implemented: complexity/evidence/scope and valid quality/privacy/pricing approvals required, plus configured currency admission. Candidate quality acceptance remains pending.
 - [~] 18 Fixed response-mode planner integrated into shared provider prompt; live quality acceptance pending.
 - [~] 19 ZION executive response policy implemented; live competitive quality still FAIL/PENDING.
 - [~] 20 MIMIR mechanism/evidence policy implemented; live response acceptance still pending.
 - [~] 21 EIR diagnosis/claim boundaries implemented; observed cost hallucination now guarded, live retest pending.
 - [~] 22 FREYR objection planning and business retrieval corrected; live pricing-context retest pending.
-- [~] 23 Handoff: existing one-hop implementation; structured context policy pending.
+- [~] 23 Structured handoff implemented: fixed labels, no generated transcript transfer, no authority grant and no other-user issue transfer. Existing one-hop delivery bound is preserved.
 - [~] 24 Confidentiality: shared AIService output boundary tested across all four
   identities with 24 malicious/unsupported outputs, plus rejection-to-safe-answer
   recovery. Rejected content is absent from SQLite and usage remains accounted.
@@ -111,7 +111,7 @@ Never label deferred Kimi benchmarks PASS or the entire v2 mission complete.
 - [~] 27 Mistral timeout/bounded 429 retry/circuit preserved; every HTTP attempt
   now has durable admission. Cross-provider fallback remains blocked by acceptance.
 - [~] 28 Isolated monetary evaluation ledger and integrated runtime provider/model
-  token reservations implemented. Runtime currency pricing/escalation remains pending.
+  token reservations implemented. Optional runtime currency caps, dated prices, frozen-rate settlement and bounded model selection are implemented. Real candidate activation remains blocked by acceptance.
 - [~] 29 Versioned 108-case synthetic dataset (18 categories), generation evaluator and human-review gate implemented.
 - [!] 30 Live A/B benchmark: requires certified store, official prices, credential,
   synthetic/public-only evaluation inputs and bounded spend. Operator will provision through private ZION DM after release; Kimi evaluation deferred.
@@ -119,7 +119,7 @@ Never label deferred Kimi benchmarks PASS or the entire v2 mission complete.
 - [~] 32 Full regression: base 724 PASS; first increment 727/727 PASS, SECRET SCAN OK,
   ZION VALIDATION OK (`/tmp/zion-cognitive-v2-validation.log`).
 - [~] 33 Documentation: this checkpoint and cognitive routing contract added.
-- [~] 34 Draft PR #66 open against development. CI passed at 36634bf (run 39433802728);
+- [~] 34 Draft PR #66 open against development. CI passed at a9f2651 (run 39435020150);
   subsequent commits need their own exact-SHA checks and final release audit.
 - [!] 35 Production promotion: requires NEW user approval after the final report,
   plus release/security gates. Kimi activation separately blocked.
@@ -127,6 +127,28 @@ Never label deferred Kimi benchmarks PASS or the entire v2 mission complete.
 - [ ] 37 Controlled Acer cutover.
 - [!] 38 Real Telegram acceptance: requires messages from a real human/test account;
   sending with a bot is not a substitute. New v2 behavior is not deployed.
+
+## Tools, policy and source checkpoint — 2026-10-20
+
+- Native Mistral tools, host-approved selection, optional monetary admission and
+  structured handoff are implemented; see `COGNITIVE-V2-GENERATION-POLICY.md`.
+- Baseline composition still supplies no candidate approvals, alternative adapters
+  or monetary policy. Kimi registration does not create any of them. Promotion
+  and actual model/cap activation require the separate acceptance gates.
+- Final combined validation on 2026-10-21: 847 tests PASS, SECRET SCAN OK,
+  ZION VALIDATION OK (`zion-v2-final-policy-validation.log`). Focused transport/
+  policy/store suite: 27 PASS. An earlier 845-test run had one fixture error: the
+  synthetic HTTP response omitted `content`, required by the new body-size guard.
+  The fixture now supplies serialized content; the guard and assertions remain.
+  The final run includes two additional response-bound/retry-accounting tests.
+- Exact paper hash/page count reacquired, with fresh visual matrices 76–78 review.
+  Corrected the CoW-as-quote-source conflation in all three affected knowledge
+  sections using source `986ae759` and retained all classifications/qualifiers.
+  Removed repo/SHA prose from the loaded public status chunk; provenance remains
+  in manifest metadata. Full visual semantic review of all 83 pages remains open.
+- Existing live failures remain open. No further paid calls were made merely to
+  obtain green output. The generation-only evaluator is not acceptance for the
+  new native tool path; controlled live tests still need to exercise that path.
 
 ## Private capture and shared output checkpoint — 2026-10-20
 

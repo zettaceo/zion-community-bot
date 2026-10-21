@@ -1280,6 +1280,11 @@ async def answer_natural_conversation(
         answer_kwargs["conversation_context"] = (
             previous_session.transcript
         )
+        if (previous_session.summary is not None
+                and previous_session.summary.agent != selected_profile.agent_id.value):
+            answer_kwargs["conversation_context"] = previous_session.summary.handoff_context(
+                selected_profile.agent_id,
+                same_user=previous_session.last_user_id == update.effective_user.id)
 
     if fragment_query:
         answer_kwargs["context_query"] = fragment_query
@@ -2192,6 +2197,12 @@ def _control_center_view(
             model_tokens = str(totals['models'].get(rt.settings.mistral_model, 0))
         except Exception:
             provider_tokens = model_tokens = 'UNAVAILABLE'
+        cost_status = 'NOT CONFIGURED'
+        if rt.ai.runtime_cost_budget is not None:
+            try:
+                cost_status = str(rt.ai.runtime_cost_budget.totals()['total']) + ' micro-USD estimated/reserved'
+            except Exception:
+                cost_status = 'UNAVAILABLE'
         return (
             "AI & KNOWLEDGE\n"
             "Active provider: Mistral\n"
@@ -2200,6 +2211,7 @@ def _control_center_view(
             f"Runtime ledger Mistral tokens (charged/reserved): {provider_tokens}\n"
             f"Runtime ledger active model tokens (charged/reserved): {model_tokens}\n"
             "Runtime ledger: UTC, starts at release adoption; not currency billing\n"
+            f"Runtime currency policy: {cost_status}\n"
             f"Accounting: {'OK' if rt.ai.accounting_healthy else 'FAIL-CLOSED'}\n"
             f"Kimi store: {rt.kimi_secret_store.status()}\n"
             "Kimi activation: BLOCKED — benchmark/policy acceptance pending\n"

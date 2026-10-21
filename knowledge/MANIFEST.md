@@ -80,7 +80,7 @@ model context is built.
       "file": "z-swap.md",
       "classification": "PUBLIC",
       "status": "CURRENT",
-      "version": "166fd5be9c28fb2ffaaffd9413bf61c40f492698@2026-10-16",
+      "version": "166fd5be9c28fb2ffaaffd9413bf61c40f492698@2026-10-16+routing-2026-10-20@986ae759",
       "source_identity": "zswap-curated-public-snapshot",
       "allowed_agents": [
         "zion",
@@ -97,7 +97,7 @@ model context is built.
       "superseded_by": null,
       "freshness": "snapshot_only",
       "valid_until": null,
-      "notes": "Versioned approved projection; snapshot is not proof of current deployed behavior. Source changes require explicit reconciliation."
+      "notes": "Versioned approved projection; snapshot is not proof of current deployed behavior. Source changes require explicit reconciliation. Routing paragraphs reconciled on 2026-10-20 against source 986ae759 and controlled paper matrices 76-78. Other sections retain their dated snapshot; no live availability or broader classification change."
     },
     {
       "file": "zswap-apn.md",
@@ -147,7 +147,7 @@ model context is built.
       "file": "zswap-features.md",
       "classification": "PUBLIC",
       "status": "CURRENT",
-      "version": "166fd5be9c28fb2ffaaffd9413bf61c40f492698@2026-10-16",
+      "version": "166fd5be9c28fb2ffaaffd9413bf61c40f492698@2026-10-16+routing-2026-10-20@986ae759",
       "source_identity": "zswap-curated-feature-snapshot",
       "allowed_agents": [
         "zion",
@@ -164,7 +164,7 @@ model context is built.
       "superseded_by": null,
       "freshness": "snapshot_only",
       "valid_until": null,
-      "notes": "Versioned approved projection; snapshot is not proof of current deployed behavior. Source changes require explicit reconciliation."
+      "notes": "Versioned approved projection; snapshot is not proof of current deployed behavior. Source changes require explicit reconciliation. Routing paragraphs reconciled on 2026-10-20 against source 986ae759 and controlled paper matrices 76-78. Other sections retain their dated snapshot; no live availability or broader classification change."
     },
     {
       "file": "zswap-safety-boundary.md",
@@ -216,7 +216,7 @@ model context is built.
       "file": "zswap-technical-public.md",
       "classification": "CONTROLLED",
       "status": "CURRENT",
-      "version": "drive-technical-paper-plan-2026-10-14@166fd5be",
+      "version": "drive-technical-paper-plan-2026-10-14@166fd5be+routing-2026-10-20@986ae759",
       "source_identity": "zswap-technical-paper-public-projection",
       "allowed_agents": [
         "mimir"
@@ -230,7 +230,7 @@ model context is built.
       "superseded_by": null,
       "freshness": "snapshot_only",
       "valid_until": null,
-      "notes": "Versioned approved projection; snapshot is not proof of current deployed behavior. Source changes require explicit reconciliation."
+      "notes": "Versioned approved projection; snapshot is not proof of current deployed behavior. Source changes require explicit reconciliation. Routing paragraphs reconciled on 2026-10-20 against source 986ae759 and controlled paper matrices 76-78. Other sections retain their dated snapshot; no live availability or broader classification change."
     }
   ]
 }

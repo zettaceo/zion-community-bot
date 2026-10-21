@@ -7,6 +7,8 @@ URLs, classification or privilege. No provider-specific tool schema is assumed.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
+import re
 from types import MappingProxyType
 
 from .agents import AgentId
@@ -23,7 +25,8 @@ _QUERIES = MappingProxyType({
     'get_public_integrations': 'corretoras CEX integracoes suportadas',
     'get_public_security_summary': 'seguranca riscos nao custodial chaves permissoes',
 })
-TOOL_NAMES = frozenset(_QUERIES) | {'search_approved_knowledge', 'get_public_api_capabilities'}
+TOOL_NAMES = frozenset(_QUERIES) | {'search_approved_knowledge', 'get_public_api_capabilities',
+                                  'get_agent_authority'}
 
 
 class KnowledgeToolError(ValueError):
@@ -53,6 +56,73 @@ class KnowledgeTools:
     def __init__(self, knowledge: KnowledgeBase):
         self._knowledge = knowledge
 
+    @staticmethod
+    def schemas() -> list[dict]:
+        """Fresh schemas: provider mutation must not modify the registry."""
+        return [{'type': 'function', 'function': {
+            'name': name,
+            'description': 'Read approved PUBLIC corpus snapshots only; not a live probe.',
+            'parameters': {'type': 'object', 'additionalProperties': False,
+                'properties': {'query': {'type': 'string', 'minLength': 1, 'maxLength': 6000}}
+                    if name == 'search_approved_knowledge' else {},
+                'required': ['query'] if name == 'search_approved_knowledge' else []},
+        }} for name in sorted(TOOL_NAMES)]
+
+    def resolve_calls(self, calls: list[dict], *, agent_id: AgentId | str) -> tuple[list[dict], list[dict], str]:
+        """One bounded batch; validate all arguments before resolving any call.
+
+        Returns sanitized assistant calls, PUBLIC tool messages and transient
+        evidence for the final output guard. No model-selected identity/scope.
+        """
+        if not isinstance(calls, list) or not 1 <= len(calls) <= 3:
+            raise KnowledgeToolError('tool_batch_bound')
+        decoded = []
+        seen = set()
+        try:
+            for item in calls:
+                identifier = item['id']
+                function = item['function']
+                name, raw = function['name'], function['arguments']
+                if (item['type'] != 'function' or not isinstance(identifier, str)
+                        or not re.fullmatch(r'[a-zA-Z0-9_-]{1,64}', identifier)
+                        or identifier in seen or name not in TOOL_NAMES
+                        or not isinstance(raw, str) or len(raw) > 12000):
+                    raise ValueError()
+                def pairs(values):
+                    result = {}
+                    for key, value in values:
+                        if key in result:
+                            raise ValueError()
+                        result[key] = value
+                    return result
+                args = json.loads(raw, object_pairs_hook=pairs)
+                expected = {'query'} if name == 'search_approved_knowledge' else set()
+                if not isinstance(args, dict) or set(args) != expected:
+                    raise ValueError()
+                if expected and (not isinstance(args['query'], str)
+                        or not args['query'].strip() or len(args['query']) > 6000):
+                    raise ValueError()
+                seen.add(identifier)
+                decoded.append((identifier, name, args))
+        except (KeyError, TypeError, ValueError):
+            raise KnowledgeToolError('invalid_tool_batch') from None
+        normalized, messages, evidence = [], [], []
+        for identifier, name, args in decoded:
+            result = self.call(name, args, agent_id=agent_id)
+            if result.classification != 'PUBLIC':
+                raise KnowledgeToolError('tool_classification')
+            rendered = result.render()
+            evidence.append(rendered)
+            if sum(len(text) for text in evidence) > 12000:
+                raise KnowledgeToolError('tool_output_bound')
+            normalized.append({'id': identifier, 'type': 'function',
+                'function': {'name': name, 'arguments': json.dumps(args)}})
+            messages.append({'role': 'tool', 'tool_call_id': identifier, 'name': name,
+                'content': json.dumps({'status': result.status,
+                    'classification': 'PUBLIC', 'provenance': result.provenance,
+                    'evidence': rendered}, ensure_ascii=False)})
+        return normalized, messages, '\n\n'.join(evidence)
+
     def call(self, operation: str, arguments: dict, *, agent_id: AgentId | str) -> KnowledgeToolResult:
         if not isinstance(operation, str) or operation not in TOOL_NAMES:
             raise KnowledgeToolError('unknown_operation')
@@ -72,6 +142,15 @@ class KnowledgeTools:
         else:
             if arguments:
                 raise KnowledgeToolError('invalid_arguments')
+            if operation == 'get_agent_authority':
+                descriptions = {
+                    AgentId.ZION: 'ZION orienta a comunidade. Somente o Guardian determinístico aplica a política objetiva de moderação.',
+                    AgentId.MIMIR: 'MÍMIR explica tecnologia com informação pública aprovada; não executa operações nem modera.',
+                    AgentId.EIR: 'EIR orienta o suporte e encaminha casos para revisão humana; não recupera fundos nem modera.',
+                    AgentId.FREYR: 'FREYR orienta parcerias; acordos e condições comerciais exigem decisão humana. Não modera.',
+                }
+                return KnowledgeToolResult(operation,
+                    (PublicEvidence('Papel público', descriptions[agent]),), 'FOUND')
             if operation == 'get_public_api_capabilities':
                 # No approved public interface publication exists in this
                 # version. Never infer endpoints from generic API mentions.

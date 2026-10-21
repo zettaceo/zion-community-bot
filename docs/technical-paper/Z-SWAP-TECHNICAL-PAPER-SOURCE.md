@@ -7,8 +7,9 @@ available. Prior-session Drive discovery identified the completed PT-BR v1.0:
 [Z-SWAP — Guia Completo da Plataforma](https://drive.google.com/file/d/1baUgmKSH3kEwJaDZFddsqMVrgJ5wEagX/view),
 modified 2026-10-18, 28,292,993 bytes, 83 pages.
 SHA256: `e6a2f83905ce4f8ed633e41dbb1200c161b76cb5bd1645d0454bdb753fb1b27f`.
-The downloaded temporary copy is no longer available after temporary-directory
-loss; reacquire and verify this digest before any further source reconciliation.
+The copy was reacquired through the Drive connector on 2026-10-20 and its exact
+SHA256 and 83-page count verified. A private copy is retained outside the repo
+under the operator state directory, not indexed or sent to a model provider.
 
 Recorded visual review of pages 2, 22, 77 and 78 found controlled-distribution
 classification, conditional Solana fees, and explicit distinctions between
@@ -18,6 +19,31 @@ is not authorized for public indexing. Its classifications must be reconciled
 with current public authority and implementation before any curated projection.
 The old 67-section editorial classification below remains historical, not a
 page-by-page certification of this newer 83-page PDF.
+
+### Routing reconciliation — 2026-10-20
+
+Fresh visual review of matrices 76–78 agrees with the exact application snapshot
+`986ae759c1c76fe23967a8e61489d986b2bb9a51`: `src/lib/swap/fontes.ts` defines 0x for
+same-chain EVM, Jupiter for same-chain Solana and LI.FI for cross-chain quoting.
+`src/lib/limit/cow.ts` is the separate limit-order integration. CoW is not a
+fourth quote source, and all sources do not compete on every pair. The three
+existing knowledge sections containing the conflation were corrected together;
+source classification/audience is unchanged. Network coverage is not guaranteed
+pair/route availability. No provider URL, internal endpoint or contract address
+was copied into knowledge.
+
+Matrix 78 confirms the previously corrected conditional Solana fee policy and
+the separation of platform and third-party costs. Matrix 77 distinguishes live,
+partial, disabled, planned and unconfirmed scopes. Its unconfirmed Pro Terminal
+status is not a replacement for a public beta label: a UI label and independent
+execution evidence are different claims. Existing public status qualifiers remain.
+The public application certification matrix was inspected at the exact source
+snapshot; this is not a live production probe or proof of current deployments.
+
+The PDF's text extraction omits many table cells and body labels. Only its page
+structure can be inventoried from extracted text; a complete 83-page semantic
+review cannot be certified from that extraction. Full visual reconciliation
+remains open. The raw controlled paper remains outside every runtime corpus.
 
 ## Historical source identity
 

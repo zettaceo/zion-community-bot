@@ -14,6 +14,7 @@ from urllib.parse import urlparse
 import httpx
 
 from .response_planner import plan_response
+from .knowledge_tools import KnowledgeTools
 from .provider_budget import ProviderTokenBudget, ProviderBudgetError
 from .config import Settings
 from .models import AIAnswer, AIClassification, AIRouteClassification
@@ -190,6 +191,7 @@ class MistralRawResponse:
     input_tokens: int
     output_tokens: int
     latency_ms: int
+    tool_calls: list[dict] | None = None
 
 
 def _extract_content(message: dict[str, Any]) -> str:
@@ -414,9 +416,11 @@ class MistralClient:
         settings: Settings,
         secret_store: SecretStore | None = None,
         *, token_budget: ProviderTokenBudget | None = None,
+        knowledge_tools: KnowledgeTools | None = None,
     ):
         self.settings = settings
         self.token_budget = token_budget
+        self.knowledge_tools = knowledge_tools
         self.secret_store = secret_store or SecretStore(
             settings.mistral_secret_path
         )
@@ -482,11 +486,13 @@ class MistralClient:
     async def _chat(
         self, messages: list[dict[str, str]], *, temperature: float = 0.1,
         max_tokens: int | None = None,
+        tools: list[dict] | None = None, tool_choice: str = "auto",
     ) -> MistralRawResponse:
         reservations: list[str] = []
         try:
+            options = {} if tools is None else {'tools': tools, 'tool_choice': tool_choice}
             result = await self._chat_request(messages, temperature=temperature,
-                max_tokens=max_tokens, reservations=reservations)
+                max_tokens=max_tokens, reservations=reservations, **options)
             if self.token_budget is not None and reservations:
                 if result.model != self.settings.mistral_model:
                     raise ProviderBudgetError('unexpected_response_model')
@@ -509,6 +515,8 @@ class MistralClient:
         temperature: float = 0.1,
         max_tokens: int | None = None,
         reservations: list[str],
+        tools: list[dict] | None = None,
+        tool_choice: str = "auto",
     ) -> MistralRawResponse:
         if not self.configured:
             raise RuntimeError(
@@ -530,6 +538,12 @@ class MistralClient:
             "temperature": temperature,
             "max_tokens": max_tokens or self.settings.mistral_max_tokens,
         }
+        if tools is not None:
+            if tool_choice not in {'auto', 'none'}:
+                raise ValueError('invalid_tool_choice')
+            payload.update(tools=tools, tool_choice=tool_choice, parallel_tool_calls=False)
+        if len(json.dumps(payload, ensure_ascii=False).encode('utf-8')) > 96000:
+            raise ValueError('provider_request_bound')
 
         headers = {
             "Authorization": f"Bearer {api_key}",
@@ -620,14 +634,23 @@ class MistralClient:
                 f"Mistral API indisponível (HTTP {response.status_code})."
             )
 
+        if len(response.content) > 1024 * 1024:
+            raise RuntimeError('provider_response_bound')
         data = response.json()
         choices = data.get("choices") or []
-        if not choices:
+        if not isinstance(choices, list) or len(choices) != 1:
             raise RuntimeError("Resposta Mistral sem choices.")
 
         message = choices[0].get("message") or {}
         text = _extract_content(message)
-        if not text:
+        tool_calls = message.get("tool_calls")
+        if tool_calls and (tools is None or tool_choice == 'none'):
+            raise RuntimeError("unexpected_tool_call")
+        if tools is not None and choices[0].get('finish_reason') not in {'stop', 'tool_calls'}:
+            raise RuntimeError("incomplete_tool_response")
+        if tools is not None and bool(tool_calls) != (choices[0].get('finish_reason') == 'tool_calls'):
+            raise RuntimeError('inconsistent_tool_response')
+        if not text and not tool_calls:
             raise RuntimeError("Resposta Mistral sem conteúdo textual.")
 
         input_tokens, output_tokens = _validated_usage_tokens(
@@ -640,6 +663,7 @@ class MistralClient:
             input_tokens=input_tokens,
             output_tokens=output_tokens,
             latency_ms=latency_ms,
+            tool_calls=tool_calls,
         )
 
     async def answer(
@@ -659,19 +683,35 @@ class MistralClient:
                 model=self.settings.mistral_model,
             )
 
-        raw = await self._chat(
-            build_answer_messages(question=question, context=context,
-                                  conversation_context=conversation_context,
-                                  agent_id=agent_id),
-            temperature=0.1,
-        )
+        messages = build_answer_messages(question=question, context=context,
+                                        conversation_context=conversation_context,
+                                        agent_id=agent_id)
+        options = {} if self.knowledge_tools is None else {'tools': self.knowledge_tools.schemas()}
+        raw = await self._chat(messages, temperature=0.1, **options)
+        evidence = ""
+        input_tokens, output_tokens, latency_ms = raw.input_tokens, raw.output_tokens, raw.latency_ms
+        if raw.tool_calls:
+            if self.knowledge_tools is None:
+                raise RuntimeError('unexpected_tool_call')
+            calls, results, evidence = self.knowledge_tools.resolve_calls(raw.tool_calls, agent_id=agent_id)
+            # Discard arbitrary assistant text and hidden reasoning accompanying
+            # a tool request. Only the validated call envelope is returned.
+            messages += [{'role': 'assistant', 'content': '', 'tool_calls': calls}, *results]
+            raw = await self._chat(messages, temperature=0.1,
+                tools=self.knowledge_tools.schemas(), tool_choice='none')
+            if raw.tool_calls:
+                raise RuntimeError('tool_round_bound')
+            input_tokens += raw.input_tokens
+            output_tokens += raw.output_tokens
+            latency_ms += raw.latency_ms
 
         return AIAnswer(
             text=raw.text,
             model=raw.model,
-            input_tokens=raw.input_tokens,
-            output_tokens=raw.output_tokens,
-            latency_ms=raw.latency_ms,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            latency_ms=latency_ms,
+            evidence_context=evidence,
         )
 
     async def summarize(self, text: str) -> AIAnswer:

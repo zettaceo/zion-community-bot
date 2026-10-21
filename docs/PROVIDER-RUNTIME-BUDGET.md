@@ -40,10 +40,13 @@ shows unavailable accounting as unavailable, never as zero.
 
 These are token ceilings, not a currency invoice or a verified account balance.
 The isolated benchmark retains its separate monetary reservation ledger and
-short-lived official price snapshots. Runtime monetary pricing, evaluated model
-escalation and cross-provider fallback remain gated; they are not silently
+short-lived official price snapshots. Optional runtime currency pricing and host-owned model selection are implemented
+in runtime_cost.py and generation_policy.py. Their activation and quality
+acceptance remain gated; they are not silently
 inferred from registration or from a successful unit suite.
 
 Existing Mistral timeout, bounded 429 retry, pacing and circuit breaker remain.
 A pre-network budget denial does not increment provider failures. No retry,
 fallback or model output may weaken retrieval, confidentiality or output guards.
+
+See [generation policy](COGNITIVE-V2-GENERATION-POLICY.md) for atomic token/currency admission, frozen-price settlement and exact candidate activation conditions.

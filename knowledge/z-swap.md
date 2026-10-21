@@ -27,7 +27,11 @@ Antes de confirmar, o usuário deve conferir o ativo, a rede de origem, a rede d
 
 # Agregadores de swap
 
-As integrações públicas atuais para roteamento DEX incluem 0x v2, LI.FI, Jupiter e CoW Protocol.
+As fontes de cotação são 0x para a mesma rede EVM, Jupiter para a mesma rede
+Solana e LI.FI para operações entre redes. A fonte é selecionada conforme a
+operação; não há competição simultânea entre todas em cada pedido.
+CoW Protocol é uma integração de ordens limitadas, não uma fonte de cotação
+do fluxo de Swap. Cobertura de rede não garante rota disponível para todo par.
 
 Uma cotação é uma fotografia de mercado e pode mudar antes da execução. ZION nunca deve prometer preço, rota, preenchimento ou resultado financeiro.
 

@@ -6,12 +6,14 @@ Esta base descreve o comportamento público aprovado da plataforma. Ela serve pa
 
 A tela principal de Swap compara rotas disponíveis antes da execução.
 
-As integrações DEX públicas aprovadas incluem:
+As fontes de cotação são selecionadas conforme a operação:
 
-- 0x v2
-- LI.FI
-- Jupiter
-- CoW Protocol
+- 0x: mesma rede EVM
+- LI.FI: operações entre redes
+- Jupiter: mesma rede Solana
+
+Não significa que todas sejam consultadas para cada par. CoW Protocol é uma
+integração de ordens limitadas, não uma fonte de cotação do fluxo de Swap.
 
 A disponibilidade e o preço de uma rota dependem do mercado, da rede, da liquidez, do ativo e dos provedores no momento da consulta.
 

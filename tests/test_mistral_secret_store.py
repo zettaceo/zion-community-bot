@@ -26,6 +26,8 @@ class FakeResponse:
     def __init__(self, status_code: int, payload=None) -> None:
         self.status_code = status_code
         self._payload = payload or {}
+        import json
+        self.content = json.dumps(self._payload).encode('utf-8')
 
     def json(self):
         return self._payload

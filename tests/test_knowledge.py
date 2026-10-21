@@ -634,5 +634,26 @@ class ZSwapKnowledgeCorpusTests(unittest.TestCase):
             with self.subTest(literal=literal):
                 self.assertNotIn(literal, corpus)
 
+    def test_quote_sources_are_scoped_and_cow_is_not_a_quote_source(self):
+        kb = KnowledgeBase(ROOT / "knowledge")
+        for agent in ("zion", "mimir"):
+            context = kb.render_context("Quais fontes de cotação e roteamento de swap são usadas?", agent_id=agent)
+            with self.subTest(agent=agent):
+                self.assertIn("0x", context)
+                self.assertIn("Jupiter", context)
+                self.assertIn("LI.FI", context)
+                self.assertIn("CoW Protocol", context)
+                self.assertIn("não uma fonte de cotação", context)
+                self.assertIn("mesma rede", context)
+
+    def test_loaded_corpus_content_does_not_embed_repository_or_commit_provenance(self):
+        import re
+        kb = KnowledgeBase(ROOT / "knowledge")
+        for chunk in kb.chunks:
+            with self.subTest(heading=chunk.heading):
+                self.assertNotIn("zetta-world/swap-z-app", chunk.text)
+                self.assertNotIn("zettaceo/zion-community-bot", chunk.text)
+                self.assertIsNone(re.search(r"\b[a-f0-9]{40}\b", chunk.text))
+
 if __name__ == "__main__":
     unittest.main()

@@ -132,3 +132,18 @@ class ContextIsolationV2Tests(unittest.TestCase):
                 self.assertEqual(rt.multi_agent_transport.send_message.await_count, 3)
             finally:
                 rt.close()
+
+    def test_structured_handoff_does_not_grant_authority_or_transfer_other_user_issue(self):
+        import json
+        from zion.conversation_state import summarize_dialogue
+        summary = summarize_dialogue('Meu swap na Base deu erro com USDC', 'mimir', None, same_user=True)
+        own = json.loads(summary.handoff_context('eir', same_user=True))
+        other = json.loads(summary.handoff_context('eir', same_user=False))
+        self.assertEqual(own['destination_agent'], 'eir')
+        self.assertFalse(own['authority_granted'])
+        self.assertEqual(own['reported_issue'], 'problema relatado, não verificado')
+        self.assertIsNone(other['reported_issue'])
+        self.assertNotIn('transcript', own)
+        self.assertNotIn('answer', own)
+        with self.assertRaises(ValueError):
+            summary.handoff_context('administrator', same_user=True)

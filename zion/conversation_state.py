@@ -7,6 +7,7 @@ Unknown subjects remain unknown rather than receiving invented semantic certaint
 from __future__ import annotations
 
 import re
+import json
 from dataclasses import dataclass
 from .agents import AgentId
 from .language_recovery import recover_language
@@ -104,6 +105,16 @@ class DialogueSummary:
                 f'entidades={",".join(self.entities) or "nenhuma"}; '
                 f'relato={self.open_issue or "nenhum"}; '
                 f'objeção={"sim" if self.objection_seen else "não"}; turnos={self.turns}.')
+
+    def handoff_context(self, destination: AgentId | str, *, same_user: bool) -> str:
+        """Transfer fixed dialogue labels, never another agent's generated facts."""
+        target = AgentId(destination)
+        return json.dumps({'kind': 'unverified_dialogue_handoff',
+            'source_agent': AgentId(self.agent).value, 'destination_agent': target.value,
+            'topic': self.topic, 'public_entities': self.entities,
+            'reported_issue': self.open_issue if same_user else None,
+            'objection_seen': self.objection_seen if same_user else False,
+            'authority_granted': False}, ensure_ascii=False)
 
 
 def summarize_dialogue(question: str, agent_id: str, previous: DialogueSummary | None,
