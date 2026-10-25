@@ -103,6 +103,25 @@ def validate_public_response(text: str, *, official_context: str) -> ResponseChe
     # is necessary, not sufficient, to establish any claim about its features.
     approved = ''.join(c for c in unicodedata.normalize('NFKD', official_context)
                        if not unicodedata.combining(c)).casefold()
+    # Observed live claims turned absent comparative and partnership data into
+    # categorical facts. The guard is deliberately narrow, not a general
+    # factuality classifier; explicit official evidence can authorize them.
+    competitor_claims = (
+        r'\b(?:ha|existem|existencia de) (?:sim )?plataformas?[^.!?\n]{0,120}'
+        r'\b(?:taxas? competitivas?|funcionalidades? similares?|abordagens? similares?|mais baratas?)\b',
+        r'\bnao e exclusiv[ao] da z-?swap\b',
+    )
+    if any(re.search(pattern, folded) and not re.search(pattern, approved)
+           for pattern in competitor_claims):
+        return ResponseCheck(False, 'unsupported_competitor_comparison')
+    no_standard_partnership_fee = (
+        r'\b(?:nao ha|nao existe) (?:uma? )?taxa (?:padrao|fixa) '
+        r'(?:de|para) parcerias?\b|\bparcerias? (?:nao (?:tem|possuem) '
+        r'taxa (?:padrao|fixa)|(?:sao|e) gratuit[oa]s?)\b'
+    )
+    if (re.search(no_standard_partnership_fee, folded)
+            and not re.search(no_standard_partnership_fee, approved)):
+        return ResponseCheck(False, 'unsupported_partnership_fee_policy')
     for brand in ('uniswap', 'pancakeswap', '1inch', 'raydium', 'bisq'):
         pattern = r'\b' + re.escape(brand) + r'\b'
         if re.search(pattern, folded) and not re.search(pattern, approved):
@@ -122,3 +141,15 @@ PUBLIC_FALLBACK = (
     'Não tenho informação oficial suficiente para confirmar essa resposta. '
     'Posso explicar o funcionamento público e suas limitações com base no que está confirmado.'
 )
+
+
+def public_fallback_for(reason: str) -> str:
+    """Host-owned public reply for a few known quality failures."""
+    if reason in {'unapproved_market_service_claim', 'unsupported_competitor_comparison'}:
+        return ('Não tenho dados oficiais para comparar a Z-SWAP com essa plataforma '
+                'ou confirmar que as propostas são equivalentes. Posso explicar os '
+                'recursos confirmados da Z-SWAP e sugerir critérios para você comparar.')
+    if reason == 'unsupported_partnership_fee_policy':
+        return ('Não tenho informação oficial sobre uma taxa padrão de parceria. '
+                'Posso explicar o processo público de triagem, sem prometer condições comerciais.')
+    return PUBLIC_FALLBACK

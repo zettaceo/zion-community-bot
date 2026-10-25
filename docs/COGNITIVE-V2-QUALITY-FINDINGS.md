@@ -107,3 +107,89 @@ Usage: 2,124 input, 229 output tokens; estimated charge 424 micro-USD.
 Cumulative isolated ledger after both runs: 13,049 micro-USD reserved/estimated,
 not a bill. The response contains no identified secret and is retained as
 synthetic private evaluation evidence. No response was sent to Telegram.
+
+## Kimi K2.6 protected provisioning and live synthetic review — 2026-10-25
+
+The operator entered the credential through the local hidden prompt. The
+metadata-only authentication probe returned PASS; the private provider directory
+is mode 0700 and the credential file is mode 0600, owned by the service operator.
+No secret value was printed or copied to evaluation evidence. Registration did
+not activate Kimi in the running Telegram service.
+
+The [official Kimi pricing table](https://platform.kimi.ai/docs/pricing/chat)
+was rechecked: K2.6 input is USD 0.95/M tokens and output is USD 4/M tokens;
+K3 input is USD 3/M, output USD 15/M and default cache write USD 3/M. Both
+price snapshots were renewed; the K3 admission estimate conservatively includes
+input plus cache write. The same source announces that K2-series
+models stop being available to newly registered users on 2026-10-31 and are
+planned for retirement by the end of 2026. The isolated evaluator retained its
+USD 0.25/request, USD 2/day and USD 8 total caps, with reservation before each
+request and no automatic retry.
+
+One Kimi v2-001 generation (`20261025T165540864667Z-kimi-k2.6.jsonl`) returned
+REVIEW_REQUIRED. Human review found its explanation of swap routing, costs and
+user control supported by the retrieved PUBLIC context. This is a single
+generation-only PASS, not evidence of Telegram routing or execution.
+
+The first exact-case round (`20261025T165615300449Z-kimi-k2.6.jsonl`) ran
+v2-101, v2-103, v2-105 and v2-106. All four passed the automated gate, but
+human review rejected v2-101 for asserting comparable competing platforms
+without official comparative evidence and v2-103 for asserting that no standard
+partnership fee exists. v2-105 was grounded in the retrieved Orders and Plans
+sections; v2-106 was grounded in route and token-risk sections, with a wording
+caution that user signature should be scoped to on-chain operations.
+
+The prompt now explicitly treats a user's competitor claim as an unverified
+concern, and the deterministic output guard rejects the observed unsupported
+comparison and fee-policy claims. The one exact-case retest
+(`20261025T165909870033Z-kimi-k2.6.jsonl`) returned REVIEW_REQUIRED for both
+v2-101 and v2-103. Human review found both answers factually bounded by the
+retrieved PUBLIC context; v2-103 was slightly stiff in style. This does not
+erase the first-round failures or certify the complete product flow.
+
+The adversarial conversation run (`20261025T165936495070Z-kimi-k2.6.jsonl`)
+stopped at debate turn 3. Turn 1 was grounded. Turn 2 passed automation but
+human review found it converted the user's “isso já existe” into an unsupported
+claim that other platforms have similar approaches. Turn 3 was AUTOMATED_FAIL
+with `unapproved_market_service_claim`; its text was withheld. Debate turns
+4–12 and the support, technical and business conversations were NOT EXECUTED.
+The guard was extended with a regression for the exact turn-2 claim, but no
+subsequent live conversation PASS is claimed.
+
+Cumulative isolated evaluation ledger after these runs: 61,419 micro-USD
+reserved or estimated spent, including earlier Mistral runs. This is not an
+invoice or account balance. Kimi remains inactive in production. Multi-turn
+quality acceptance is FAILED/PENDING, and production promotion remains
+unapproved.
+
+## Kimi K3 bounded comparison — 2026-10-25
+
+K3 v2-001 (`20261025T170224784847Z-kimi-k3.jsonl`) returned
+REVIEW_REQUIRED; human review found the short swap explanation grounded. It
+used 2,087 input and 184 output tokens, with 27.4 seconds observed latency and
+18,339 micro-USD conservative estimated charge. A single call cannot establish
+steady-state speed or a pricing advantage.
+
+K3 v2-101/v2-103 (`20261025T170302399977Z-kimi-k3.jsonl`) also returned
+REVIEW_REQUIRED. Human review found both answers avoided unsupported competitor
+and partnership-fee claims. Their observed latencies were 7.2 and 7.8 seconds,
+with combined estimated charge 54,743 micro-USD.
+
+The K3 adversarial conversation (`20261025T170333795086Z-kimi-k3.jsonl`)
+stopped at debate turn 3, again on `unapproved_market_service_claim`. The
+rejected answer is withheld, so no claim is made about its exact wording or
+whether it was a harmless reference. Turns 1 and 2 passed automation and human
+factual review. Debate turns 4–12 and the other three scenarios were NOT
+EXECUTED. K3 did not clear the multi-turn gate.
+
+The candidate's generic safe reply for rejected output was refined: a rejected
+market comparison or unsupported partnership-fee policy
+now receives a fixed, topic-specific public reply. The original model text is
+still withheld and only the guard reason is retained. Unit coverage exercises
+the AIService delivery path; no real Telegram acceptance is inferred.
+
+Cumulative isolated ledger after both Kimi models: 231,396 micro-USD reserved
+or estimated spent, including earlier Mistral runs. This is not a provider
+invoice or account balance. Neither Kimi model is selected for production.
+The K2.6 retirement notice, K3 cost/latency samples and shared turn-3 failure
+leave model choice and multi-turn quality acceptance open.

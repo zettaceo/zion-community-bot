@@ -81,6 +81,28 @@ class ResponseGuardTests(unittest.TestCase):
         self.assertTrue(validate_public_response('Taxas dependem do plano, da rota e da rede.',
             official_context='Taxas da plataforma variam por plano e rota.').allowed)
 
+    def test_live_kimi_unsourced_market_and_partnership_fee_claims_are_blocked(self):
+        market = ('Há sim plataformas consolidadas com taxas competitivas e '
+                  'funcionalidades similares.')
+        fee = 'Não há taxa padrão de parceria comercial.'
+        for answer, reason in ((market, 'unsupported_competitor_comparison'),
+                               ('A proposta não é exclusiva da Z-SWAP.',
+                                'unsupported_competitor_comparison'),
+                               ('A existência de plataformas com abordagens similares é uma preocupação válida.',
+                                'unsupported_competitor_comparison'),
+                               (fee, 'unsupported_partnership_fee_policy'),
+                               ('Parcerias não têm taxa fixa.', 'unsupported_partnership_fee_policy')):
+            with self.subTest(answer=answer):
+                check = validate_public_response(answer,
+                    official_context='Uma conversa de parceria não equivale a contrato.')
+                self.assertFalse(check.allowed)
+                self.assertEqual(check.reason, reason)
+        self.assertTrue(validate_public_response(market, official_context=market).allowed)
+        self.assertTrue(validate_public_response(fee, official_context=fee).allowed)
+        self.assertTrue(validate_public_response(
+            'Não tenho informação oficial sobre taxa padrão de parceria.',
+            official_context='Uma conversa de parceria não equivale a contrato.').allowed)
+
     def test_monetary_claim_requires_currency_and_amount_in_official_context(self):
         for answer in ('O plano custa US$ 99.', 'A taxa custa 40 reais.', 'Custa € 12.'):
             with self.subTest(answer=answer):

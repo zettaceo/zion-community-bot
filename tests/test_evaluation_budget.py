@@ -6,10 +6,10 @@ import tempfile
 import unittest
 
 from zion.db import ZionDB
-from zion.evaluation_budget import EvaluationBudget, EvaluationBudgetError
+from zion.evaluation_budget import EvaluationBudget, EvaluationBudgetError, PRICES
 from zion.providers import Completion
 
-TODAY = date(2026, 10, 19)
+TODAY = PRICES['kimi-k2.6'].verified_on
 MESSAGES = [{'role': 'user', 'content': 'Pergunta sintética'}]
 
 
@@ -21,10 +21,12 @@ class EvaluationBudgetTests(unittest.TestCase):
         self.budget = EvaluationBudget(self.db)
 
     def test_stronger_mistral_uses_verified_price_and_shared_budget(self):
-        price = EvaluationBudget.price('mistral-large-2512', TODAY)
+        mistral_verified_on = date(2026, 10, 19)
+        price = EvaluationBudget.price('mistral-large-2512', mistral_verified_on)
         self.assertEqual(price.cost(1000, 500), 1500)
         reservation = self.budget.reserve('mistral-large-2512',
-            [{'role': 'user', 'content': 'synthetic ' * 1000}], 700, today=TODAY)
+            [{'role': 'user', 'content': 'synthetic ' * 1000}], 700,
+            today=mistral_verified_on)
         self.assertGreater(self.budget.total_micro_usd(), 1500)
         charged = self.budget.settle(reservation,
             Completion('Approved answer', 'mistral-large-2512', 1000, 500, 1))

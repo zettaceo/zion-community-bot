@@ -1,6 +1,5 @@
 from __future__ import annotations
 import asyncio
-from datetime import date
 from pathlib import Path
 import tempfile
 import unittest
@@ -9,7 +8,7 @@ from unittest.mock import patch
 from tests.helpers import write_test_knowledge_manifest
 from zion.db import ZionDB
 from zion.evaluation import evaluate_case, load_cases, public_context
-from zion.evaluation_budget import EvaluationBudget
+from zion.evaluation_budget import EvaluationBudget, PRICES
 from zion.knowledge import KnowledgeBase
 from zion.providers import Completion, ProviderError
 
@@ -56,7 +55,7 @@ class EvaluationHarnessTests(unittest.TestCase):
                         raise ProviderError('timeout')
                 case = {'id': 'synthetic', 'turns': ['Como funciona o swap?'],
                         'expected_speaker': 'mimir', 'required_terms': []}
-                with patch.object(EvaluationBudget, 'price', return_value=EvaluationBudget.price('kimi-k2.6', date(2026,10,19))):
+                with patch.object(EvaluationBudget, 'price', return_value=EvaluationBudget.price('kimi-k2.6', PRICES['kimi-k2.6'].verified_on)):
                     result = asyncio.run(evaluate_case(case, knowledge=knowledge, provider=Provider(), model='kimi-k2.6', budget=budget))
                 self.assertEqual(result['status'], 'PROVIDER_FAIL')
                 self.assertGreater(budget.total_micro_usd(), 0)
@@ -83,7 +82,7 @@ class EvaluationHarnessTests(unittest.TestCase):
                         return Completion('Veja /home/operator/private', 'kimi-k2.6', 10, 10, 1)
                 case = {'id': 'synthetic', 'turns': ['Como funciona o swap?'],
                         'expected_speaker': 'mimir', 'required_terms': []}
-                with patch.object(EvaluationBudget, 'price', return_value=EvaluationBudget.price('kimi-k2.6', date(2026,10,19))):
+                with patch.object(EvaluationBudget, 'price', return_value=EvaluationBudget.price('kimi-k2.6', PRICES['kimi-k2.6'].verified_on)):
                     result = asyncio.run(evaluate_case(case, knowledge=KnowledgeBase(root / 'knowledge'),
                         provider=Provider(), model='kimi-k2.6', budget=EvaluationBudget(db)))
                 self.assertEqual(result['status'], 'AUTOMATED_FAIL')

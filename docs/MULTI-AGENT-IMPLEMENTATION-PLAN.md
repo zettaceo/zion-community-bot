@@ -896,3 +896,29 @@ identity/DM/transport/delivery suite 49 PASS; output guarantee/native suite
 11 PASS. Final combined suite: 860 PASS, SECRET SCAN OK, ZION VALIDATION OK
 (`zion-v2-native-review-final-validation.log`). These include the exact new
 execution-guarantee regression; live outputs remain unaccepted.
+
+## Kimi provisioning and bounded comparison — 2026-10-25
+
+- [x] Operator provisioned a Kimi API credential through a hidden local prompt.
+  Metadata-only authentication passed; the private directory/file modes are
+  0700/0600. This did not activate a new runtime provider.
+- [x] Reverify K2.6 and K3 prices against the official Kimi API pricing table;
+  renew only those two candidate evaluation snapshots. Durable request/daily/
+  total admission and no-automatic-retry remain in force.
+- [x] Execute small synthetic PUBLIC generation cases for both models. The
+  post-fix v2-101/v2-103 single-turn responses passed human factual review.
+  See `COGNITIVE-V2-QUALITY-FINDINGS.md` for initial failures, exact evidence,
+  token counts and separate model limitations.
+- [x] Reject observed unsupported competitor and partnership-fee claims with
+  deterministic regressions. The candidate delivery path gives a fixed,
+  topic-specific safe reply after rejection without retaining the model text.
+- [x] Final combined validation: 866 tests PASS, SECRET SCAN OK,
+  ZION VALIDATION OK (`zion-v2-kimi-comparison-validation.log`).
+- [ ] Multi-turn live quality acceptance: both K2.6 and K3 stopped at debate
+  turn 3 on `unapproved_market_service_claim`; later turns and other scenarios
+  were not executed. A K2.6 turn-2 unsupported comparison was separately
+  rejected by human review. No model winner is certified.
+- [ ] Real Telegram routing, one-speaker delivery and natural-answer acceptance
+  on the candidate runtime; no Telegram message was sent by this evaluation.
+- [ ] Model/cost/privacy decision and production approval. K2-series retirement
+  is announced for the end of 2026; current production continues on Mistral.

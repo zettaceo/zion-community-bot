@@ -30,7 +30,7 @@ from .models import (
 )
 from .secret_store import SecretStore
 from .router import _fold
-from .response_guard import PUBLIC_FALLBACK, validate_public_response
+from .response_guard import public_fallback_for, validate_public_response
 
 
 logger = logging.getLogger("zion.ai")
@@ -755,7 +755,7 @@ class AIService:
                     model=answer.model, success=False, input_hash=question_hash,
                     metadata={"reason": check.reason, "agent_id": selected_agent.value},
                 )
-                return replace(answer, text=PUBLIC_FALLBACK)
+                return replace(answer, text=public_fallback_for(check.reason))
             return answer
 
         except ProviderBudgetError:

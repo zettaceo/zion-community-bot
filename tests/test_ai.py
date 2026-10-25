@@ -323,6 +323,34 @@ class AITests(unittest.TestCase):
         self.assertIn("response_guard", dump)
         self.assertTrue(ai.accounting_healthy)
 
+    def test_unsourced_comparison_and_partnership_claims_get_useful_safe_replies(self):
+        from zion.response_guard import public_fallback_for, validate_public_response
+        (self.root / "knowledge" / "official.md").write_text(
+            "# Parcerias\nUma conversa não equivale a contrato ou pagamento.\n",
+            encoding="utf-8")
+        ai = AIService(replace(self.settings, ai_enabled=True), self.db,
+                       KnowledgeBase(self.settings.knowledge_dir))
+        class FakeClient:
+            configured = True
+            output = ''
+            async def answer(self, **kwargs):
+                return AIAnswer(text=self.output, model="test",
+                                input_tokens=11, output_tokens=7, latency_ms=1)
+        ai.client = FakeClient()
+        cases = (
+            ("Uniswap faz o mesmo por menos.", "unapproved_market_service_claim"),
+            ("A proposta não é exclusiva da Z-SWAP.", "unsupported_competitor_comparison"),
+            ("Não há taxa padrão de parceria comercial.", "unsupported_partnership_fee_policy"),
+        )
+        for output, reason in cases:
+            with self.subTest(reason=reason):
+                ai.client.output = output
+                result = asyncio.run(ai.answer(chat_id=1, user_id=2,
+                    question="Quero comparar uma parceria."))
+                self.assertEqual(result.text, public_fallback_for(reason))
+                self.assertTrue(validate_public_response(result.text, official_context='').allowed)
+                self.assertNotIn(output, "\n".join(self.db._conn.iterdump()))
+
     def test_all_agent_outputs_cross_same_guard_and_rejected_text_is_not_retained(self):
         from unittest.mock import AsyncMock
         from zion.agents import AgentId
