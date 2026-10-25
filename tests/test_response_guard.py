@@ -39,6 +39,25 @@ class ResponseGuardTests(unittest.TestCase):
             with self.subTest(value=value):
                 self.assertTrue(validate_public_response(value, official_context='').allowed)
 
+    def test_execution_guarantee_from_native_smoke_is_rejected_with_scoped_negation(self):
+        for text in (
+            'Assim, você evita surpresas e garante que a transação seja executada conforme o planejado.',
+            'Isso assegura que a ordem seja concluída.',
+            'Garantimos a execução da sua transação.',
+            'Não prometemos lucro, mas garantimos a execução da sua transação.',
+        ):
+            with self.subTest(text=text):
+                check = validate_public_response(text, official_context='Revise a rota.')
+                self.assertFalse(check.allowed)
+                self.assertEqual(check.reason, 'execution_guarantee')
+        for text in (
+            'Não podemos garantir que a transação seja executada conforme o planejado.',
+            'Não garantimos a execução da sua transação.',
+            'Revise a rota; a execução depende da rede e do provedor.',
+        ):
+            with self.subTest(text=text):
+                self.assertTrue(validate_public_response(text, official_context='').allowed)
+
     def test_provenance_paths_addresses_and_unapproved_links_are_blocked(self):
         for value in ('Veja /home/operator/app', 'use 10.20.30.40',
                       'Leia migration.sql', 'https://private.invalid/api',

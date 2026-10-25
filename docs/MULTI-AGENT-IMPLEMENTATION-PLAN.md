@@ -1,6 +1,6 @@
 # Cognitive Architecture v2 — current execution checkpoint
 
-Date: 2026-10-21. Status: IN PROGRESS, not production accepted.
+Date: 2026-10-25. Status: IN PROGRESS, not production accepted.
 This section supersedes older current-state labels below; the prior mission's
 checklists remain historical evidence, not proof of v2 completion.
 
@@ -77,7 +77,8 @@ Never label deferred Kimi benchmarks PASS or the entire v2 mission complete.
 - [~] 05 Provider-aware protected store and private DM provisioner implemented;
   pending Kimi capture survives restart as interception-only metadata, with fresh
   authorization required for storage. Kimi credential absent.
-- [~] 06 DM enforcement: existing tests pass; new cognitive paths must reuse the gate.
+- [~] 06 DM enforcement: identity/private-channel paths reviewed; deterministic denial-before-AI and
+  v2 native delivery regressions retained. Real Telegram acceptance pending.
 - [~] 07 Bounded reviewed aliases and confidence tiers implemented; wider evaluation pending.
 - [~] 08 Expanded intents, stable DB delivery families and noisy-language handler regressions pass.
 - [~] 09 Context isolation: first bounded topic-label increment implemented; six
@@ -85,9 +86,13 @@ Never label deferred Kimi benchmarks PASS or the entire v2 mission complete.
   state, fixed fragment slots, bounded whole-turn history and a 24-turn adversarial
   regression are implemented. Live acceptance remains pending.
 - [~] 10 Speaker arbitration: v2 duplicate-intake test exercises native two-request generation and proves one external speaker with usage counted once. Live concurrency acceptance remains pending.
-- [~] 11 Identity transport: existing implementation; official API revalidation pending.
+- [~] 11 Identity transport: official Bot API/FAQ rechecked 2026-10-25 and local transport boundary
+  reviewed. Actual Telegram configuration/delivery acceptance remains pending.
 - [~] 12 Control Center: private provider/model token usage, optional estimated currency accounting and credential-versus-activation views implemented. Currency caps are not imposed without a reviewed host policy.
-- [~] 13 Knowledge classification: existing pre-generation filter; channel-aware review pending.
+- [~] 13 Knowledge classification: pre-generation classification/expiry/agent boundaries reviewed with DM
+  policy: only the explicit MIMIR technical projection is CONTROLLED-accessible;
+  raw paper excluded and alternate-provider/tool context PUBLIC-only. Broader live
+  source certification remains pending.
 - [~] 14 APN/paper: canonical APN and final 83-page controlled paper identified;
   all 83 pages visually classified in `technical-paper/Z-SWAP-83-PAGE-REVIEW.md`.
   Routing and portfolio contradictions reconciled against the exact application
@@ -125,7 +130,7 @@ Never label deferred Kimi benchmarks PASS or the entire v2 mission complete.
 - [~] 32 Full regression: base 724 PASS; first increment 727/727 PASS, SECRET SCAN OK,
   ZION VALIDATION OK (`/tmp/zion-cognitive-v2-validation.log`).
 - [~] 33 Documentation: this checkpoint and cognitive routing contract added.
-- [~] 34 Draft PR #66 open against development. CI passed at b5e9ca3 (run 39571103457);
+- [~] 34 Draft PR #66 open against development. CI passed at 74ba95c (run 40190223308);
   subsequent commits need their own exact-SHA checks and final release audit.
 - [!] 35 Production promotion: requires NEW user approval after the final report,
   plus release/security gates. Kimi activation separately blocked.
@@ -864,3 +869,30 @@ No paid calls, real provider acceptance, production changes or Kimi activation.
 Final combined validation: 854 tests PASS, SECRET SCAN OK, ZION VALIDATION OK
 (`zion-v2-source-conversations-validation.log`). Result and unchanged branch base
 rechecked on 2026-10-25. Exact-SHA CI is recorded in the draft PR after commit.
+
+## Boundary audit and native evaluation — 2026-10-25
+
+See `COGNITIVE-V2-BOUNDARY-REVIEW.md`. The official Telegram contract and local
+identity/DM/source/provider boundaries were reviewed without changing production.
+Native Mistral evaluation now invokes the real bounded tool-generation path and
+reserves estimated cost before each request; no implicit retry or double outer
+reservation. Its synthetic tests do not certify real model quality or Telegram.
+
+One bounded text-generation retest of the original four failing cases was made
+after tightening commercial grounding and verifying only the baseline price.
+v2-101 still failed `unapproved_market_service_claim`; the other three cases
+were not executed. No blocked response was retained. The current baseline is
+NOT quality-accepted; see the exact evidence and accounting in the findings doc.
+
+Native smoke v2-001 completed one HTTP request, no tool call selected. Review
+FAILED on an execution guarantee missed by the earlier output guard; a new
+regression now blocks the exact claim and preserves explicit caveats. No real
+second tool round or improved live answer is claimed. Both current live findings
+remain acceptance blockers. Remote main/development/production identities were
+rechecked on 2026-10-25 and match the measured hashes above.
+
+Validation for this increment: native evaluation/transport harness 25 PASS;
+identity/DM/transport/delivery suite 49 PASS; output guarantee/native suite
+11 PASS. Final combined suite: 860 PASS, SECRET SCAN OK, ZION VALIDATION OK
+(`zion-v2-native-review-final-validation.log`). These include the exact new
+execution-guarantee regression; live outputs remain unaccepted.

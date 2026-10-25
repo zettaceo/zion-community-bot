@@ -8,6 +8,7 @@ from pathlib import Path
 from .agents import AgentId
 from .conversation_state import explicit_topic
 from .evaluation_budget import EvaluationBudget
+from .evaluation_native import NativeEvaluationClient
 from .knowledge import KnowledgeBase
 from .knowledge_tools import KnowledgeTools
 from .mistral import build_answer_messages
@@ -65,17 +66,34 @@ async def evaluate_case(case: dict, *, knowledge: KnowledgeBase,
                               '\n'.join('User: ' + t for t in case['turns'][:-1])),
         agent_id=case['expected_speaker'])
     input_hash = hashlib.sha256(json.dumps(messages, sort_keys=True).encode()).hexdigest()
-    # Persist reservation before awaiting. Never automatically retry uncertain
-    # requests or refund on exceptions, cancellation, process death or 429.
-    reservation = budget.reserve(model, messages, 700)
+    # Native mode accounts each real HTTP request, including a tool completion.
+    # Text-only mode reserves once. Never reserve both paths for the same request.
+    native = isinstance(provider, NativeEvaluationClient)
+    reservation = None if native else budget.reserve(model, messages, 700)
+    native_cost_before = provider.estimated_micro_usd if native else 0
+    native_requests_before = provider.request_count if native else 0
+    native_uncertain_before = provider.uncertain_request_count if native else 0
+    evidence = context
     try:
-        result = await provider.complete(messages, max_tokens=700)
-        cost = budget.settle(reservation, result)
+        if native:
+            result = await provider.answer(question=question, context=context,
+                conversation_context=(conversation_context if conversation_context is not None else
+                    '\n'.join('User: ' + t for t in case['turns'][:-1])),
+                agent_id=case['expected_speaker'])
+            cost = provider.estimated_micro_usd - native_cost_before
+            evidence += '\n' + result.evidence_context
+        else:
+            result = await provider.complete(messages, max_tokens=700)
+            cost = budget.settle(reservation, result)
     except Exception as error:
         return {'id': case['id'], 'model': model, 'input_hash': input_hash,
                 'status': 'PROVIDER_FAIL', 'error_type': type(error).__name__,
-                'usage_outcome': 'uncertain_reserved', 'human_review': 'PENDING'}
-    check = validate_public_response(result.text, official_context=context)
+                'usage_outcome': ('uncertain_reserved' if not native or
+                    provider.uncertain_request_count > native_uncertain_before else
+                    'no_uncertain_charge'), 'human_review': 'PENDING',
+                'native_requests': provider.request_count - native_requests_before if native else 0,
+                'scope': 'native_mistral_generation_only' if native else 'generation_only_synthetic_public'}
+    check = validate_public_response(result.text, official_context=evidence)
     missing = [t for t in case['required_terms'] if t.casefold() not in result.text.casefold()]
     return {'id': case['id'], 'model': model, 'input_hash': input_hash,
             'status': 'REVIEW_REQUIRED' if check.allowed and not missing else 'AUTOMATED_FAIL',
@@ -83,4 +101,6 @@ async def evaluate_case(case: dict, *, knowledge: KnowledgeBase,
             'guard': check.reason, 'missing_terms': missing,
             'input_tokens': result.input_tokens, 'output_tokens': result.output_tokens,
             'latency_ms': result.latency_ms, 'estimated_micro_usd': cost,
-            'human_review': 'PENDING', 'scope': 'generation_only_synthetic_public'}
+            'human_review': 'PENDING',
+            'native_requests': provider.request_count - native_requests_before if native else 0,
+            'scope': 'native_mistral_generation_only' if native else 'generation_only_synthetic_public'}

@@ -130,3 +130,8 @@ Mistral credential. It shares the same durable evaluation caps and 20% cost
 headroom; cached-input discounts are ignored. This does not change Settings,
 Telegram provider selection, production model or key. No model winner is inferred
 from catalog descriptions or a small smoke result.
+
+Baseline evaluation pricing refresh, 2026-10-25: the official Ministral 3 8B
+model card still lists USD 0.15/M input and output. Its evaluation price date was
+renewed independently; other model dates remain stale until separately verified.
+The bounded exact-case retest still failed; see `COGNITIVE-V2-QUALITY-FINDINGS.md`.

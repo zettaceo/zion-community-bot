@@ -63,3 +63,47 @@ benchmarked or activated; credential provisioning remains deferred by operator
 choice. The stronger Mistral candidate previously returned HTTP 403 and has no
 quality result. These external gates are not repaired by local unit coverage.
 Production promotion remains unapproved.
+
+## 2026-10-25 bounded retest — still FAIL
+
+The shared prompt now explicitly forbids inventing a competitor list from model
+memory and treating a user's brand/price assertion as factual evidence. It also
+separates partnership terms from swap fees. Guard assertions were not relaxed.
+The exact v2-101/103/105/106 selection was requested once with the existing
+Ministral baseline and PUBLIC synthetic context.
+
+Evidence: `20261025T121500905875Z-ministral-8b-2512.jsonl`.
+v2-101: AUTOMATED_FAIL, `unapproved_market_service_claim`. Rejected wording is
+withheld; no stronger claim about its exact text is made. v2-103/105/106:
+NOT EXECUTED because the run stopped. 2,852 input and 287 output tokens;
+estimated reservation/settlement charge 566 micro-USD. Cumulative isolated ledger:
+12,625 micro-USD reserved or estimated spent, not an invoice or account balance.
+
+The [official Ministral model card](https://docs.mistral.ai/models/ministral-3-8b-25-12)
+was rechecked on 2026-10-25: USD 0.15/M input and output. Only that price snapshot
+was renewed. Kimi and larger-model prices/acceptance were not silently renewed.
+
+The native evaluation mode added after this retest has simulated-provider tests;
+this result remains **text-generation-only**. No native live or long-conversation
+PASS is inferred. No repeated attempts were made to obtain a green response.
+
+## Native generation smoke — 2026-10-25: review FAIL
+
+Independent transport-path smoke, not another attempt at v2-101:
+`20261025T122249274638Z-ministral-8b-2512.jsonl`, case v2-001,
+“Como funciona os swaps?”. The real native answer entry point completed one
+request without choosing a tool call. Thus it proves the plain native request
+path only; a live second tool completion is NOT proven.
+
+Automation returned REVIEW_REQUIRED, but review found an unsupported execution
+guarantee: “garante que a transação seja executada conforme o planejado”. It also
+called the route most efficient without substantiating that superlative. This
+answer is **not accepted**. A deterministic regression now rejects the observed
+execution guarantee while allowing directly scoped denials and conditional
+execution explanations. Existing guard assertions remain. No live rerun is
+represented by that offline regression.
+
+Usage: 2,124 input, 229 output tokens; estimated charge 424 micro-USD.
+Cumulative isolated ledger after both runs: 13,049 micro-USD reserved/estimated,
+not a bill. The response contains no identified secret and is retained as
+synthetic private evaluation evidence. No response was sent to Telegram.

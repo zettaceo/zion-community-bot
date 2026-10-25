@@ -58,7 +58,7 @@ class ConversationEvaluationTests(unittest.TestCase):
                     return [r async for r in evaluate_conversation(case,
                         knowledge=KnowledgeBase(ROOT / 'knowledge'),
                         provider=Provider(), model='ministral-8b-2512', budget=budget)]
-                price = EvaluationBudget.price('ministral-8b-2512', date(2026, 10, 19))
+                price = EvaluationBudget.price('ministral-8b-2512', date(2026, 10, 25))
                 with patch.object(EvaluationBudget, 'price', return_value=price):
                     results = asyncio.run(collect())
                 self.assertGreater(budget.total_micro_usd(), 0)

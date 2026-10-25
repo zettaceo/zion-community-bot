@@ -16,6 +16,8 @@ sys.path.insert(0, str(ROOT))
 from zion.db import ZionDB
 from zion.evaluation import evaluate_case, load_cases
 from zion.evaluation_budget import EvaluationBudget
+from zion.evaluation_native import NativeEvaluationClient
+from zion.knowledge_tools import KnowledgeTools
 from zion.evaluation_conversations import load_conversations, evaluate_conversation
 from zion.knowledge import KnowledgeBase
 from zion.mistral import MistralClient
@@ -33,6 +35,8 @@ def private_directory(path: Path) -> None:
 
 
 async def run(args) -> int:
+    if args.native_mistral and args.model not in {'ministral-8b-2512', 'mistral-large-2512'}:
+        raise ValueError('native_evaluation_requires_mistral')
     cases = load_cases(ROOT / 'evaluations/cognitive-v2.jsonl')
     if args.conversations:
         selected = load_conversations(ROOT / 'evaluations/cognitive-v2-conversations.jsonl')
@@ -73,6 +77,9 @@ async def run(args) -> int:
         knowledge = KnowledgeBase(ROOT / 'knowledge')
         if knowledge.load_errors:
             raise ValueError('knowledge_load_errors')
+        if args.native_mistral:
+            provider = NativeEvaluationClient(config, SecretStore(secrets / 'mistral-api-key'),
+                knowledge_tools=KnowledgeTools(knowledge), budget=budget)
         # Smoke covers one technical, noisy, support, boundary and finite case.
         stamp = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')
         path = directory / (stamp + '-' + args.model + '.jsonl')
@@ -111,6 +118,8 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument('--model', choices=('kimi-k2.6', 'kimi-k3', 'ministral-8b-2512', 'mistral-large-2512'), default='kimi-k2.6')
     parser.add_argument('--live', action='store_true')
+    parser.add_argument('--native-mistral', action='store_true',
+        help='exercise the bounded native tool path with per-request cost admission')
     selection = parser.add_mutually_exclusive_group()
     selection.add_argument('--full', action='store_true')
     selection.add_argument('--conversations', action='store_true',

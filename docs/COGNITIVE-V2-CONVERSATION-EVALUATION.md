@@ -43,3 +43,16 @@ previous-response inclusion, scenario isolation, stop on repetition, stop on
 provider/guard failure, and no automatic acceptance. **No live 12-turn quality
 result has been obtained by these checks.** Existing failed live quality findings
 remain open. No paid model request is part of the offline implementation work.
+
+## Native Mistral generation path
+
+`--native-mistral --model ministral-8b-2512` selects the actual bounded
+`MistralClient.answer` tool path. It can be combined with case selection or
+`--conversations`; it remains offline unless `--live` is explicit. Other-provider
+models are rejected for this mode. Every HTTP generation request reserves the
+isolated monetary budget before sending, including tool schemas/envelopes in the
+conservative input estimate. The optional second request is separately admitted;
+unknown charges remain reserved. Automatic retries are forbidden in this mode.
+Only PUBLIC initial evidence and PUBLIC knowledge tools are supplied. Output
+validation includes the host-returned tool evidence. This is native generation
+coverage, not the full AIService/Guardian/routing/Telegram delivery pipeline.

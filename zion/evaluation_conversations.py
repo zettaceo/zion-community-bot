@@ -54,7 +54,7 @@ async def evaluate_conversation(case: dict, **kwargs):
              'expected_speaker': case['expected_speaker'], 'required_terms': []},
             conversation_context=bounded_history(pairs), **kwargs,
         )
-        result['scope'] = 'generation_only_synthetic_public_multiturn'
+        result['scope'] += '_multiturn'
         result['conversation_id'] = case['id']
         result['turn'] = index + 1
         result['planned_turns'] = len(case['turns'])
