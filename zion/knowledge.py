@@ -54,7 +54,8 @@ TOKEN_ALIASES = (
     frozenset({"pilot", "piloto", "einherjar", "odin"}),
     frozenset({"assinatura", "mensal", "recorrente", "hird"}),
     frozenset({"passe", "pass", "nft", "panteao"}),
-    frozenset({"taxa", "taxas", "fee", "fees"}),
+    frozenset({"taxa", "taxas", "fee", "fees", "cobrar", "cobra",
+               "cobram", "cobranca", "cobrancas"}),
     frozenset({"analise", "analises", "cota", "cotas", "limite", "limites"}),
     frozenset({"preco", "precos", "valor", "valores", "custo", "custos"}),
     frozenset({"comparar", "comparacao", "diferenca", "diferencas"}),
@@ -91,7 +92,8 @@ TOPIC_ALIASES = (
         "nft", "soon", "pre-launch", "coming",
     }),
     frozenset({
-        "taxa", "taxas", "fee", "fees", "evm", "solana",
+        "taxa", "taxas", "fee", "fees", "cobrar", "cobra", "cobram",
+        "cobranca", "cobrancas", "evm", "solana",
     }),
     frozenset({
         "plano", "planos", "tier", "tiers", "free", "pro", "trader",

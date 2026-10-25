@@ -922,3 +922,31 @@ execution-guarantee regression; live outputs remain unaccepted.
   on the candidate runtime; no Telegram message was sent by this evaluation.
 - [ ] Model/cost/privacy decision and production approval. K2-series retirement
   is announced for the end of 2026; current production continues on Mistral.
+
+## Bounded Kimi continuation — 2026-10-25
+
+The exact debate turn 3 names a competitor absent from retrieved official
+context. A prompt clarification keeps user-named brands out of the answer when
+the source does not approve them; the brand guard remains unchanged.
+One K2.6 retest still stopped at turn 3. One K3 retest passed automated checks
+through turn 10 but stopped at turn 11 on `best_price_guarantee` with the
+generated text withheld. Human review found unsupported competitor facts in
+K3 turn 2 and a fee-information omission in turn 5. The latter traced to a
+retrieval miss on “Vocês cobram mais?” and is now covered by exact-token fee
+aliases and a regression. A narrow guard regression rejects the turn-2 claim.
+
+The failed retests are documented in `COGNITIVE-V2-QUALITY-FINDINGS.md`.
+No model winner, long-conversation PASS, Telegram acceptance, or production
+approval is inferred. No more paid retries are scheduled merely to get green.
+Final local validation for this increment: 868 tests PASS, SECRET SCAN OK,
+ZION VALIDATION OK (`zion-v2-kimi-continuation-validation.log`).
+
+The final bounded K3 follow-up again failed: automation stopped at debate
+turn 10 (`safety_guarantee`, rejected text withheld), and human review rejected
+an unsupported competitor comparison at turn 2 plus a three-of-four EVM fee
+enumeration at turn 8. Turn 5 correctly used the recovered official fee policy.
+The clause-scoped guarantee guard, narrow competitor regression and explicit
+four-tier fee-list instruction are local forward-fixes without live PASS.
+The isolated evaluation ledger stands at 996,139 micro-USD reserved/estimated.
+Final post-fix local validation: 870 tests PASS, SECRET SCAN OK,
+ZION VALIDATION OK (`zion-v2-kimi-final-validation.log`).

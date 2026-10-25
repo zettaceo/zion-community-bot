@@ -340,6 +340,8 @@ class AITests(unittest.TestCase):
         cases = (
             ("Uniswap faz o mesmo por menos.", "unapproved_market_service_claim"),
             ("A proposta não é exclusiva da Z-SWAP.", "unsupported_competitor_comparison"),
+            ("Várias das peças já existem de forma isolada em outras plataformas.",
+             "unsupported_competitor_comparison"),
             ("Não há taxa padrão de parceria comercial.", "unsupported_partnership_fee_policy"),
         )
         for output, reason in cases:

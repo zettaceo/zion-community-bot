@@ -193,3 +193,66 @@ or estimated spent, including earlier Mistral runs. This is not a provider
 invoice or account balance. Neither Kimi model is selected for production.
 The K2.6 retirement notice, K3 cost/latency samples and shared turn-3 failure
 leave model choice and multi-turn quality acceptance open.
+
+## Bounded turn-3 retest and cost-context finding — 2026-10-25
+
+Read-only analysis of the withheld turn-3 results could not distinguish a
+factual claim about the user-named competitor from a harmless repetition of its
+name. The official retrieved context contained no such brand. The shared prompt
+now asks the model to say “essa plataforma” when only the user supplied a brand;
+the output guard still rejects an unapproved brand. No brand whitelist or
+weakened assertion was added.
+
+One K2.6 retest (`20261025T171100272571Z-kimi-k2.6.jsonl`) again stopped at
+debate turn 3 with `unapproved_market_service_claim`. Its first two replies were
+factually bounded on human review. The rejected text remains withheld; debate
+turns 4–12 and other scenarios were NOT EXECUTED for K2.6.
+
+One K3 retest (`20261025T171128521841Z-kimi-k3.jsonl`) passed the automated
+gate through debate turn 10, then stopped at turn 11 with
+`best_price_guarantee`. The turn-11 text was withheld, so the exact wording and
+whether the guard rejected a denial cannot be inferred. Turn 12 and the other
+three scenarios were NOT EXECUTED. Human review separately failed turn 2 for
+asserting that various platforms offer similar categories of features without
+official comparative evidence. Turn 5 said no official fee information was
+available, although the approved corpus contains EVM and Solana fee policies.
+The short question plus user-named brands retrieved no evidence at that point.
+Exact-token aliases for “cobra/cobram/cobrança” now restore the published fee
+sections to that query; the reviewed competitor assertion is also rejected by
+the output guard. These are local forward-fixes, not a successful live retest.
+
+Cumulative isolated evaluation ledger after both bounded runs: 635,955
+micro-USD reserved or estimated spent, including earlier Mistral and Kimi runs.
+This is not a provider invoice or account balance. The live multi-turn quality
+gate remains FAILED/PENDING and no production model is selected.
+Local validation after the forward-fixes: 868 tests PASS, SECRET SCAN OK,
+ZION VALIDATION OK (`zion-v2-kimi-continuation-validation.log`).
+
+## Final bounded K3 follow-up — 2026-10-25, still FAIL
+
+An independent regression showed that the output guard treated common scoped
+denials (“não dá para garantir o melhor preço”) as guarantees, and could let an
+affirmative guarantee after “mas” inherit a preceding denial. The clause
+boundary now distinguishes them. This does not establish what the withheld
+turn-11 answer actually said.
+
+One K3 follow-up with that guard correction and the natural charging-query
+retrieval fix (`20261025T171800789527Z-kimi-k3.jsonl`) passed automation through
+debate turn 9, then stopped at turn 10 on `safety_guarantee`. The rejected text
+was withheld; turn 11–12 and the other scenarios were NOT EXECUTED. Human
+review still FAILED: turn 2 asserted, without comparative evidence, that pieces
+of the product already exist on other platforms. Turn 5 now correctly gave the
+published EVM and qualified Solana fee policy while declining to compare an
+unverified competitor price. Turn 8 gave an incomplete EVM tier schedule,
+omitting Trader/0,25% while naming Free, Pro and Pilot. A narrow output regression
+now rejects the observed turn-2 assertion. The prompt also explicitly forbids
+presenting a partial fee schedule as a complete four-tier list; this is a local
+forward-fix and has not passed a further live retest.
+
+Cumulative isolated ledger: 996,139 micro-USD reserved or estimated spent,
+including all earlier baseline and candidate calls. This is not an invoice or
+account balance. The stop-on-first-failure rule remains active. No more paid
+calls were made to seek a green result; multi-turn quality acceptance and model
+choice remain open.
+Final post-fix local validation: 870 tests PASS, SECRET SCAN OK,
+ZION VALIDATION OK (`zion-v2-kimi-final-validation.log`).

@@ -78,7 +78,7 @@ def validate_public_response(text: str, *, official_context: str) -> ResponseChe
         if re.search(pattern, folded):
             return ResponseCheck(False, reason)
     quality_rules = (
-        ('best_price_guarantee', r"\b(?:garant\w*|assegur\w*)\b[^.!?\n]{0,60}\bmelhor(?:es)? (?:precos?|taxas?)\b"),
+        ('best_price_guarantee', r"\b(?:garant\w*|assegur\w*)\b(?:(?!\s*,\s*mas\b)[^.!?;\n]){0,60}\bmelhor(?:es)? (?:precos?|taxas?)\b"),
         ('universal_swap_execution', r"\btodos os swaps (?:sao (?:sempre )?(?:executados|realizados|processados) (?:por|via|em)|usam) (?:smart contracts?|contratos? inteligentes?)\b"),
         ('safety_guarantee', r'\b(?:garant\w*|assegur\w*)\b[^.!?\n]{0,80}\b(?:seguranca|segur[oa]s?)\b'),
         ('execution_guarantee', r'\b(?:garant\w*|assegur\w*)\b[^.!?\n]{0,70}\b(?:transacao|ordem|swap|operacao)\b[^.!?\n]{0,50}\b(?:executad[oa]|concluid[oa]|bem.sucedid[oa])\b|\b(?:garant\w*|assegur\w*)\b[^.!?\n]{0,30}\bexecucao (?:da|do|de) (?:sua |seu |uma |um )?(?:transacao|ordem|swap|operacao)\b'),
@@ -94,7 +94,9 @@ def validate_public_response(text: str, *, official_context: str) -> ResponseChe
                 r"\b(?:nenhuma?|nenhum) (?:plataforma|transacao|sistema|servico|rota|swap|protocolo|ponte)"
                 r"(?: ou (?:plataforma|transacao|sistema|servico|rota|swap|protocolo|ponte))? e $", prefix):
                 continue
-            if re.search(r"\b(?:nao|nunca|nem) (?:(?:podemos|posso|pode|e|e possivel) )?$", prefix):
+            if re.search(
+                r"\b(?:(?:nao|nunca|nem) (?:(?:podemos|posso|pode|e|e possivel|da para) )?"
+                r"|nenhuma plataforma pode |e impossivel )$", prefix):
                 continue
             return ResponseCheck(False, reason)
     if re.search(r"\bz-?swap nao cobra (?:por )?(?:transacoes de )?swaps?\b|\bswaps? (?:sao|e) gratuit[oa]s?\b", folded):
@@ -109,6 +111,9 @@ def validate_public_response(text: str, *, official_context: str) -> ResponseChe
     competitor_claims = (
         r'\b(?:ha|existem|existencia de) (?:sim )?plataformas?[^.!?\n]{0,120}'
         r'\b(?:taxas? competitivas?|funcionalidades? similares?|abordagens? similares?|mais baratas?)\b',
+        r'(?:^|[.!?:]\s*)(?:varias|muitas|algumas|outras) plataformas? oferecem\b',
+        r'\bvarias (?:das? )?(?:pecas|etapas|funcionalidades|ferramentas)'
+        r'[^.!?\n]{0,100}\bja existem\b[^.!?\n]{0,60}\bem outras plataformas\b',
         r'\bnao e exclusiv[ao] da z-?swap\b',
     )
     if any(re.search(pattern, folded) and not re.search(pattern, approved)

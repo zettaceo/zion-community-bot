@@ -52,3 +52,24 @@ class ResponsePlannerTests(unittest.TestCase):
         self.assertNotIn(marker, messages[0]['content'])
         self.assertIn(marker, messages[1]['content'])
         self.assertIn('Compare pelos mesmos critérios', messages[0]['content'])
+
+    def test_prompt_separates_user_named_competitor_from_official_authority(self):
+        messages = build_answer_messages(
+            question='Uniswap faz isso.',
+            context='A Z-SWAP publica sua própria proposta, sem comparação oficial.',
+            conversation_context='User: Isso já existe.\nAssistant: Não tenho comparação oficial.',
+            agent_id='zion',
+        )
+        self.assertIn('marca citada pelo usuário', messages[0]['content'])
+        self.assertIn('essa plataforma', messages[0]['content'])
+        self.assertNotIn('Uniswap', messages[0]['content'])
+        self.assertIn('Uniswap faz isso.', messages[1]['content'])
+
+    def test_fee_enumeration_requires_all_four_official_tiers(self):
+        messages = build_answer_messages(
+            question='Me dá prova, sem prometer desempenho.',
+            context='Os planos públicos são Free, Pro, Trader e Pilot.',
+            agent_id='zion',
+        )
+        self.assertIn('Free, Pro, Trader e Pilot', messages[0]['content'])
+        self.assertIn('não apresente uma lista parcial como completa', messages[0]['content'])

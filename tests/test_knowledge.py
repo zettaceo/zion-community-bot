@@ -9,6 +9,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 
 from zion.knowledge import KnowledgeBase
+from zion.knowledge_tools import KnowledgeTools
 
 
 def write_manifest(
@@ -48,6 +49,23 @@ def write_manifest(
 
 
 class KnowledgeTests(unittest.TestCase):
+    def test_natural_charging_question_retrieves_published_fee_policy(self):
+        kb = KnowledgeBase(ROOT / "knowledge")
+        for question in (
+            "Vocês cobram mais?",
+            "Uniswap faz isso. Binance também. Vocês cobram mais?",
+        ):
+            with self.subTest(question=question):
+                context = kb.render_context(question, agent_id="zion")
+                self.assertIn("platform fee", context)
+                self.assertIn("EVM", context)
+                tool_context = KnowledgeTools(kb).call(
+                    "search_approved_knowledge", {"query": question},
+                    agent_id="zion",
+                ).render()
+                self.assertIn("platform fee", tool_context)
+                self.assertIn("EVM", tool_context)
+
     def test_solana_fees_retrieve_current_qualified_policy_for_every_agent(self):
         kb = KnowledgeBase(ROOT / "knowledge")
         for agent in ("zion", "mimir", "eir", "freyr"):

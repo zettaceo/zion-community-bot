@@ -7,6 +7,7 @@ class ResponseGuardTests(unittest.TestCase):
     def test_known_unsupported_claims_are_rejected(self):
         for value in (
             'Garantimos o melhor preço possível.',
+            'Garantimos, sem ressalvas, o melhor preço.',
             'A plataforma vai garantir a melhor taxa possível.',
             'Todos os swaps são executados por smart contracts.',
             'É seguro usar a Z-SWAP.',
@@ -25,6 +26,9 @@ class ResponseGuardTests(unittest.TestCase):
     def test_caveats_and_route_specific_explanation_are_allowed(self):
         for value in (
             'Não podemos garantir o melhor preço.',
+            'Não dá para garantir o melhor preço.',
+            'Nenhuma plataforma pode garantir o melhor preço.',
+            'É impossível garantir a melhor taxa.',
             'Não podemos garantir que a transação seja segura.',
             'Não é seguro usar qualquer plataforma sem avaliar os riscos.',
             'A Z-SWAP implementa controles para reduzir riscos, mas nenhuma plataforma ou transação é livre de risco.',
@@ -38,6 +42,15 @@ class ResponseGuardTests(unittest.TestCase):
         ):
             with self.subTest(value=value):
                 self.assertTrue(validate_public_response(value, official_context='').allowed)
+
+    def test_scoped_price_denial_does_not_excuse_later_guarantee(self):
+        for value in (
+            'Não dá para garantir o melhor preço, mas a Z-SWAP garante a melhor taxa.',
+            'Nenhuma plataforma pode garantir o melhor preço. A nossa garante a melhor taxa.',
+        ):
+            with self.subTest(value=value):
+                self.assertEqual(validate_public_response(
+                    value, official_context='').reason, 'best_price_guarantee')
 
     def test_execution_guarantee_from_native_smoke_is_rejected_with_scoped_negation(self):
         for text in (
@@ -86,6 +99,10 @@ class ResponseGuardTests(unittest.TestCase):
                   'funcionalidades similares.')
         fee = 'Não há taxa padrão de parceria comercial.'
         for answer, reason in ((market, 'unsupported_competitor_comparison'),
+                               ('Várias plataformas oferecem swap e análise de forma separada.',
+                                'unsupported_competitor_comparison'),
+                               ('Várias das peças já existem de forma isolada em outras plataformas.',
+                                'unsupported_competitor_comparison'),
                                ('A proposta não é exclusiva da Z-SWAP.',
                                 'unsupported_competitor_comparison'),
                                ('A existência de plataformas com abordagens similares é uma preocupação válida.',
@@ -102,6 +119,9 @@ class ResponseGuardTests(unittest.TestCase):
         self.assertTrue(validate_public_response(
             'Não tenho informação oficial sobre taxa padrão de parceria.',
             official_context='Uma conversa de parceria não equivale a contrato.').allowed)
+        self.assertTrue(validate_public_response(
+            'Não sei se outras plataformas oferecem os mesmos recursos.',
+            official_context='A Z-SWAP documenta seus próprios recursos.').allowed)
 
     def test_monetary_claim_requires_currency_and_amount_in_official_context(self):
         for answer in ('O plano custa US$ 99.', 'A taxa custa 40 reais.', 'Custa € 12.'):
