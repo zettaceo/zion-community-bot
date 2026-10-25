@@ -162,7 +162,10 @@ Liquidez, APY, volume e disponibilidade são dados variáveis. ZION não deve tr
 
 A área de Portfolio está parcialmente disponível para os ativos curados que a
 plataforma suporta atualmente. Ela não representa cobertura completa de toda a
-wallet, e falha de RPC/preço ainda pode ser indistinguível de saldo vazio.
+wallet. Preço desconhecido e saldo indisponível não devem ser tratados como
+zero: os valores conhecidos compõem um total parcial, e as informações
+indisponíveis são sinalizadas. Um total parcial não comprova o patrimônio
+completo do usuário.
 
 Valores em USD são estimativas baseadas nas fontes de preço disponíveis e podem mudar com o mercado.
 

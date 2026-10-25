@@ -80,7 +80,7 @@ model context is built.
       "file": "z-swap.md",
       "classification": "PUBLIC",
       "status": "CURRENT",
-      "version": "166fd5be9c28fb2ffaaffd9413bf61c40f492698@2026-10-16+routing-2026-10-20@986ae759",
+      "version": "166fd5be9c28fb2ffaaffd9413bf61c40f492698@2026-10-16+routing-2026-10-21@986ae759",
       "source_identity": "zswap-curated-public-snapshot",
       "allowed_agents": [
         "zion",
@@ -147,7 +147,7 @@ model context is built.
       "file": "zswap-features.md",
       "classification": "PUBLIC",
       "status": "CURRENT",
-      "version": "166fd5be9c28fb2ffaaffd9413bf61c40f492698@2026-10-16+routing-2026-10-20@986ae759",
+      "version": "166fd5be9c28fb2ffaaffd9413bf61c40f492698@2026-10-16+routing-2026-10-20@986ae759+portfolio-2026-10-21@986ae759",
       "source_identity": "zswap-curated-feature-snapshot",
       "allowed_agents": [
         "zion",

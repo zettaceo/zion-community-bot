@@ -89,8 +89,10 @@ Never label deferred Kimi benchmarks PASS or the entire v2 mission complete.
 - [~] 12 Control Center: private provider/model token usage, optional estimated currency accounting and credential-versus-activation views implemented. Currency caps are not imposed without a reviewed host policy.
 - [~] 13 Knowledge classification: existing pre-generation filter; channel-aware review pending.
 - [~] 14 APN/paper: canonical APN and final 83-page controlled paper identified;
-  recorded hash and reviewed pages are in the source addendum. Full public
-  projection reconciliation remains pending; raw controlled material is not indexed.
+  all 83 pages visually classified in `technical-paper/Z-SWAP-83-PAGE-REVIEW.md`.
+  Routing and portfolio contradictions reconciled against the exact application
+  snapshot; broader live source certification remains pending. Raw controlled
+  material is not indexed.
 - [~] 15 Manifest/freshness: plans snapshot updated after current source/code check;
   schema-2 snapshot/expiry/supersession enforcement implemented. Existing sources
   explicitly remain snapshot_only; no fresh runtime verification is fabricated.
@@ -115,11 +117,15 @@ Never label deferred Kimi benchmarks PASS or the entire v2 mission complete.
 - [~] 29 Versioned 108-case synthetic dataset (18 categories), generation evaluator and human-review gate implemented.
 - [!] 30 Live A/B benchmark: requires certified store, official prices, credential,
   synthetic/public-only evaluation inputs and bounded spend. Operator will provision through private ZION DM after release; Kimi evaluation deferred.
-- [ ] 31 Adversarial multi-turn evaluation.
+- [~] 31 Four versioned 12-turn generation scenarios and bounded actual-answer
+  history implemented; stop on provider/guard/repetition failure, per-turn durable
+  evidence and mandatory human review. Simulated-provider regression passes;
+  live debate quality, runtime routing/tools and Telegram acceptance remain pending.
+  See `COGNITIVE-V2-CONVERSATION-EVALUATION.md`.
 - [~] 32 Full regression: base 724 PASS; first increment 727/727 PASS, SECRET SCAN OK,
   ZION VALIDATION OK (`/tmp/zion-cognitive-v2-validation.log`).
 - [~] 33 Documentation: this checkpoint and cognitive routing contract added.
-- [~] 34 Draft PR #66 open against development. CI passed at a9f2651 (run 39435020150);
+- [~] 34 Draft PR #66 open against development. CI passed at b5e9ca3 (run 39571103457);
   subsequent commits need their own exact-SHA checks and final release audit.
 - [!] 35 Production promotion: requires NEW user approval after the final report,
   plus release/security gates. Kimi activation separately blocked.
@@ -145,7 +151,8 @@ Never label deferred Kimi benchmarks PASS or the entire v2 mission complete.
   Corrected the CoW-as-quote-source conflation in all three affected knowledge
   sections using source `986ae759` and retained all classifications/qualifiers.
   Removed repo/SHA prose from the loaded public status chunk; provenance remains
-  in manifest metadata. Full visual semantic review of all 83 pages remains open.
+  in manifest metadata. The subsequent 2026-10-21 review classified all 83 pages;
+  see the page ledger for source conflicts and remaining runtime boundaries.
 - Existing live failures remain open. No further paid calls were made merely to
   obtain green output. The generation-only evaluator is not acceptance for the
   new native tool path; controlled live tests still need to exercise that path.
@@ -183,8 +190,8 @@ output handling. It does not constitute complete cognitive architecture v2.
 No schema, production service, production checkout, token or release ref changed.
 The former `/tmp` evidence files are historical references and may no longer exist.
 
-The final PT-BR 83-page paper was discovered and visually reviewed in the prior
-session (pages 2, 22, 77, 78). It is CONTROLLED, not blanket public authority.
+The final PT-BR 83-page paper was initially reviewed at pages 2, 22, 77, 78;
+all 83 pages were subsequently visually classified on 2026-10-21. It is CONTROLLED, not blanket public authority.
 See the source inventory addendum; broad feature/runtime reconciliation remains
 pending. Do not index the raw PDF or promote unverified features.
 
@@ -840,3 +847,20 @@ Development base: `3d053e87010a95ed239b0ce57e15fbaae7666fc0`.
 Quality tests assert the prompt contract; they do not certify every possible
 provider-generated response. Live answer quality acceptance remains required.
 The production service and release refs are not changed by this forward-fix.
+
+## Visual source and long-conversation checkpoint — 2026-10-21
+
+All 83 controlled paper pages are visually classified in the new ledger.
+Generic swap descriptions now match the selected-source routing contract.
+Portfolio unknown values / partial totals are reconciled against exact source
+`986ae759`, not assumed from a PDF or claimed as new live production proof.
+Knowledge/tool regressions: 48 PASS; source-only full validation: 849 PASS,
+SECRET SCAN OK, ZION VALIDATION OK (`zion-v2-paper-validation.log`).
+
+The subsequent multi-turn evaluation harness adds four 12-turn synthetic scenarios
+and real prior-answer continuity with bounded history. Focused harness regression:
+11 PASS (`zion-v2-conversations-tests.log`), using simulated providers only.
+No paid calls, real provider acceptance, production changes or Kimi activation.
+Final combined validation: 854 tests PASS, SECRET SCAN OK, ZION VALIDATION OK
+(`zion-v2-source-conversations-validation.log`). Result and unchanged branch base
+rechecked on 2026-10-25. Exact-SHA CI is recorded in the draft PR after commit.

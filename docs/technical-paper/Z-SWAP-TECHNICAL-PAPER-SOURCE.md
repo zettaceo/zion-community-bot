@@ -42,8 +42,10 @@ snapshot; this is not a live production probe or proof of current deployments.
 
 The PDF's text extraction omits many table cells and body labels. Only its page
 structure can be inventoried from extracted text; a complete 83-page semantic
-review cannot be certified from that extraction. Full visual reconciliation
-remains open. The raw controlled paper remains outside every runtime corpus.
+review cannot be certified from that extraction. Visual classification of all 83 pages was completed on 2026-10-21; see
+[the page review ledger](Z-SWAP-83-PAGE-REVIEW.md). This closes visual coverage,
+not independent verification of every runtime claim. The raw controlled paper
+remains outside every runtime corpus.
 
 ## Historical source identity
 
@@ -60,7 +62,7 @@ remains open. The raw controlled paper remains outside every runtime corpus.
 - Reconciled against Z-SWAP `origin/main`: `166fd5be9c28fb2ffaaffd9413bf61c40f492698`
 - Scope: 67 planned sections, estimated 60–80 landscape pages
 - Overall classification: `MIXED`
-- Status: `CURRENT_RECONCILIATION_SOURCE`
+- Status: `HISTORICAL_EDITORIAL_PLAN`
 
 The verified Drive material is a plan for the Technical Paper, not a completed
 public technical paper. It can identify topics and editorial intent, but it
@@ -76,7 +78,8 @@ into an approved knowledge projection may reach an agent.
 - `SECRET`: values and recovery material are never copied into this document
   or any knowledge source.
 - The raw source documents are never indexed directly.
-- MÍMIR receives only the curated public technical projection.
+- MÍMIR receives only separately curated projections allowed by the manifest;
+  a technical filename does not override its CONTROLLED classification.
 - EIR receives the smaller support/product projection already approved.
 - ZION and FREYR do not receive internal architecture through cross-agent
   handoff or retrieval.

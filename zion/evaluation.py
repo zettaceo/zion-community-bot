@@ -56,11 +56,13 @@ def evaluation_context_query(turns: list[str]) -> str:
 
 async def evaluate_case(case: dict, *, knowledge: KnowledgeBase,
                         provider: CompletionProvider, model: str,
-                        budget: EvaluationBudget) -> dict:
+                        budget: EvaluationBudget,
+                        conversation_context: str | None = None) -> dict:
     question = case['turns'][-1]
     context = public_context(knowledge, evaluation_context_query(case['turns']), case['expected_speaker'])
     messages = build_answer_messages(question=question, context=context,
-        conversation_context='\n'.join('User: ' + t for t in case['turns'][:-1]),
+        conversation_context=(conversation_context if conversation_context is not None else
+                              '\n'.join('User: ' + t for t in case['turns'][:-1])),
         agent_id=case['expected_speaker'])
     input_hash = hashlib.sha256(json.dumps(messages, sort_keys=True).encode()).hexdigest()
     # Persist reservation before awaiting. Never automatically retry uncertain

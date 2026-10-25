@@ -646,6 +646,31 @@ class ZSwapKnowledgeCorpusTests(unittest.TestCase):
                 self.assertIn("não uma fonte de cotação", context)
                 self.assertIn("mesma rede", context)
 
+    def test_generic_swap_questions_preserve_selected_source_scope(self):
+        for agent in ("zion", "mimir"):
+            for question in ("Swaps e pontes", "O que é possível fazer na Z-SWAP?"):
+                with self.subTest(agent=agent, question=question):
+                    context = self.kb.render_context(question, agent_id=agent)
+                    self.assertIn("fonte", context)
+                    self.assertIn("todas as fontes em cada pedido", context)
+                    self.assertNotIn("compara as cotações disponíveis", context)
+                    self.assertNotIn("comparar cotações de diferentes fontes", context)
+
+    def test_portfolio_question_preserves_unknown_value_and_partial_total(self):
+        for agent in ("zion", "mimir", "eir"):
+            with self.subTest(agent=agent):
+                chunks = self.kb.search(
+                    "Portfolio saldo indisponível preço desconhecido", agent_id=agent
+                )
+                self.assertTrue(chunks)
+                self.assertEqual(chunks[0].heading, "Portfolio")
+                context = chunks[0].text
+                self.assertIn("não devem ser tratados como", context)
+                self.assertIn("zero", context)
+                self.assertIn("total parcial", context)
+                self.assertIn("não comprova o patrimônio", context)
+                self.assertNotIn("indistinguível de saldo vazio", context)
+
     def test_loaded_corpus_content_does_not_embed_repository_or_commit_provenance(self):
         import re
         kb = KnowledgeBase(ROOT / "knowledge")

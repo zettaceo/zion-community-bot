@@ -16,6 +16,7 @@ sys.path.insert(0, str(ROOT))
 from zion.db import ZionDB
 from zion.evaluation import evaluate_case, load_cases
 from zion.evaluation_budget import EvaluationBudget
+from zion.evaluation_conversations import load_conversations, evaluate_conversation
 from zion.knowledge import KnowledgeBase
 from zion.mistral import MistralClient
 from zion.provider_secrets import ProviderSecretStore
@@ -33,7 +34,9 @@ def private_directory(path: Path) -> None:
 
 async def run(args) -> int:
     cases = load_cases(ROOT / 'evaluations/cognitive-v2.jsonl')
-    if args.case_ids:
+    if args.conversations:
+        selected = load_conversations(ROOT / 'evaluations/cognitive-v2-conversations.jsonl')
+    elif args.case_ids:
         by_id = {case['id']: case for case in cases}
         if (len(args.case_ids) > 10 or len(set(args.case_ids)) != len(args.case_ids)
             or any(case_id not in by_id for case_id in args.case_ids)):
@@ -76,16 +79,26 @@ async def run(args) -> int:
         fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
         failed = False
         with os.fdopen(fd, 'w', encoding='utf-8') as output:
+            async def results_for_case(case):
+                if args.conversations:
+                    async for result in evaluate_conversation(case, knowledge=knowledge,
+                            provider=provider, model=args.model, budget=budget):
+                        yield result
+                else:
+                    yield await evaluate_case(case, knowledge=knowledge,
+                        provider=provider, model=args.model, budget=budget)
+
             for case in selected:
-                result = await evaluate_case(case, knowledge=knowledge,
-                    provider=provider, model=args.model, budget=budget)
-                output.write(json.dumps(result, ensure_ascii=False) + '\n')
-                output.flush(); os.fsync(output.fileno())
-                print(f"case={result['id']} status={result['status']}", flush=True)
-                if result['status'] in {'PROVIDER_FAIL', 'AUTOMATED_FAIL'}:
-                    failed = True
+                async for result in results_for_case(case):
+                    output.write(json.dumps(result, ensure_ascii=False) + '\n')
+                    output.flush(); os.fsync(output.fileno())
+                    print(f"case={result['id']} status={result['status']}", flush=True)
+                    if result['status'] in {'PROVIDER_FAIL', 'AUTOMATED_FAIL'}:
+                        failed = True
+                        break
+                    await asyncio.sleep(1)
+                if failed:
                     break
-                await asyncio.sleep(1)
         print(f'EVIDENCE={path}')
         print(f'BUDGET_RESERVED_OR_SPENT_MICRO_USD={budget.total_micro_usd()}')
         print('ACCEPTANCE=PENDING_HUMAN_REVIEW_AND_CORE_TELEGRAM_TESTS')
@@ -100,6 +113,8 @@ def main() -> int:
     parser.add_argument('--live', action='store_true')
     selection = parser.add_mutually_exclusive_group()
     selection.add_argument('--full', action='store_true')
+    selection.add_argument('--conversations', action='store_true',
+        help='four synthetic 12-turn conversations; generation only, not Telegram acceptance')
     selection.add_argument('--case-ids', nargs='+')
     args = parser.parse_args()
     try:

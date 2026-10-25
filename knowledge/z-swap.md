@@ -6,7 +6,7 @@ Não custodial significa que a Z-SWAP não guarda a seed phrase nem a chave priv
 
 # O que é possível fazer na Z-SWAP?
 
-A plataforma permite comparar cotações de diferentes fontes antes de uma troca, usar pontes entre redes, acompanhar carteira e histórico, consultar pools de liquidez e analisar tokens antes de operar.
+A plataforma permite consultar a cotação da fonte selecionada para a operação, revisar a rota e seus custos antes de uma troca, usar pontes entre redes, acompanhar carteira e histórico, consultar pools de liquidez e analisar tokens antes de operar. A fonte depende das redes envolvidas; não são comparadas todas as fontes em cada pedido.
 
 O Terminal Pro reúne gráficos de mercado, indicadores técnicos, leitura de tendência, níveis de entrada, alvo e stop, além de ferramentas para comparar cenários. Essas informações apoiam a decisão do usuário, mas não garantem resultado financeiro.
 
@@ -20,7 +20,7 @@ A disponibilidade de uma rota depende do par de ativos, da rede, da liquidez e d
 
 # Swaps e pontes
 
-Em uma troca, a Z-SWAP compara as cotações disponíveis e mostra a rota encontrada para o par escolhido. Em uma ponte, o ativo sai de uma rede e chega a outra por uma rota compatível.
+Em uma troca, a Z-SWAP seleciona a fonte de cotação conforme as redes envolvidas e mostra a rota retornada para o par escolhido. Não compara todas as fontes em cada pedido. Em uma ponte, a rota conecta a rede de origem à de destino, conforme disponibilidade no momento da consulta.
 
 Antes de confirmar, o usuário deve conferir o ativo, a rede de origem, a rede de destino, o endereço de recebimento, o impacto no preço, a taxa e o valor mínimo esperado. A Z-SWAP nunca deve pedir seed phrase ou chave privada para concluir uma operação.
 
