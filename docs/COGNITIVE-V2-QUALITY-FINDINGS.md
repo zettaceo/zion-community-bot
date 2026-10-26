@@ -354,3 +354,30 @@ SECRET SCAN OK, ZION VALIDATION OK
 (`zion-v2-k3-final-validation.log`). The K3 conversation still failed at turn 5, all later
 turns and the three other scenarios remain unexecuted, and the cumulative
 estimated/reserved evaluation ledger remains 1,638,178 micro-USD.
+
+## Solana fee-source scope reconciliation — 2026-10-26
+
+The approved plan projection at application snapshot
+`986ae759c1c76fe23967a8e61489d986b2bb9a51` said “outros pares Solana”
+without repeating its Jupiter scope immediately before the LI.FI sentence.
+Read-only source inspection at that exact snapshot found the USDC/SOL pair
+selection in `src/lib/solana/conta-de-taxa.ts` on the Jupiter path, while
+`src/app/api/quote/route.ts` passes the plan fee to LI.FI through its separate
+integrator path. The public source text in `src/lib/founders-public/content.ts`
+names both paths. `knowledge/z-swap-plans.md` now scopes the “other pairs”
+sentence explicitly to Jupiter and says LI.FI routes leaving Solana do not use
+that pair condition. The four published plan rates and source version did not
+change. This is a clarification of the existing approved snapshot, not proof
+of live availability or fee collection in production.
+
+When a generated answer still overgeneralizes that Solana condition, the
+candidate delivery path now attempts a host-owned answer from the complete
+already-retrieved PUBLIC section. It derives the four rates from that section,
+states Jupiter and LI.FI separately, notes third-party costs and declines to
+claim a competitor price comparison. A missing or altered section keeps the
+short conservative fallback. This is a local delivery-path test only: the K3
+evaluation runner stops on `AUTOMATED_FAIL` before the delivery fallback, so
+neither the model nor Telegram acceptance becomes PASS by this change.
+Local post-reconciliation validation: 890 tests PASS, SECRET SCAN OK, ZION
+VALIDATION OK (`zion-v2-solana-final-validation.log`). No additional provider
+call was made; the evaluation ledger remains unchanged.

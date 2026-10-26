@@ -8,6 +8,7 @@ from zion.agents import AgentId
 from zion.knowledge import KnowledgeBase, KnowledgeClassification, KnowledgeSourceStatus
 from zion.knowledge_tools import KnowledgeTools, KnowledgeToolError, TOOL_NAMES
 from zion.language_recovery import recover_language
+from zion.response_guard import public_fallback_for, validate_public_response
 
 
 _COMPARISON_QUERY = ('Qual a diferença da Z-SWAP para outras plataformas?\n'
@@ -88,6 +89,21 @@ class KnowledgeToolsTests(unittest.TestCase):
         self.assertIn('Produto antes de promessa',
                       [item.heading for item in natural_comparison.evidence])
         self.assertIn('Beta', [item.heading for item in natural_comparison.evidence])
+
+    def test_failed_k3_fee_turn_can_use_complete_public_fallback(self):
+        query = 'Uniswap faz isso.\nBinance também.\nVocês cobram mais?'
+        result = self.tools.call('search_approved_knowledge',
+            {'query': query}, agent_id=AgentId.ZION)
+        self.assertIn('Taxas Solana, Jupiter e LI.FI',
+                      [item.heading for item in result.evidence])
+        reply = public_fallback_for('overbroad_solana_fee_scope',
+                                    official_context=result.render())
+        self.assertIn('Free/Thrall 1,00%', reply)
+        self.assertIn('Pilot/Einherjar 0,10%', reply)
+        self.assertIn('LI.FI saindo da Solana', reply)
+        self.assertIn('não posso dizer se a Z-SWAP cobra mais ou menos', reply)
+        self.assertTrue(validate_public_response(reply,
+            official_context=result.render()).allowed)
 
     def test_comparison_status_companions_require_public_current_agent_authority(self):
         generic = next(chunk for chunk in self.knowledge.chunks

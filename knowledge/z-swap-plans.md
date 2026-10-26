@@ -27,9 +27,10 @@ de platform fee: Free/Thrall 1,00%, Pro/Drengr 0,50%, Trader/Berserkr 0,25%
 e Pilot/Einherjar 0,10%.
 
 Na Jupiter, essa cobrança se aplica quando USDC ou SOL é um dos lados do swap.
-Outros pares Solana não têm platform fee da Z-SWAP. A política também abrange
-rotas LI.FI saindo da Solana. Se a conta de recebimento da taxa estiver
-indisponível, o swap prossegue sem a platform fee da Z-SWAP.
+Na Jupiter, outros pares Solana não têm platform fee da Z-SWAP. As rotas LI.FI
+saindo da Solana são tratadas separadamente e não seguem essa condição de par.
+Se a conta de recebimento da taxa estiver indisponível, o swap prossegue sem
+a platform fee da Z-SWAP.
 
 Isso não significa operação sem custo: rede, DEX, agregador, bridge ou exchange
 podem cobrar separadamente. Confira os custos apresentados para a rota antes

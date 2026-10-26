@@ -989,6 +989,13 @@ Local isolated regression: 878 tests PASS, SECRET SCAN OK, ZION VALIDATION OK
   status as an atomic comparison evidence pair, and reject an answer that
   drops those qualifiers. Independent negative probes covered safe denials
   and Jupiter-only fee scoping without a paid provider retry.
+- [x] Reconcile the ambiguous “other Solana pairs” sentence against the exact
+  approved application snapshot; limit it to Jupiter and keep LI.FI's separate
+  source path explicit. Preserve the published four-tier rates and snapshot
+  classification.
+- [x] Give a source-derived, host-owned Solana fee answer after this specific
+  guard rejection only when the whole PUBLIC section is present; otherwise
+  keep the conservative reply. This does not change the K3 evaluation FAIL.
 - [ ] Obtain human-accepted multi-turn generation across all four scenarios;
   automated `REVIEW_REQUIRED` is not quality PASS. The qualifier fix has only
   deterministic retrieval/replay coverage, not a new K3 or Telegram PASS.
@@ -1002,3 +1009,7 @@ Isolated full validation: 882 tests PASS, SECRET SCAN OK, ZION VALIDATION OK
 Final validation of the later comparison-status refinement: 888 tests PASS,
 SECRET SCAN OK, ZION VALIDATION OK (`zion-v2-k3-final-validation.log`). The
 multi-turn and Telegram gates remain open; no production promotion is implied.
+
+Post-reconciliation isolated validation: 890 tests PASS, SECRET SCAN OK,
+ZION VALIDATION OK (`zion-v2-solana-final-validation.log`). No new paid K3 run
+or Telegram acceptance was performed after the source clarification.

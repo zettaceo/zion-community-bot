@@ -76,7 +76,8 @@ class KnowledgeTests(unittest.TestCase):
                 for fact in (
                     "Free/Thrall 1,00%", "Pro/Drengr 0,50%",
                     "Trader/Berserkr 0,25%", "Pilot/Einherjar 0,10%",
-                    "USDC ou SOL", "Outros pares Solana não têm",
+                    "USDC ou SOL", "Na Jupiter, outros pares Solana não têm",
+                    "LI.FI saindo da Solana são tratadas separadamente",
                     "LI.FI saindo da Solana", "swap prossegue sem",
                 ):
                     self.assertIn(fact, rendered)
@@ -394,7 +395,8 @@ class KnowledgeTests(unittest.TestCase):
             "platform fee EVM pública é 0,50%",
             "platform fee EVM pública é 0,25%",
             "platform fee EVM pública é 0,10%",
-            "Outros pares Solana não têm platform fee da Z-SWAP",
+            "Na Jupiter, outros pares Solana não têm platform fee da Z-SWAP",
+            "não seguem essa condição de par",
             "exatamente 36 meses de Premium",
             "A venda não está aberta",
             "preços públicos finais ainda não foram anunciados",

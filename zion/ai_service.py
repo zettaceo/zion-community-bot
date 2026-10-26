@@ -747,15 +747,17 @@ class AIService:
                     "agent_id": selected_agent.value,
                 },
             )
+            approved_response_context = context + "\n" + answer.evidence_context
             check = validate_public_response(answer.text,
-                official_context=context + "\n" + answer.evidence_context)
+                official_context=approved_response_context)
             if not check.allowed:
                 self._record_ai_event(
                     chat_id=chat_id, user_id=user_id, purpose="response_guard",
                     model=answer.model, success=False, input_hash=question_hash,
                     metadata={"reason": check.reason, "agent_id": selected_agent.value},
                 )
-                return replace(answer, text=public_fallback_for(check.reason))
+                return replace(answer, text=public_fallback_for(
+                    check.reason, official_context=approved_response_context))
             return answer
 
         except ProviderBudgetError:

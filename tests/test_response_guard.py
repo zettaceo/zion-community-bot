@@ -248,6 +248,47 @@ class ResponseGuardTests(unittest.TestCase):
         self.assertTrue(validate_public_response(
             public_fallback_for('overbroad_solana_fee_scope'), official_context='').allowed)
 
+    def test_solana_fee_fallback_uses_complete_public_section_values(self):
+        section = (
+            '[Contexto oficial: Taxas Solana, Jupiter e LI.FI]\n'
+            'Desde 16 de outubro de 2026, as rotas Solana elegíveis usam a mesma escada '
+            'de platform fee: Free/Thrall 7%, Pro/Drengr 6%, Trader/Berserkr 5% '
+            'e Pilot/Einherjar 4%.\n\n'
+            'Na Jupiter, essa cobrança se aplica quando USDC ou SOL é um dos lados do swap. '
+            'Na Jupiter, outros pares Solana não têm platform fee da Z-SWAP. '
+            'As rotas LI.FI saindo da Solana são tratadas separadamente e não seguem '
+            'essa condição de par. Se a conta de recebimento da taxa estiver '
+            'indisponível, o swap prossegue sem a platform fee da Z-SWAP.\n\n'
+            'Isso não significa operação sem custo: rede, DEX, agregador, bridge ou '
+            'exchange podem cobrar separadamente. Confira os custos apresentados '
+            'para a rota antes de confirmar.'
+        )
+        context = '[Contexto oficial: Outro tema]\nSem política de taxa.\n\n' + section
+        answer = public_fallback_for('overbroad_solana_fee_scope',
+                                     official_context=context)
+        self.assertIn('Free/Thrall 7%', answer)
+        self.assertIn('Pilot/Einherjar 4%', answer)
+        self.assertIn('outros pares na Jupiter não têm essa taxa', answer)
+        self.assertIn('LI.FI saindo da Solana são tratadas separadamente', answer)
+        self.assertNotIn('Sem política de taxa', answer)
+        self.assertIn('não posso dizer se a Z-SWAP cobra mais ou menos', answer)
+        self.assertTrue(validate_public_response(answer, official_context=context).allowed)
+
+        conservative = public_fallback_for('overbroad_solana_fee_scope')
+        for invalid in (
+            section.replace('Pilot/Einherjar 4%', 'Pilot/Einherjar'),
+            section.replace('Na Jupiter, outros pares', 'Outros pares'),
+            section.replace('são tratadas separadamente', 'seguem a mesma condição'),
+            section.replace('Confira os custos apresentados para a rota antes de confirmar.', ''),
+            section.replace('[Contexto oficial: Taxas Solana, Jupiter e LI.FI]',
+                            '[Contexto oficial: Outro tema]'),
+        ):
+            with self.subTest(invalid=invalid[-80:]):
+                self.assertEqual(public_fallback_for(
+                    'overbroad_solana_fee_scope', official_context=invalid), conservative)
+        self.assertEqual(public_fallback_for('best_price_guarantee',
+            official_context=context), public_fallback_for('best_price_guarantee'))
+
     def test_snapshot_evidence_is_not_called_live_proof(self):
         for text in (
             'O que é fato verificável agora: Free tem cinco análises diárias.',

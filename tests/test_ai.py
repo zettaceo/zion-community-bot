@@ -360,8 +360,16 @@ class AITests(unittest.TestCase):
             "Compare rotas disponíveis conforme as condições do momento.\n\n"
             "# Segurança e risco\nUsar qualquer plataforma envolve risco. "
             "Nenhuma plataforma ou transação é livre de risco.\n\n"
-            "# Taxas Solana\nNa Jupiter, USDC ou SOL define a elegibilidade da taxa. "
-            "Rotas LI.FI saindo da Solana são tratadas separadamente.\n\n"
+            "# Taxas Solana, Jupiter e LI.FI\nDesde 16 de outubro de 2026, "
+            "as rotas Solana elegíveis usam a mesma escada de platform fee: "
+            "Free/Thrall 1,00%, Pro/Drengr 0,50%, Trader/Berserkr 0,25% "
+            "e Pilot/Einherjar 0,10%. Na Jupiter, essa cobrança se aplica "
+            "quando USDC ou SOL é um dos lados do swap. Na Jupiter, outros "
+            "pares Solana não têm platform fee da Z-SWAP. As rotas LI.FI "
+            "saindo da Solana são tratadas separadamente e não seguem essa "
+            "condição de par. Isso não significa operação sem custo: rede, "
+            "DEX, agregador, bridge ou exchange podem cobrar separadamente. "
+            "Confira os custos apresentados para a rota antes de confirmar.\n\n"
             "# Estado público\nO estado documentado não é uma verificação ao vivo "
             "de disponibilidade hoje.\n",
             encoding="utf-8")
@@ -390,7 +398,15 @@ class AITests(unittest.TestCase):
                 ai.client.output = output
                 result = asyncio.run(ai.answer(chat_id=1, user_id=20 + index,
                     question=question))
-                self.assertEqual(result.text, public_fallback_for(reason))
+                if reason == 'overbroad_solana_fee_scope':
+                    self.assertIn('Jupiter', result.text)
+                    self.assertIn('LI.FI', result.text)
+                    self.assertIn('Free', result.text)
+                    self.assertIn('Pilot', result.text)
+                    self.assertIn('1,00%', result.text)
+                    self.assertNotIn(output, result.text)
+                else:
+                    self.assertEqual(result.text, public_fallback_for(reason))
                 self.assertNotEqual(result.text, PUBLIC_FALLBACK)
                 self.assertTrue(validate_public_response(result.text,
                     official_context='').allowed)

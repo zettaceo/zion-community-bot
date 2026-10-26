@@ -341,7 +341,62 @@ PUBLIC_FALLBACK = (
 )
 
 
-def public_fallback_for(reason: str) -> str:
+_SOLANA_FEE_HEADING = '[Contexto oficial: Taxas Solana, Jupiter e LI.FI]'
+_SOLANA_FEE_TIERS = ('free/thrall', 'pro/drengr',
+                    'trader/berserkr', 'pilot/einherjar')
+
+
+def _public_solana_fee_reply(official_context: str) -> str | None:
+    """Compose a short answer from one complete, already authorized section."""
+    if not official_context:
+        return None
+    # The caller must supply locally retrieved PUBLIC/CURRENT context. A
+    # heading in arbitrary user or model text is not an authority grant.
+    for heading in re.finditer(r'^' + re.escape(_SOLANA_FEE_HEADING) + r'\s*$',
+                               official_context, re.MULTILINE):
+        start = heading.end()
+        next_heading = re.search(r'^\[Contexto oficial: [^\]\n]+\]\s*$',
+                                 official_context[start:], re.MULTILINE)
+        end = start + next_heading.start() if next_heading else len(official_context)
+        section = official_context[start:end].strip()
+        folded = ' '.join(_fold(section).split())
+        rates = re.findall(
+            r'\b(free/thrall|pro/drengr|trader/berserkr|pilot/einherjar)\s+'
+            r'(\d+(?:[.,]\d+)?\s*%)', folded)
+        if len(rates) != 4 or {tier for tier, _ in rates} != set(_SOLANA_FEE_TIERS):
+            continue
+        required_scope = (
+            r'\brotas solana elegiveis usam a mesma escada de platform fee\b',
+            r'\bna jupiter, essa cobranca se aplica quando usdc ou sol e um dos lados do swap\b',
+            r'\bna jupiter, outros pares solana nao tem platform fee da z-swap\b',
+            r'\brotas li\.fi saindo da solana sao tratadas separadamente'
+            r' e nao seguem essa condicao de par\b',
+            r'\bisso nao significa operacao sem custo\b',
+            r'\bconfira os custos apresentados para a rota antes de confirmar\b',
+        )
+        if not all(re.search(pattern, folded) for pattern in required_scope):
+            continue
+        values = {tier: ''.join(value.split()) for tier, value in rates}
+        amounts = (f'Free/Thrall {values["free/thrall"]}, '
+                   f'Pro/Drengr {values["pro/drengr"]}, '
+                   f'Trader/Berserkr {values["trader/berserkr"]} e '
+                   f'Pilot/Einherjar {values["pilot/einherjar"]}')
+        reply = (
+            'A base pública revisada informa platform fee nas rotas Solana '
+            f'elegíveis: {amounts}. Na Jupiter, a cobrança se aplica quando '
+            'USDC ou SOL é um dos lados do swap; outros pares na Jupiter não '
+            'têm essa taxa. As rotas LI.FI saindo da Solana são tratadas '
+            'separadamente e não seguem essa condição de par. Custos de rede '
+            'e de terceiros podem ocorrer à parte; confira os custos da rota '
+            'antes de confirmar. Essa fonte não compara taxas com outras '
+            'plataformas, então não posso dizer se a Z-SWAP cobra mais ou menos.'
+        )
+        if validate_public_response(reply, official_context=official_context).allowed:
+            return reply
+    return None
+
+
+def public_fallback_for(reason: str, *, official_context: str = '') -> str:
     """Host-owned public reply for a few known quality failures."""
     if reason == 'best_price_guarantee':
         return ('A Z-SWAP compara rotas disponíveis conforme as condições daquele '
@@ -363,6 +418,9 @@ def public_fallback_for(reason: str) -> str:
                 'uma lista parcial como completa; posso detalhar Free, Pro, '
                 'Trader e Pilot com os valores publicados.')
     if reason == 'overbroad_solana_fee_scope':
+        reply = _public_solana_fee_reply(official_context)
+        if reply is not None:
+            return reply
         return ('As condições de taxa na Solana dependem da rota e do provedor. '
                 'Não vou aplicar a condição de uma rota a todos os swaps; confira '
                 'os custos mostrados antes de confirmar.')
