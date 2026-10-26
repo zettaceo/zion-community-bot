@@ -7,18 +7,44 @@
 audit below is historical evidence for the earlier multi-agent core; its
 714-test total and release identity are not cognitive-v2 acceptance.
 
+### Provider smoke acceptance — 2026-10-26
+
+The predeclared ten-case, synthetic/PUBLIC generation smoke was executed once
+per model at candidate `6774e8b21c4a512bc77c5eb83d62c40aa119ef46`.
+Automated status was `REVIEW_REQUIRED` for all ten generated responses per
+model; independent human review stopped on the first fatal finding. Ministral
+8B failed v2-001 for unsupported best-route/quote optimization. Kimi K3 passed
+v2-001 and v2-021, then failed v2-041 for a categorical wallet-signature
+claim and named wallet compatibility absent from the retrieved PUBLIC evidence.
+The remaining nine Ministral and seven K3 responses were generated but **NOT
+HUMAN REVIEWED**. Neither model passed smoke or qualified for the full
+108-case benchmark.
+
+Private evidence basenames: `20261026T205218780145Z-smoke-manifest.json`,
+`20261026T205229854612Z-ministral-8b-2512-human-review.md`, and
+`20261026T205308750562Z-kimi-k3-human-review.md`. The two generated batches
+have estimated charges of 5,132 and 266,221 micro-USD; cumulative isolated
+ledger is 1,985,034 micro-USD reserved/estimated, not an invoice. Detailed
+case scope and limitations are in `COGNITIVE-V2-QUALITY-FINDINGS.md`.
+Material fixes for the two observed claims passed 911/911 local tests, secret
+scan and project validation. A new frozen provider retest and exact-SHA CI are
+**PENDING**; neither model's smoke FAIL is erased. No new code SHA or CI
+verdict is inferred from this documentation checkpoint. Multi-turn quality,
+controlled Telegram acceptance and production authorization remain open;
+Kimi remains inactive and production unchanged.
+
 ### Identity and measured boundaries
 
 - Remote development base: `57a10444422373271fbd602acc083199346b5031`;
   production ref, local checkout and runtime on the read-only 2026-10-26 check:
   `472a4b3f0ce73a8635d400c0073701013c357b92`.
 - The prior committed candidate was
-  `220803f06ad7911a4e93adedcada77f7f68a56b5`. Exact-SHA ZION CI run
-  [40345835465](https://github.com/zettaceo/zion-community-bot/actions/runs/40345835465)
+  `6774e8b21c4a512bc77c5eb83d62c40aa119ef46`. Exact-SHA ZION CI run
+  [40398872350](https://github.com/zettaceo/zion-community-bot/actions/runs/40398872350)
   succeeded on that commit. Any subsequent commit needs its own exact-SHA CI.
-- Current isolated source and test changes passed 903/903 tests, shell checks,
+- Current isolated source and test changes passed 911/911 tests, shell checks,
   sensitive-file checks, `SECRET SCAN: OK`, and `ZION VALIDATION: OK` in
-  `/tmp/zion-v2-candidate-final-validation-2.log`.
+  `/tmp/zion-v2-smoke-forward-fix-validation-3.log`.
   This is local candidate evidence, not CI or production acceptance.
 - Production service was active/running, NRestarts 0 at that read-only check.
   No service, production database, branch, runtime, or provider selection was

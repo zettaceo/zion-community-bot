@@ -1,7 +1,8 @@
 # Cognitive v2 — provider benchmark protocol
 
-Status: PREPARED, NOT CERTIFIED. This is a generation-quality comparison, not
-evidence of correct Telegram routing, Guardian behavior, native tools, live
+Status: PREDECLARED SMOKE FAILED ON BOTH MODELS, NOT CERTIFIED. This is a
+generation-quality comparison, not evidence of correct Telegram routing,
+Guardian behavior, native tools, live
 community quality or permission to activate a provider. Read
 `COGNITIVE-V2-QUALITY-FINDINGS.md` before any new paid run. Failed and
 unexecuted cases remain visible in the record.
@@ -118,9 +119,31 @@ dimension remains untested or failed.
 
 ## Current checkpoint
 
-The last K3 debate stopped at turn 1 with `missing_feature_status` despite
-PUBLIC beta/partial evidence being available. The later host-owned comparison
-reply improved conservative delivery; it did not change that provider result.
-The other three 12-turn scenarios and full comparable A/B have no PASS. Keep
-Kimi inactive, PR #66 draft and production unchanged until the stated gates
-have their own evidence.
+On 2026-10-26, the frozen ten-case smoke selection was generated once each
+with Ministral 8B and Kimi K3 at candidate
+`6774e8b21c4a512bc77c5eb83d62c40aa119ef46`. All twenty generated rows
+were automated `REVIEW_REQUIRED`, which is not a human pass. The private
+manifest is `20261026T205218780145Z-smoke-manifest.json`; model evidence and
+review basenames are listed in `COGNITIVE-V2-QUALITY-FINDINGS.md`.
+
+Ministral failed human review on the first case, v2-001: unsupported best-route
+and quote-optimization behavior. Its other nine responses were generated but
+NOT HUMAN REVIEWED. K3 passed human review on v2-001 and v2-021, then failed
+v2-041 on an unsupported wallet connection/signature generalization and named
+wallet examples absent from the retrieved PUBLIC evidence. Its other seven
+responses were generated but NOT HUMAN REVIEWED. Under this protocol, both
+models' **smoke verdicts are FAIL**, and neither advances to the full 108-case
+benchmark. The estimated costs for all generated attempts were 5,132 and
+266,221 micro-USD respectively; cumulative isolated ledger: 1,985,034
+micro-USD reserved or estimated spent, not an invoice or available balance.
+
+Material candidate fixes for the two observed claims passed 911/911 local
+tests, `SECRET SCAN: OK` and `ZION VALIDATION: OK` in
+`/tmp/zion-v2-smoke-forward-fix-validation-3.log`. Exact-SHA CI and a newly
+frozen provider retest remain PENDING; local tests do not change either model's
+smoke FAIL. The earlier K3
+debate still stopped at turn 1 with `missing_feature_status`; the other three
+12-turn scenarios and full comparable A/B have no PASS. A host-owned fallback
+does not change model quality. Keep Kimi inactive, PR #66 draft and production
+unchanged until the separate quality, Telegram, security and release gates have
+their own evidence and operator approval.

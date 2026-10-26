@@ -6,6 +6,7 @@ Never persist the rejected answer or its matching sensitive substring.
 """
 from __future__ import annotations
 
+from bisect import bisect_left, bisect_right
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 import re
@@ -86,6 +87,311 @@ _SPELLED_PERCENT_VALUES = {
 def _fold(text: str) -> str:
     return ''.join(c for c in unicodedata.normalize('NFKD', text)
                    if not unicodedata.combining(c)).casefold()
+
+
+_ROUTE_SUPERLATIVE = (
+    r'\b(?:(?:a|o) )?(?:melhor|mais eficiente|mais vantajos[ao]|otim[ao]|'
+    r'mais barat[ao]|mais economic[ao]) (?:rota|cotacao|preco|taxa)\b|'
+    r'\b(?:rota|cotacao) (?:mais eficiente|mais vantajos[ao]|'
+    r'otim[ao]|mais barat[ao]|mais economic[ao]|'
+    r'(?:de|com) menor (?:custo|preco|taxa))\b|'
+    r'\b(?:best quote|best route|most efficient route|'
+    r'lowest-cost route|lowest cost route|cheapest route)\b|'
+    r'\b(?:menor (?:preco|taxa)|(?:preco|taxa) mais baix[ao])\b'
+)
+_ROUTE_CHOOSER = (
+    r'\b(?:escolhe|seleciona|encontra|identifica|define|determina|'
+    r'recomenda|indica|calcula|otimiza|busca|apresenta|mostra|entrega|fornece|'
+    r'oferece|escolher|selecionar|encontrar|identificar|otimizar|'
+    r'chooses|selects|finds|picks|optimizes)\b'
+)
+
+
+_QUOTED_CONCERN = re.compile(
+    r'"[^"\n]{0,240}"|“[^”\n]{0,240}”|‘[^’\n]{0,240}’|'
+    r"(?<!\w)'[^'\n]{0,240}'(?!\w)")
+
+
+def _mask_reported_quotes(folded: str) -> str:
+    """Mask a user's quoted concern, but not an unattributed quoted assertion."""
+    def replace(match: re.Match[str]) -> str:
+        before = folded[max(0, match.start() - 90):match.start()]
+        after = folded[match.end():match.end() + 90]
+        reported = (match.group()[-2] == '?'
+                    or re.search(r'\b(?:voce|usuario|cliente|ele|ela)\s+'
+                                 r'(?:perguntou|disse|alegou|citou)\b[^.!?;\n]{0,35}$',
+                                 before)
+                    or re.match(r'\s*(?:e|foi)\s+(?:a |uma )?(?:sua )?'
+                                r'(?:pergunta|duvida|alegacao)\b', after))
+        return ' ' * len(match.group()) if reported else match.group()
+    return _QUOTED_CONCERN.sub(replace, folded)
+
+
+def _denied_claim_prefix(prefix: str) -> bool:
+    return bool(re.search(r'\b(?:nao e verdade que|nao ha evidencias? de que|'
+                          r'nao ha provas? de que|e falso que|'
+                          r'e incorreto afirmar que)\b[^.!?;\n]{0,55}$', prefix))
+
+
+def _reported_or_denied_prefix(prefix: str) -> bool:
+    return (_denied_claim_prefix(prefix)
+            or bool(re.search(r'\b(?:nao (?:posso|podemos) (?:confirmar|afirmar) que|'
+                              r'nao ha (?:prova|evidencia|confirmacao) de que|'
+                              r'(?:voce )?perguntou se|quer saber se)\b'
+                              r'[^.!?;\n]{0,55}$', prefix)))
+
+
+def _unsupported_route_optimization(answer: str) -> bool:
+    """Catch an asserted best-route choice, not questions or scoped denials.
+
+    This is a bounded known-claim check, not proof of grounding for arbitrary
+    route descriptions. User-quoted concerns remain non-authoritative.
+    """
+    folded = _mask_reported_quotes(_fold(answer))
+    actor = r'\b(?:z[\s-]?swap|a plataforma|o sistema|o motor|o agregador|ela|it|the platform)\b'
+    claim = re.compile(
+        rf'(?:{actor}[^.!?;\n]{{0,55}}?|^)'
+        rf'(?P<verb>{_ROUTE_CHOOSER})[^.!?;\n]{{0,95}}?'
+        rf'(?P<superlative>{_ROUTE_SUPERLATIVE})'
+    )
+    passive = re.compile(
+        r'\b(?:a|o)\s+(?:melhor|mais eficiente|mais barata|mais barato)\s+'
+        r'(?:cotacao|rota|preco|taxa)\s+(?:e|foi|sera)\s+'
+        r'(?:escolhid[ao]|selecionad[ao]|encontrad[ao])\b'
+        r'[^.!?;\n]{0,45}\b(?:pela|pelo)\s+z[\s-]?swap\b'
+    )
+    for sentence in re.finditer(r'[^.!?;\n]+[.!?;\n]?', folded):
+        segment = sentence.group().strip()
+        if segment.endswith('?'):
+            continue  # A question about a capability is not an assertion.
+        for clause in re.split(r'\b(?:mas|porem|contudo|however|but)\b',
+                               segment.rstrip('.!;\n')):
+            clause = clause.strip(' ,:')
+            if not clause:
+                continue
+            for match in passive.finditer(clause):
+                if not _reported_or_denied_prefix(clause[:match.start()]):
+                    return True
+            for match in claim.finditer(clause):
+                prefix = clause[:match.start()]
+                between = clause[match.start():match.start('verb')]
+                if re.search(r'\b(?:nao|nunca|jamais|not|never)\b', between):
+                    continue
+                if _denied_claim_prefix(prefix) or re.search(
+                    r'\b(?:se|caso|quando|if|perguntou se|pergunta se|quer saber se|'
+                    r'nao (?:posso|podemos|da para|e possivel) afirmar que|'
+                    r'nao afirmo que|sem prova de que|nao ha evidencia de que)'
+                    r'\s+(?:a |o )?$', prefix
+                ):
+                    continue
+                return True
+    return False
+
+
+_WALLET_CONNECTION = re.compile(
+    r'\b(?:conexao|conectar|conecta(?:m|ndo|do|da)?|conecte|conectou)\b')
+_WALLET_SIGNATURE = re.compile(r'\b(?:assinatura\w*|assinar|assine)\b')
+_WALLET_EXCLUSIVE = re.compile(r'\b(?:so|somente|apenas|exclusivamente|basta)\b')
+_NAMED_WALLETS = ('metamask', 'phantom', 'rabby')
+
+
+def _approved_wallet_brand(name: str, official_context: str) -> bool:
+    """A mention, especially a negative one, is not approval of support."""
+    parts = re.split(r'(?m)^\[contexto oficial: ([^\]\n]+)\][ \t]*$',
+                     _fold(official_context))
+    positive = False
+    brand = r'\b' + re.escape(name) + r'\b'
+    positive_rules = (
+        brand + r'[^.!?;\n]{0,55}\b(?:e|esta|sao|aparece(?:m)? como)\s+'
+        r'(?:carteiras?\s+)?(?:suportad[ao]s?|compativ(?:el|eis)|'
+        r'integrad[ao]s?|aceit[ao]s?)\b',
+        r'\b(?:suporta|aceita|integra|funciona com|e compativel com|'
+        r'carteiras? suportadas?)\b[^.!?;\n]{0,65}' + brand,
+        brand + r'\s+funciona\s+com\s+z[\s-]?swap\b',
+    )
+    for heading, body in zip(parts[1::2], parts[2::2]):
+        for sentence in re.finditer(r'[^.!?;\n]+[.!?;\n]?', body):
+            clause = sentence.group().strip()
+            if not re.search(brand, clause) or clause.endswith('?'):
+                continue
+            if not any(re.search(rule, clause) for rule in positive_rules):
+                continue
+            if re.search(r'\b(?:nao|nunca|nem|sem)\b', clause):
+                return False
+            positive = True
+    return positive
+
+
+def _asserted_exclusive_wallet_connection(answer: str) -> bool:
+    """Do not turn documented *authentication* into a universal connection rule."""
+    folded = _mask_reported_quotes(_fold(answer))
+    folded = re.sub(r'\b(?:mas|porem|contudo|however|but)\b', ';', folded)
+    for sentence in re.finditer(r'[^.!?;\n]+[.!?;\n]?', folded):
+        clause = sentence.group().strip()
+        if clause.endswith('?'):
+            continue
+        universal = re.search(
+            r'\b(?:toda(?:s)?(?:\s+(?:a|as))?\s+carteiras?|qualquer carteira)\b'
+            r'[^.!?;\n]{0,35}\b(?:precisa|exige|requer|depende)\b'
+            r'[^.!?;\n]{0,35}\bassinatura\b[^.!?;\n]{0,30}'
+            r'\b(?:para\s+se\s+)?conectar\b', clause)
+        if universal and not _reported_or_denied_prefix(clause[:universal.start()]):
+            return True
+        exclusive_use = re.search(
+            r'\b(?:voce|usuario)\b[^.!?;\n]{0,10}'
+            r'\b(?:so|somente|apenas)\b[^.!?;\n]{0,10}'
+            r'\b(?:consegue|pode)\b[^.!?;\n]{0,25}'
+            r'\b(?:usar|conectar)\b[^.!?;\n]{0,20}'
+            r'\bcarteira\b[^.!?;\n]{0,25}'
+            r'\b(?:depois de|apos)\b[^.!?;\n]{0,8}'
+            r'\bassin(?:ar|atura)\w*\b', clause)
+        if exclusive_use and not _reported_or_denied_prefix(
+                clause[:exclusive_use.start()]):
+            return True
+        required_without = re.search(
+            r'\bnao\s+(?:consegue|pode|e possivel)\b[^.!?;\n]{0,25}'
+            r'\b(?:conectar|conectad[ao])\b[^.!?;\n]{0,35}\bsem\s+'
+            r'(?:uma?\s+)?(?:assinatura\w*|assinar|assine)\b', clause)
+        if required_without and not _reported_or_denied_prefix(
+                clause[:required_without.start()]):
+            return True
+        obligation = re.search(
+            r'(?P<connection>\b(?:conexao|conectar|conecta(?:m|ndo|do|da)?|'
+            r'conecte|conectou)\b)[^.!?;\n]{0,50}?'
+            r'(?P<requirement>\b(?:obrigatori[oa]|necessari[oa]|exige|'
+            r'exigem|depende|precisa|tem que)\b)[^.!?;\n]{0,40}?'
+            r'\b(?:assinatura\w*|assinar|assine)\b', clause)
+        if (obligation and not _reported_or_denied_prefix(clause[:obligation.start()])
+                and not re.search(r'\b(?:nao|nunca|nem)\b',
+                                  clause[obligation.start('connection'):
+                                         obligation.start('requirement')])
+                and not re.search(r'\b(?:perguntou se|pergunta se|quer saber se)\b',
+                                  clause[:obligation.start()])):
+            return True
+        connections = list(_WALLET_CONNECTION.finditer(clause))
+        signatures = list(_WALLET_SIGNATURE.finditer(clause))
+        connection_starts = [match.start() for match in connections]
+        signature_starts = [match.start() for match in signatures]
+        for exclusive in _WALLET_EXCLUSIVE.finditer(clause):
+            # An eligible triple spans at most 110 characters. Bisect bounds
+            # each candidate set, rather than crossing every token in a long
+            # generated answer with every other token (cubic work).
+            near_connections = connections[
+                bisect_left(connection_starts, exclusive.start() - 110):
+                bisect_right(connection_starts, exclusive.end() + 110)]
+            near_signatures = signatures[
+                bisect_left(signature_starts, exclusive.start() - 110):
+                bisect_right(signature_starts, exclusive.end() + 110)]
+            for connection in near_connections:
+                for signature in near_signatures:
+                    ordered = (connection.start() < exclusive.start() < signature.start()
+                               or exclusive.start() < signature.start() < connection.start()
+                               or exclusive.start() < connection.start() < signature.start())
+                    start = min(connection.start(), exclusive.start())
+                    end = max(connection.end(), signature.end())
+                    if not ordered or end - start > 110:
+                        continue
+                    before = clause[max(0, start - 95):start]
+                    claim = clause[start:end]
+                    if _reported_or_denied_prefix(before):
+                        continue
+                    if re.search(r'\b(?:perguntou|pergunta|quer saber)\s+se\s+(?:a |toda )?$',
+                                 before):
+                        continue
+                    if re.search(r'\b(?:nao (?:posso|podemos) (?:confirmar|afirmar)|'
+                                 r'nao tenho (?:prova|evidencia|confirmacao)|'
+                                 r'nao ha (?:prova|evidencia|confirmacao))\s+'
+                                 r'(?:de )?que\s+(?:a |toda )?$', before):
+                        continue
+                    if (re.search(r'\b(?:nao|nunca|nem)\b',
+                                  claim[:exclusive.start() - start])
+                            or re.search(r'\b(?:nao|nunca|nem)\b'
+                                         r'(?:\W+\w+){0,2}\W*$', before)):
+                        continue
+                    if (exclusive.start() < connection.start()
+                            and (re.search(r'\bautentic\w*\b[^.!?;]{0,35}$', before)
+                                 or re.search(r'\bpara autentic\w*\b',
+                                              clause[exclusive.end():connection.start()]))):
+                        continue
+                    if (connection.start() < exclusive.start()
+                            and re.search(r'\bpara autentic\w*\b',
+                                          clause[connection.end():exclusive.start()])):
+                        continue
+                    return True
+    return False
+
+
+def _unapproved_wallet_example(answer: str, official_context: str) -> bool:
+    """Reject only observed unsourced wallet examples, not neutral questions."""
+    folded = _mask_reported_quotes(_fold(answer))
+    folded = re.sub(r'\b(?:mas|porem|contudo|however|but)\b', ';', folded)
+    for name in _NAMED_WALLETS:
+        brand = r'\b' + re.escape(name) + r'\b'
+        if _approved_wallet_brand(name, official_context):
+            continue
+        for match in re.finditer(brand, folded):
+            before = folded[max(0, match.start() - 100):match.start()]
+            sentence_start = max(before.rfind(mark) for mark in '.!?;\n') + 1
+            before = before[sentence_start:]
+            after = folded[match.end():match.end() + 75]
+            sentence_end = re.search(r'[.!?;\n]', after)
+            terminal = after[sentence_end.start()] if sentence_end else ''
+            if re.search(r'\b(?:por exemplo|exemplo|ex\.?|e\.g\.?|tipo|tais como)\s*'
+                         r'(?:de )?(?:carteiras?|wallets?)?\s*[:(,]?\s*$', before):
+                return True
+            if re.search(r'\b(?:qual|quais)\s+(?:a |as |sua |suas )?'
+                         r'(?:carteiras?|wallets?)\b', before):
+                return True
+            if re.search(r'\b(?:tente|experimente|use|utilize|recomendo|recomenda|'
+                         r'sugiro|sugere|sugerimos|prefira|escolha|que tal)\b'
+                         r'[^.!?;\n]{0,50}$', before):
+                if not re.search(r'\b(?:nao|nunca|nem)\b[^.!?;\n]{0,20}'
+                                 r'\b(?:tente|experimente|use|utilize|recomendo|'
+                                 r'recomenda|sugiro|sugere|sugerimos|prefira|'
+                                 r'escolha)\b', before):
+                    return True
+            if (re.search(r'\b(?:pode|podem) conectar\s*$', before)
+                    and not re.search(r'\b(?:perguntou se|quer saber se|'
+                                      r'nao posso confirmar que)\b', before)
+                    and not re.search(r'\b(?:nao|nunca) (?:pode|podem) '
+                                      r'conectar\s*$', before)):
+                return True
+            qualified_question = re.search(
+                r'\b(?:perguntou se|quer saber se|nao posso confirmar que|'
+                r'nao ha confirmacao de que)\b', before)
+            if qualified_question or _denied_claim_prefix(before):
+                continue
+            if re.search(r'\b(?:nao|nunca|nem)\b[^.!?;\n]{0,25}'
+                         r'\b(?:suporta|aceita|integra|funciona com|'
+                         r'e compativel com|tem integracao com)\s*$', before):
+                continue
+            if terminal == '?':
+                continue  # A capability question is not a support assertion.
+            if re.search(
+                r'\b(?:z[\s-]?swap|a plataforma|o produto|o app|o aplicativo)\b'
+                r'[^.!?;\n]{0,55}'
+                r'\b(?:suporta|aceita|integra|funciona com|e compativel com|'
+                r'tem integracao com|oferece suporte a|permite conectar|'
+                r'oferece compatibilidade com)\s*$',
+                before):
+                return True
+            if (re.search(r'\b(?:z[\s-]?swap|the platform|the app)\b'
+                          r'[^.!?;\n]{0,55}\b(?:supports?|accepts?|integrates?|'
+                          r'works with|is compatible with)\s*$', before)
+                    and not re.search(r'\b(?:does not|doesn.t|is not|cannot|can not)\b'
+                                      r'[^.!?;\n]{0,30}$', before)):
+                return True
+            if re.search(r'\b(?:conectar|conecte|conexao)\b[^.!?;\n]{0,30}'
+                         r'\b(?:usando|com|via)\s*$', before):
+                return True
+            if re.match(r'\s+(?:e|esta|funciona|pode ser)\s+'
+                        r'(?:suportad[ao]|compativel|integrad[ao]|'
+                        r'conectad[ao]|usada? na z[\s-]?swap)\b', after):
+                return True
+            if re.match(r'\s+funciona\s+(?:na|com)\s+'
+                        r'(?:z[\s-]?swap|a plataforma)\b', after):
+                return True
+    return False
 
 
 def _evm_plan_fees(context: str) -> dict[str, Decimal]:
@@ -454,6 +760,13 @@ def validate_public_response(text: str, *, official_context: str) -> ResponseChe
             return ResponseCheck(False, reason)
     if re.search(r"\bz-?swap nao cobra (?:por )?(?:transacoes de )?swaps?\b|\bswaps? (?:sao|e) gratuit[oa]s?\b", folded):
         return ResponseCheck(False, 'unsupported_free_swap')
+    if _unsupported_route_optimization(text):
+        return ResponseCheck(False, 'unsupported_route_optimization')
+    if (_asserted_exclusive_wallet_connection(text)
+            and not _asserted_exclusive_wallet_connection(official_context)):
+        return ResponseCheck(False, 'unsupported_wallet_connection_signature')
+    if _unapproved_wallet_example(text, official_context):
+        return ResponseCheck(False, 'unapproved_wallet_example')
     # Reviewed regressions for invented competitor comparisons. Entity presence
     # is necessary, not sufficient, to establish any claim about its features.
     approved = ''.join(c for c in unicodedata.normalize('NFKD', official_context)
@@ -669,12 +982,45 @@ def _public_broad_comparison_reply(question: str, official_context: str) -> str 
     return None
 
 
+def _public_swap_route_reply(official_context: str) -> str | None:
+    """Use only the retrieved canonical public swap section for route mechanics."""
+    parts = re.split(r'\[contexto oficial: ([^\]]+)\]\s*', _fold(official_context))
+    for heading, body in zip(parts[1::2], parts[2::2]):
+        if heading != 'swaps e pontes':
+            continue
+        flat = ' '.join(body.split())
+        if not all(fragment in flat for fragment in (
+            'a z-swap seleciona a fonte de cotacao conforme as redes envolvidas '
+            'e mostra a rota retornada para o par escolhido',
+            'nao compara todas as fontes em cada pedido',
+        )):
+            continue
+        reply = ('A Z-SWAP seleciona a fonte de cotação conforme as redes envolvidas '
+                 'e mostra a rota retornada para o par escolhido. Isso não significa '
+                 'consultar todas as fontes a cada pedido ou prometer o melhor preço. '
+                 'Confira a cotação e os custos antes de confirmar.')
+        if validate_public_response(reply, official_context=official_context).allowed:
+            return reply
+    return None
+
+
 def public_fallback_for(reason: str, *, official_context: str = '', question: str = '') -> str:
     """Host-owned public reply for a few known quality failures."""
-    if reason == 'best_price_guarantee':
-        return ('A Z-SWAP compara rotas disponíveis conforme as condições daquele '
-                'momento, mas não garante o melhor preço ou taxa. Confira a cotação '
-                'e os custos antes de confirmar.')
+    if reason in {'unsupported_wallet_connection_signature',
+                  'unapproved_wallet_example'}:
+        if re.search(r'\b(?:conecta\w*|conexao|carteira\w*|wallet\w*)\b',
+                     _fold(question)):
+            return ('Para entender a dificuldade de conexão, diga qual carteira '
+                    'e rede você usa e qual mensagem de erro aparece. Não compartilhe '
+                    'seed phrase, chave privada ou senha da carteira.')
+        return PUBLIC_FALLBACK
+    if reason in {'best_price_guarantee', 'unsupported_route_optimization'}:
+        reply = _public_swap_route_reply(official_context)
+        if reply is not None:
+            return reply
+        return ('Não posso confirmar uma escolha automática da melhor rota nem '
+                'prometer o melhor preço ou taxa. Confira a cotação e os custos '
+                'antes de confirmar.')
     if reason in {'safety_guarantee', 'absolute_safety'}:
         return ('A Z-SWAP implementa controles para reduzir riscos, mas nenhuma '
                 'plataforma ou transação é livre de risco. Confira os detalhes da '

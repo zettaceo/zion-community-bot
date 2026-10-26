@@ -4,6 +4,33 @@ Date: 2026-10-26. Status: IN PROGRESS, not production accepted.
 This section supersedes older current-state labels below; the prior mission's
 checklists remain historical evidence, not proof of v2 completion.
 
+## 2026-10-26 provider smoke decision
+
+The frozen ten-case synthetic/PUBLIC smoke at candidate
+`6774e8b21c4a512bc77c5eb83d62c40aa119ef46` returned automated
+`REVIEW_REQUIRED` for all ten generated attempts per model, but both models
+**FAILED human smoke acceptance**. Ministral 8B failed at v2-001 on unsupported
+best-route/quote optimization; its other nine generated answers were not human
+reviewed. Kimi K3 passed v2-001 and v2-021, then failed v2-041 on an unsupported
+wallet connection/signature generalization and named wallet examples; its
+other seven generated answers were not human reviewed. See
+`COGNITIVE-V2-QUALITY-FINDINGS.md` for private evidence basenames and costs.
+
+- [x] Make material, source-bounded candidate fixes for both fatal findings;
+  keep provider output advisory and Guardian authority deterministic. Local
+  validation: 911/911 tests, secret scan and project validation OK. This is
+  not a provider quality PASS.
+- [ ] Freeze a new versioned candidate/manifest before any retest. Keep every
+  prior failure in the evidence; do not repeat requests merely to obtain green.
+- [ ] Human-accept smoke, then run the full comparable 108-case benchmark and
+  four independent 12-turn conversations under the bounded budget.
+- [ ] Complete controlled Telegram acceptance and separate operator approval
+  before any production promotion or Kimi activation.
+
+No full benchmark or production readiness is claimed by this smoke checkpoint.
+Cumulative isolated ledger: 1,985,034 micro-USD
+reserved/estimated, not an invoice or provider balance.
+
 ## Measured identity and environment
 
 - main: `d5db6a1c4308243a0bbb8d811e2ac8f0af408a0e`; CI run 36140123319 SUCCESS.

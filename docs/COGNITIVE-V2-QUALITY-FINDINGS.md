@@ -469,3 +469,43 @@ comparison protocol, fixed ten-case smoke and human scorecard are recorded in
 Local validation of this revision: 903/903 tests, `SECRET SCAN: OK`, `ZION
 VALIDATION: OK` (`/tmp/zion-v2-candidate-final-validation-2.log`). No
 provider call, Telegram message, production write or new model PASS occurred.
+
+## Frozen ten-case provider smoke — 2026-10-26: both models FAIL
+
+The predeclared selection in `AI-BENCHMARK.md` was generated once per model at
+candidate `6774e8b21c4a512bc77c5eb83d62c40aa119ef46`, using synthetic
+questions and exact retrieved PUBLIC context. The private manifest basename is
+`20261026T205218780145Z-smoke-manifest.json`. All ten responses from each
+model received automated `REVIEW_REQUIRED` with the deterministic guard
+accepting them. That status is **not** human approval. The generation batches
+had completed before human review found the fatal cases; review stopped at each
+model's first fatal finding. Later generated responses are not counted as PASS.
+
+| Model | Human-reviewed cases | First fatal finding | Later cases |
+| --- | --- | --- | --- |
+| Ministral 8B | v2-001 FAIL | Claimed best-quote selection and automatic fee/liquidity optimization that the retrieved “Swaps e pontes” section does not establish | Other nine generated; NOT HUMAN REVIEWED |
+| Kimi K3 | v2-001 PASS; v2-021 PASS; v2-041 FAIL | Treated wallet connection as categorically signature-only, beyond the authentication evidence, and named wallets without retrieved compatibility support | Other seven generated; NOT HUMAN REVIEWED |
+
+The Ministral result fails the rubric's invented-feature gate; its reviewed
+v2-001 factuality and calibration scores were both 2/5. K3 v2-041 failed the
+factuality threshold at 3/5. The two K3 PASS labels above apply only to those
+individual synthetic generation answers, not the model, Telegram delivery or
+product readiness. No secret disclosure was found in the reviewed answers.
+
+Private evidence basenames: `20261026T205229854612Z-ministral-8b-2512.jsonl`
+and `20261026T205229854612Z-ministral-8b-2512-human-review.md` for Ministral;
+`20261026T205308750562Z-kimi-k3.jsonl` and
+`20261026T205308750562Z-kimi-k3-human-review.md` for K3. No raw answers or
+credential values are copied into this report.
+
+All ten generated attempts cost an estimated 5,132 micro-USD for Ministral
+and 266,221 micro-USD for K3. The cumulative isolated ledger is 1,985,034
+micro-USD reserved or estimated spent. These are admission/evidence estimates,
+not an invoice or provider account balance. Both smoke verdicts are **FAIL**.
+Material forward-fixes for the two observed claims passed 911/911 local tests,
+`SECRET SCAN: OK` and `ZION VALIDATION: OK` in
+`/tmp/zion-v2-smoke-forward-fix-validation-3.log`. Their exact-SHA CI and a
+newly frozen provider retest remain pending; this does not erase either smoke
+FAIL. Neither full
+108-case benchmark nor all four 12-turn conversations nor controlled Telegram
+acceptance followed this smoke. Kimi remains inactive and production unchanged.

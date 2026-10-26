@@ -1,6 +1,7 @@
 from __future__ import annotations
 import unittest
 from pathlib import Path
+from time import perf_counter
 from zion.knowledge import KnowledgeBase
 from zion.knowledge_tools import KnowledgeTools
 from zion.response_guard import public_fallback_for, validate_public_response
@@ -87,6 +88,250 @@ class ResponseGuardTests(unittest.TestCase):
         ):
             with self.subTest(value=value):
                 self.assertTrue(validate_public_response(value, official_context='').allowed)
+
+    def test_unproved_automatic_best_route_claims_are_rejected(self):
+        context = KnowledgeTools(KnowledgeBase(
+            Path(__file__).resolve().parents[1] / 'knowledge')).call(
+                'search_approved_knowledge', {'query': 'Como funciona os swaps?'},
+                agent_id='mimir').render()
+        self.assertIn('[Contexto oficial: Swaps e pontes]', context)
+        self.assertNotIn('[Contexto oficial: Swap]', context)
+        for answer in (
+            'A Z-SWAP analisa taxas e liquidez e escolhe automaticamente a melhor cotação para você.',
+            'A plataforma seleciona a rota mais eficiente com base em taxas e liquidez.',
+            'O sistema encontra o melhor preço para a sua troca.',
+            'A Z-SWAP busca a rota com menor custo.',
+            'Seleciona a melhor rota por taxas e liquidez.',
+            'The platform selects the best quote for each swap.',
+            'Não afirmo que a Z-SWAP escolhe a melhor cotação, mas entrega a rota mais eficiente.',
+            'A Z-SWAP escolhe automaticamente a rota de menor custo.',
+            'Ela não compara todas as fontes, porém escolhe automaticamente a rota com menor preço.',
+            'A Z-SWAP compara taxas e liquidez para escolher automaticamente a rota mais econômica.',
+            'The platform always picks the lowest-cost route.',
+            'A Z-SWAP entrega sempre o menor preço.',
+            'A melhor cotação é escolhida automaticamente pela Z-SWAP.',
+            'A Z-SWAP afirma: "A plataforma escolhe a melhor rota".',
+            'Você perguntou: "A plataforma escolhe a melhor rota?" '
+            'Mas ela escolhe a rota de menor custo.',
+        ):
+            with self.subTest(answer=answer):
+                self.assertEqual(validate_public_response(
+                    answer, official_context=context).reason,
+                    'unsupported_route_optimization')
+        for answer in (
+            'A Z-SWAP seleciona a fonte de cotação conforme as redes e mostra a rota retornada.',
+            'A tela compara rotas disponíveis antes da execução; confira os custos.',
+            'Você perguntou se a Z-SWAP escolhe a melhor rota automaticamente; '
+            'a base pública não confirma isso.',
+            'A Z-SWAP escolhe a melhor rota automaticamente? A base pública não confirma isso.',
+            'A Z-SWAP não escolhe automaticamente a melhor rota por taxas e liquidez.',
+            'Não posso afirmar que a Z-SWAP escolhe automaticamente a melhor cotação.',
+            '"A Z-SWAP escolhe a melhor rota" é a sua dúvida; a fonte pública não confirma isso.',
+            'Você pode comparar os custos da rota antes de confirmar.',
+            'O sistema recomenda a melhor opção de suporte para o seu caso.',
+            'A plataforma mostra os custos da rota antes da confirmação.',
+            'Não é verdade que a Z-SWAP escolhe a melhor rota.',
+            'Não há evidências de que a plataforma escolhe a melhor rota.',
+            "'A Z-SWAP escolhe a melhor rota' foi sua dúvida; "
+            'a fonte pública não confirma isso.',
+            'A melhor cotação é escolhida automaticamente pela Z-SWAP?',
+            'Não posso confirmar que a melhor cotação é escolhida pela Z-SWAP.',
+        ):
+            with self.subTest(answer=answer):
+                self.assertTrue(validate_public_response(
+                    answer, official_context=context).allowed)
+
+    def test_best_route_fallback_requires_canonical_public_section(self):
+        context = KnowledgeTools(KnowledgeBase(
+            Path(__file__).resolve().parents[1] / 'knowledge')).call(
+                'search_approved_knowledge', {'query': 'Como funciona os swaps?'},
+                agent_id='mimir').render()
+        for reason in ('best_price_guarantee', 'unsupported_route_optimization'):
+            with self.subTest(reason=reason):
+                reply = public_fallback_for(reason, official_context=context)
+                self.assertIn('seleciona a fonte de cotação conforme as redes', reply)
+                self.assertIn('mostra a rota retornada', reply)
+                self.assertTrue(validate_public_response(
+                    reply, official_context=context).allowed)
+                for weak in ('', context.replace(
+                        '[Contexto oficial: Swaps e pontes]',
+                        '[Contexto oficial: Outra seção]'), context.replace(
+                        'Não compara todas as fontes em cada pedido.', '')):
+                    fallback = public_fallback_for(reason, official_context=weak)
+                    self.assertNotIn('seleciona a fonte de cotação', fallback)
+                    self.assertTrue(validate_public_response(
+                        fallback, official_context=weak).allowed)
+
+    def test_wallet_connection_is_not_equated_with_authentication_signature(self):
+        context = KnowledgeTools(KnowledgeBase(
+            Path(__file__).resolve().parents[1] / 'knowledge')).call(
+                'search_approved_knowledge',
+                {'query': 'n consigo conecta carteira'}, agent_id='eir').render()
+        self.assertIn('[Contexto oficial: Segurança de autenticação]', context)
+        self.assertIn('SIWE', context)
+        for answer in (
+            'A conexão acontece só com assinatura dentro da sua própria carteira.',
+            'Para conectar sua carteira, basta assinar uma mensagem.',
+            'Sua carteira se conecta somente por assinatura.',
+            'Só com assinatura é possível conectar a carteira.',
+            'A carteira só se conecta com uma assinatura.',
+            'Você não consegue conectar sem assinar.',
+            'Para conectar a carteira, é obrigatório assinar uma mensagem.',
+            'A conexão não acontece só com assinatura, mas a carteira só se '
+            'conecta com uma assinatura.',
+            "'A conexão acontece só com assinatura' foi sua dúvida, mas "
+            'a carteira só se conecta com uma assinatura.',
+            'Toda carteira precisa de uma assinatura para se conectar.',
+            'Você só consegue usar a carteira depois de assinar uma mensagem.',
+        ):
+            with self.subTest(answer=answer):
+                self.assertEqual(validate_public_response(
+                    answer, official_context=context).reason,
+                    'unsupported_wallet_connection_signature')
+        for answer in (
+            'Para autenticar carteiras EVM, a base documenta SIWE.',
+            'Na Solana, a autenticação usa assinatura de mensagem.',
+            'Conecte sua carteira e, para autenticar, assine uma mensagem.',
+            'Não posso confirmar que toda conexão ocorre só por assinatura.',
+            'A conexão não acontece só com assinatura.',
+            'Você perguntou se a conexão ocorre só por assinatura; '
+            'a base pública não confirma isso.',
+            '"A conexão acontece só com assinatura" foi sua pergunta; '
+            'a base pública não confirma isso.',
+            'Qual carteira, rede e mensagem de erro aparecem? '
+            'Não compartilhe seed phrase ou chave privada.',
+            'A conexão não exige assinatura.',
+            'Não posso confirmar que você não consegue conectar sem assinar.',
+            'Você perguntou se para conectar a carteira é obrigatório assinar.',
+            "'A conexão acontece só com assinatura' foi sua dúvida; "
+            'a base não confirma isso.',
+            'Toda carteira precisa de uma assinatura para se conectar?',
+            'Não posso confirmar que toda carteira precisa de uma assinatura para se conectar.',
+            'Você só consegue usar a carteira depois de assinar uma mensagem?',
+        ):
+            with self.subTest(answer=answer):
+                self.assertTrue(validate_public_response(
+                    answer, official_context=context).allowed)
+        explicit_connection_source = (
+            '[Contexto oficial: Conexão de carteira]\n'
+            'A conexão da carteira acontece só com assinatura dentro da carteira.')
+        self.assertTrue(validate_public_response(
+            'A conexão da carteira acontece só com assinatura dentro da carteira.',
+            official_context=explicit_connection_source).allowed)
+        negative_connection_source = (
+            '[Contexto oficial: Conexão de carteira]\n'
+            'Não é verdade que a conexão só acontece com assinatura.')
+        self.assertEqual(validate_public_response(
+            'A conexão só acontece com assinatura.',
+            official_context=negative_connection_source).reason,
+            'unsupported_wallet_connection_signature')
+
+    def test_wallet_brand_examples_require_retrieved_public_evidence(self):
+        context = KnowledgeTools(KnowledgeBase(
+            Path(__file__).resolve().parents[1] / 'knowledge')).call(
+                'search_approved_knowledge',
+                {'query': 'n consigo conecta carteira'}, agent_id='eir').render()
+        for brand in ('MetaMask', 'Phantom', 'Rabby'):
+            self.assertNotIn(brand.casefold(), context.casefold())
+            answer = f'Qual carteira você está tentando conectar (por exemplo {brand})?'
+            with self.subTest(brand=brand):
+                self.assertEqual(validate_public_response(
+                    answer, official_context=context).reason,
+                    'unapproved_wallet_example')
+        self.assertEqual(validate_public_response(
+            'Qual carteira você usa, MetaMask, Phantom ou Rabby?',
+            official_context=context).reason, 'unapproved_wallet_example')
+        self.assertEqual(validate_public_response(
+            'A Z-SWAP suporta Phantom.',
+            official_context=context).reason, 'unapproved_wallet_example')
+        self.assertEqual(validate_public_response(
+            'Z-SWAP supports MetaMask.',
+            official_context=context).reason, 'unapproved_wallet_example')
+        for answer in (
+            'Tente conectar usando MetaMask.',
+            'A Z-SWAP tem integração com MetaMask.',
+            'O app suporta Phantom.',
+            'A plataforma sugere MetaMask.',
+            'Você pode conectar MetaMask à Z-SWAP.',
+            'MetaMask funciona na Z-SWAP.',
+            'Que tal MetaMask?',
+            'Você perguntou se a Z-SWAP suporta Phantom, mas a plataforma suporta Phantom.',
+            'Não use MetaMask, mas tente conectar usando Phantom.',
+        ):
+            with self.subTest(answer=answer):
+                self.assertEqual(validate_public_response(
+                    answer, official_context=context).reason,
+                    'unapproved_wallet_example')
+        self.assertTrue(validate_public_response(
+            'Qual carteira você usa e qual erro aparece?',
+            official_context=context).allowed)
+        official_wallet_source = (
+            '[Contexto oficial: Carteiras suportadas]\n'
+            'MetaMask, Phantom e Rabby aparecem como carteiras suportadas.')
+        self.assertTrue(validate_public_response(
+            'Qual carteira você usa, MetaMask, Phantom ou Rabby?',
+            official_context=official_wallet_source).allowed)
+        for misleading_source in (
+            '[Contexto oficial: Carteiras]\nPhantom não é suportada.',
+            '[Contexto oficial: Carteiras suportadas]\nPhantom não é suportada.',
+            '[Contexto oficial: Carteiras]\nPhantom é suportada?',
+            '[Contexto oficial: Carteiras]\nPhantom é citada como exemplo.',
+            '[Contexto oficial: Carteiras suportadas]\nPhantom é citada como exemplo.',
+        ):
+            with self.subTest(source=misleading_source):
+                self.assertEqual(validate_public_response(
+                    'A Z-SWAP suporta Phantom.',
+                    official_context=misleading_source).reason,
+                    'unapproved_wallet_example')
+        self.assertTrue(validate_public_response(
+            'Você perguntou se Phantom funciona; a base pública não confirma.',
+            official_context=context).allowed)
+        self.assertTrue(validate_public_response(
+            'Não posso confirmar que a Z-SWAP suporta Phantom.',
+            official_context=context).allowed)
+        self.assertTrue(validate_public_response(
+            'Z-SWAP does not support MetaMask.',
+            official_context=context).allowed)
+        self.assertTrue(validate_public_response(
+            '"A Z-SWAP suporta Phantom?" foi sua pergunta; '
+            'não tenho confirmação pública.',
+            official_context=context).allowed)
+        for answer in (
+            'A Z-SWAP suporta MetaMask?',
+            'Você perguntou se pode conectar MetaMask; a base não confirma.',
+            'Não posso confirmar que você pode conectar MetaMask.',
+            "'A Z-SWAP suporta Phantom?' foi sua pergunta; "
+            'não tenho confirmação pública.',
+            'Não use MetaMask; diga apenas a mensagem de erro.',
+        ):
+            with self.subTest(answer=answer):
+                self.assertTrue(validate_public_response(
+                    answer, official_context=context).allowed)
+        self.assertTrue(validate_public_response(
+            'Não preciso de sua seed phrase para ajudar com a conexão.',
+            official_context=context).allowed)
+
+    def test_wallet_guard_bounded_on_large_disjoint_token_blocks(self):
+        # The pre-fix three-way cross product stalls for minutes at this size.
+        answer = ('conectar ' * 790) + ('só ' * 790) + ('assinar ' * 790)
+        self.assertGreater(len(answer), 15000)
+        self.assertLess(len(answer), 16000)
+        start = perf_counter()
+        check = validate_public_response(answer, official_context='')
+        elapsed = perf_counter() - start
+        self.assertTrue(check.allowed)
+        self.assertLess(elapsed, 10.0)
+
+    def test_wallet_guard_fallback_triages_without_unsupported_details(self):
+        for reason in ('unsupported_wallet_connection_signature',
+                       'unapproved_wallet_example'):
+            reply = public_fallback_for(reason,
+                question='n consigo conecta carteira', official_context='')
+            self.assertIn('carteira', reply.lower())
+            self.assertIn('erro', reply.lower())
+            self.assertNotIn('Phantom', reply)
+            self.assertNotIn('só com assinatura', reply)
+            self.assertTrue(validate_public_response(reply, official_context='').allowed)
 
     def test_scoped_price_denial_does_not_excuse_later_guarantee(self):
         for value in (

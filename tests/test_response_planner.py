@@ -73,3 +73,28 @@ class ResponsePlannerTests(unittest.TestCase):
         )
         self.assertIn('Free, Pro, Trader e Pilot', messages[0]['content'])
         self.assertIn('não apresente uma lista parcial como completa', messages[0]['content'])
+
+    def test_swap_prompt_preserves_source_selection_instead_of_best_route_claim(self):
+        messages = build_answer_messages(
+            question='Como funciona os swaps?',
+            context='Fonte pública: seleciona fonte conforme as redes e mostra a rota.',
+            agent_id='mimir',
+        )
+        system = messages[0]['content']
+        self.assertIn('a fonte de cotação é escolhida conforme as redes envolvidas', system)
+        self.assertIn('rota retornada é mostrada', system)
+        self.assertIn('Não diga que a Z-SWAP compara todos os provedores', system)
+        self.assertIn('rota mais eficiente por taxas e liquidez', system)
+        self.assertNotIn('descreva buscar/comparar rotas disponíveis', system)
+
+    def test_wallet_prompt_separates_connection_from_authentication(self):
+        messages = build_answer_messages(
+            question='n consigo conecta carteira',
+            context='A plataforma documenta autenticação por assinatura.',
+            agent_id='eir',
+        )
+        system = messages[0]['content']
+        self.assertIn('separe conexão, autenticação por assinatura', system)
+        self.assertIn('não prova que toda conexão ocorre só por assinatura', system)
+        self.assertIn('Não sugira marcas de carteira', system)
+        self.assertIn('peça carteira, rede e mensagem de erro', system)
