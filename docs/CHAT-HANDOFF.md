@@ -1,4 +1,31 @@
-## Latest implementation evidence — 2026-10-19
+## Current cognitive-v2 handoff — 2026-10-26
+
+The active isolated candidate is `codex/multi-agent-cognitive-v2` in
+`/home/zetta/.codex/worktrees/zion-cognitive-v2`. Its last committed HEAD before
+this handoff update is `9926cc959033b8d2d857fda077eab50779f55075`;
+exact-SHA CI run `40298660922` succeeded. The newer local comparison-context
+refinement passed 895 tests, `SECRET SCAN: OK` and `ZION VALIDATION: OK`, but
+requires its own commit and exact-SHA CI. Draft PR #66 targets `zion-v1.1-dev`.
+
+The operator privately provisioned Kimi through a hidden local terminal prompt.
+Registration passed metadata-only validation, but Kimi remains inactive in
+Telegram. Bounded synthetic/PUBLIC provider trials have **not** established a
+winner: the latest K3 12-turn debate stopped at turn 1 on
+`missing_feature_status`; later turns and three other scenarios were not run.
+The delivery fallback is local deterministic containment, not model-quality
+acceptance. The details, costs and earlier human findings are in
+`COGNITIVE-V2-QUALITY-FINDINGS.md`.
+
+Production checkout/runtime remain at
+`472a4b3f0ce73a8635d400c0073701013c357b92`; a read-only check on
+2026-10-26 found `zion.service` active/running, NRestarts 0. The current
+candidate has not been promoted. An independent v2 release audit, provider
+quality/privacy decision, new production approval, pinned cutover and real
+Telegram acceptance are still required. See the top of
+`MULTI-AGENT-IMPLEMENTATION-PLAN.md` for the active phase status. Older entries
+below are historical checkpoints, not current acceptance.
+
+## Historical implementation evidence — 2026-10-19
 
 774/774 tests PASS, SECRET SCAN OK, ZION VALIDATION OK. Added private provider
 panel, 24-turn context regression, safety-guarantee filtering and an allowlisted

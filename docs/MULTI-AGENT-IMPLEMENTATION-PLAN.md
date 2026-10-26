@@ -1,6 +1,6 @@
 # Cognitive Architecture v2 — current execution checkpoint
 
-Date: 2026-10-25. Status: IN PROGRESS, not production accepted.
+Date: 2026-10-26. Status: IN PROGRESS, not production accepted.
 This section supersedes older current-state labels below; the prior mission's
 checklists remain historical evidence, not proof of v2 completion.
 
@@ -14,8 +14,9 @@ checklists remain historical evidence, not proof of v2 completion.
 - The operator explicitly authorized an isolated worktree on the Acer after the
   mission's section 64 host restriction was raised. Production checkout is not
   a development directory.
-- Measured service: active/running, PID 534477, NRestarts 0; current runtime
-  resolves to the exact production SHA above. No restart/deploy in this increment.
+- Read-only host check on 2026-10-26: service active/running, NRestarts 0;
+  current runtime and production checkout resolve to the production SHA above.
+  No restart/deploy in this increment.
 - Open unrelated PR #11 remains untouched. Recent related merged PRs: #59–65.
 - Rulesets and production protection endpoints returned HTTP 403 (account plan
   restriction). Governance is NOT PROVEN. Prior waivers are not silently renewed.
@@ -28,7 +29,8 @@ One ZION group intake already selects bounded identities; registry, DM gates,
 protected secondary identity store, durable speaker arbitration, minimized
 routing telemetry, Control Center and agent-filtered Knowledge already exist.
 Mistral-specific Settings/client/accounting remain the current provider path.
-No Kimi production activation or benchmark result is claimed.
+Kimi registration and bounded synthetic evaluations have been measured, but no
+full comparative benchmark, production model choice or activation is claimed.
 
 The user-reported endpoint-to-swap contamination was reproduced for five
 explicit topic-switch variants. Existing follow-up heuristics accepted `E...`
@@ -52,14 +54,17 @@ work remains in the isolated development branch/draft PR.
 
 ## Revised delivery sequence authorized by operator
 
-The operator will supply the Kimi credential through ZION private chat only
-AFTER publication. Release planning must therefore distinguish:
+The earlier plan expected Kimi registration after publication through ZION DM.
+The operator subsequently chose and completed hidden local terminal provisioning
+on 2026-10-25. Metadata-only validation passed; the credential remains private
+and Kimi is not active in Telegram. Release planning still distinguishes:
 
 1. Infrastructure/conversation release with Mistral retained and protected Kimi
    registration present. It still needs ordinary code, CI, security, release and
    controlled cutover checks; this change of sequence does not waive those gates.
-2. Post-registration synthetic/public A/B evaluation and account policy review.
-   Kimi remains inactive until those independent acceptance gates pass.
+2. Synthetic/public A/B evaluation and account policy review. Bounded Kimi
+   evaluations have exposed unresolved quality failures; registration is not
+   provider acceptance. Kimi remains inactive until the independent gates pass.
 3. Real Telegram acceptance, which cannot be inferred from unit tests or smoke.
 
 Never label deferred Kimi benchmarks PASS or the entire v2 mission complete.
@@ -76,7 +81,9 @@ Never label deferred Kimi benchmarks PASS or the entire v2 mission complete.
 - [~] 04 Bounded provider protocol and Kimi adapter implemented/tested; host-owned runtime selection and approval expiry implemented. No candidate is activated.
 - [~] 05 Provider-aware protected store and private DM provisioner implemented;
   pending Kimi capture survives restart as interception-only metadata, with fresh
-  authorization required for storage. Kimi credential absent.
+  authorization required for storage. The operator also provisioned a Kimi
+  credential through hidden local terminal input; private registration does not
+  activate the runtime provider.
 - [~] 06 DM enforcement: identity/private-channel paths reviewed; deterministic denial-before-AI and
   v2 native delivery regressions retained. Real Telegram acceptance pending.
 - [~] 07 Bounded reviewed aliases and confidence tiers implemented; wider evaluation pending.
@@ -120,18 +127,23 @@ Never label deferred Kimi benchmarks PASS or the entire v2 mission complete.
 - [~] 28 Isolated monetary evaluation ledger and integrated runtime provider/model
   token reservations implemented. Optional runtime currency caps, dated prices, frozen-rate settlement and bounded model selection are implemented. Real candidate activation remains blocked by acceptance.
 - [~] 29 Versioned 108-case synthetic dataset (18 categories), generation evaluator and human-review gate implemented.
-- [!] 30 Live A/B benchmark: requires certified store, official prices, credential,
-  synthetic/public-only evaluation inputs and bounded spend. Operator will provision through private ZION DM after release; Kimi evaluation deferred.
+- [!] 30 Live A/B benchmark: store, dated official prices, credential, bounded
+  spend and synthetic/PUBLIC-only inputs supported small Mistral/Kimi trials.
+  The full comparable benchmark, human review and provider decision remain open.
 - [~] 31 Four versioned 12-turn generation scenarios and bounded actual-answer
   history implemented; stop on provider/guard/repetition failure, per-turn durable
   evidence and mandatory human review. Simulated-provider regression passes;
-  live debate quality, runtime routing/tools and Telegram acceptance remain pending.
+  the latest bounded K3 debate stopped at turn 1 on `missing_feature_status`;
+  other scenarios and runtime routing/tools/Telegram acceptance remain pending.
   See `COGNITIVE-V2-CONVERSATION-EVALUATION.md`.
-- [~] 32 Full regression: base 724 PASS; first increment 727/727 PASS, SECRET SCAN OK,
-  ZION VALIDATION OK (`/tmp/zion-cognitive-v2-validation.log`).
+- [~] 32 Full regression: committed candidate `9926cc9` passed 893/893.
+  The later local comparison-context refinement passed 895/895, SECRET SCAN OK
+  and ZION VALIDATION OK (`zion-v2-comparison-local-validation.log`). It still
+  needs an exact-SHA CI after commit. The baseline was 724/724.
 - [~] 33 Documentation: this checkpoint and cognitive routing contract added.
-- [~] 34 Draft PR #66 open against development. CI passed at 74ba95c (run 40190223308);
-  subsequent commits need their own exact-SHA checks and final release audit.
+- [~] 34 Draft PR #66 open against development. Exact-SHA CI passed at
+  `9926cc959033b8d2d857fda077eab50779f55075` (run 40298660922).
+  Subsequent commits need their own exact-SHA checks and final v2 release audit.
 - [!] 35 Production promotion: requires NEW user approval after the final report,
   plus release/security gates. Kimi activation separately blocked.
 - [ ] 36 Exact production SHA revalidation.
@@ -1041,3 +1053,19 @@ Production remains unchanged. The candidate PR stays draft until the open
 quality and real-channel gates are independently accepted. Final isolated
 validation for this increment: 893 tests PASS, SECRET SCAN OK, ZION VALIDATION
 OK (`zion-v2-final-reviewed-validation.log`).
+
+## Broad comparison delivery alignment — 2026-10-26
+
+- [x] Reconcile the evaluator's PUBLIC comparison evidence with normal ZION
+  delivery for the exact failed debate question. The normal path now receives
+  the same bounded PUBLIC status sections when the question is a broad product
+  comparison, without widening agent authority or source classification.
+- [x] Add a host-owned comparison reply that states the documented proposal and
+  Terminal Pro beta / Portfolio and Orders partial status only when the
+  positioning, feature map and direct status predicates are present. Missing
+  evidence or a narrow/unrelated question keeps the conservative fallback.
+- [x] Focused response/AI tests pass; full local validation: 895/895 tests,
+  SECRET SCAN OK, ZION VALIDATION OK
+  (`zion-v2-comparison-local-validation.log`). No paid model call was made.
+- [ ] The last K3 debate is still FAIL at turn 1. Model quality, all remaining
+  conversation turns, Telegram acceptance and production gates remain open.

@@ -443,7 +443,47 @@ def _public_feature_status_reply(official_context: str) -> str | None:
     return None
 
 
-def public_fallback_for(reason: str, *, official_context: str = '') -> str:
+def is_broad_product_comparison(question: str) -> bool:
+    """Identify a broad product comparison without plan or feature narrowing."""
+    query = _fold(question)
+    return not (not re.search(r'\bz[\s-]*swap\b', query)
+            or not re.search(r'\b(?:outras? plataformas?|concorrent\w*)\b', query)
+            or not re.search(r'\b(?:diferenc\w*|compar\w*|vantag\w*|oferec\w*)\b', query)
+            or re.search(r'\b(?:terminal pro|portfolio|orders|planos?|free|pro|trader|pilot)\b', query))
+
+
+def _public_broad_comparison_reply(question: str, official_context: str) -> str | None:
+    """Answer a broad product comparison only from the retrieved public snapshot."""
+    if not is_broad_product_comparison(question):
+        return None
+    sections = re.split(r'(?m)^\[contexto oficial: ([^\]\n]+)\][ \t]*$',
+                        _fold(official_context))
+    approved = {heading: ' '.join(body.split())
+                for heading, body in zip(sections[1::2], sections[2::2])}
+    positioning = approved.get('z-swap — posicionamento institucional publico', '')
+    platform_map = approved.get('mapa publico da plataforma', '')
+    if (not all(fragment in positioning for fragment in (
+            'a z-swap conecta etapas que normalmente vivem separadas: entender, analisar, '
+            'testar, simular, planejar, executar e acompanhar.',
+            ))
+            or not all(fragment in platform_map for fragment in (
+            'orders: planejamento e gatilhos, em estado partial.',
+            'swap: preparacao e execucao de rotas suportadas.',
+            'portfolio: acompanhamento partial de ativos curados suportados.',
+            ))
+            or not {'terminal pro', 'portfolio', 'orders'} <= _source_feature_statuses(official_context)):
+        return None
+    reply = ('Na base pública revisada, a Z-SWAP reúne análise, simulação, '
+             'planejamento de ordens, swap e acompanhamento numa mesma experiência. '
+             'O Terminal Pro está em beta, e Portfolio e Orders estão parcialmente '
+             'disponíveis. Não tenho uma comparação oficial equivalente com outras '
+             'plataformas para afirmar que essa combinação seja exclusiva ou superior.')
+    if validate_public_response(reply, official_context=official_context).allowed:
+        return reply
+    return None
+
+
+def public_fallback_for(reason: str, *, official_context: str = '', question: str = '') -> str:
     """Host-owned public reply for a few known quality failures."""
     if reason == 'best_price_guarantee':
         return ('A Z-SWAP compara rotas disponíveis conforme as condições daquele '
@@ -476,6 +516,9 @@ def public_fallback_for(reason: str, *, official_context: str = '') -> str:
                 'mas não fiz uma verificação ao vivo da plataforma. Confira a '
                 'disponibilidade na interface para o seu caso.')
     if reason == 'missing_feature_status':
+        reply = _public_broad_comparison_reply(question, official_context)
+        if reply is not None:
+            return reply
         reply = _public_feature_status_reply(official_context)
         if reply is not None:
             return reply

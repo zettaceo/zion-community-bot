@@ -45,6 +45,42 @@ class AITests(unittest.TestCase):
         self.db.close()
         self.temp.cleanup()
 
+    def test_broad_comparison_uses_public_status_evidence_in_delivery(self):
+        knowledge = KnowledgeBase(Path(__file__).resolve().parents[1] / 'knowledge')
+        ai = AIService(replace(self.settings, ai_enabled=True), self.db, knowledge)
+
+        class MissingStatusClient:
+            configured = True
+
+            async def answer(self, **kwargs):
+                self.context = kwargs['context']
+                if 'cobram' in kwargs['question'].casefold():
+                    return AIAnswer(text='As taxas variam por plano e rota.',
+                                    model='test', input_tokens=12,
+                                    output_tokens=9, latency_ms=1)
+                return AIAnswer(
+                    text='O Terminal Pro oferece análise e o Portfolio acompanha ativos.',
+                    model='test', input_tokens=12, output_tokens=14, latency_ms=1)
+
+        ai.client = MissingStatusClient()
+        answer = asyncio.run(ai.answer(
+            chat_id=1, user_id=2,
+            question='Qual a diferença da Z-SWAP para outras plataformas?'))
+        self.assertIn('[Contexto oficial: Produto antes de promessa]', ai.client.context)
+        self.assertIn('[Contexto oficial: Beta]', ai.client.context)
+        self.assertIn('reúne análise, simulação', answer.text)
+        self.assertIn('Terminal Pro está em beta', answer.text)
+        self.assertIn('Portfolio e Orders estão parcialmente disponíveis', answer.text)
+        self.assertNotIn('outras plataformas já', answer.text)
+        fee_answer = asyncio.run(ai.answer(
+            chat_id=1, user_id=2, question='Vocês cobram mais?',
+            context_query='Qual a diferença da Z-SWAP para outras plataformas?\n'
+                          'Vocês cobram mais?'))
+        self.assertEqual(fee_answer.text, 'As taxas variam por plano e rota.')
+        self.assertIn('[Contexto oficial: Taxas Solana, Jupiter e LI.FI]',
+                      ai.client.context)
+        self.assertNotIn('[Contexto oficial: Beta]', ai.client.context)
+
     def test_mistral_endpoint_must_be_official_https(self) -> None:
         self.assertTrue(
             _valid_mistral_api_url(

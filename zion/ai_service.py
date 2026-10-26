@@ -30,7 +30,7 @@ from .models import (
 )
 from .secret_store import SecretStore
 from .router import _fold
-from .response_guard import public_fallback_for, validate_public_response
+from .response_guard import is_broad_product_comparison, public_fallback_for, validate_public_response
 
 
 logger = logging.getLogger("zion.ai")
@@ -598,6 +598,16 @@ class AIService:
             safe_context_query,
             agent_id=selected_agent,
         )
+        if (selected_agent is AgentId.ZION and len(safe_context_query) <= 6000
+                and is_broad_product_comparison(safe_question)):
+            # The public tool projection keeps reviewed feature-state sections
+            # together for this broad question. It is also used by the isolated
+            # generation evaluator; never substitute CONTROLLED/raw sources.
+            comparison_context = KnowledgeTools(self.knowledge).call(
+                'search_approved_knowledge', {'query': safe_context_query},
+                agent_id=selected_agent).render()
+            if comparison_context:
+                context = comparison_context
         question_hash = self._hash_text(safe_question)
 
         canonical_answer = self.knowledge.canonical_finite_answer(
@@ -757,7 +767,8 @@ class AIService:
                     metadata={"reason": check.reason, "agent_id": selected_agent.value},
                 )
                 return replace(answer, text=public_fallback_for(
-                    check.reason, official_context=approved_response_context))
+                    check.reason, official_context=approved_response_context,
+                    question=safe_question))
             return answer
 
         except ProviderBudgetError:

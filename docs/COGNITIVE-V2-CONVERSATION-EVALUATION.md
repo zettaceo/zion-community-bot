@@ -40,9 +40,11 @@ in the private evaluation evidence directory, never production incidents.
 
 Implementation checks use simulated providers: bounded whole history, actual
 previous-response inclusion, scenario isolation, stop on repetition, stop on
-provider/guard failure, and no automatic acceptance. **No live 12-turn quality
-result has been obtained by these checks.** Existing failed live quality findings
-remain open. No paid model request is part of the offline implementation work.
+provider/guard failure, and no automatic acceptance. Bounded live Kimi runs
+were later attempted but none completed all four 12-turn conversations with
+human acceptance; the latest K3 debate stopped at turn 1. See
+`COGNITIVE-V2-QUALITY-FINDINGS.md`. Offline checks and host-owned delivery
+fallbacks do not change that failed result.
 
 ## Native Mistral generation path
 

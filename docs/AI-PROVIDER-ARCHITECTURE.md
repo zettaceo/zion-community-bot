@@ -135,3 +135,20 @@ Baseline evaluation pricing refresh, 2026-10-25: the official Ministral 3 8B
 model card still lists USD 0.15/M input and output. Its evaluation price date was
 renewed independently; other model dates remain stale until separately verified.
 The bounded exact-case retest still failed; see `COGNITIVE-V2-QUALITY-FINDINGS.md`.
+
+## Current provider boundary — 2026-10-26
+
+The operator has since completed hidden local Kimi provisioning with a
+metadata-only validation PASS. This supersedes the historical statements above
+that no Kimi credential exists; registration did not activate Kimi in Telegram.
+K2.6 and K3 were tested only with synthetic prompts and PUBLIC evidence under
+the isolated durable budget. The last K3 multi-turn run failed on debate turn 1;
+the full A/B, human quality decision and production selection are pending.
+
+The official [terms](https://platform.kimi.ai/docs/agreement/modeluse) still
+allow customer-content use for service development/improvement absent a
+separate written arrangement. [Enterprise ZDR](https://platform.kimi.ai/docs/guide/zero-data-retention)
+is available on request, not proven enabled for this account. Keep real
+community messages, leads and CONTROLLED/INTERNAL/SECRET sources off Kimi until
+the account's data-handling terms and notices are explicitly reviewed and
+accepted. No production provider escalation is configured in this candidate.

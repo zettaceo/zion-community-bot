@@ -1,5 +1,112 @@
 # ZION Multi-Agent Command System - Release Audit
 
+## Cognitive v2 preproduction audit checkpoint — 2026-10-26
+
+**Verdict: NOT RELEASE CERTIFIED.** This section concerns draft PR #66 on
+`codex/multi-agent-cognitive-v2`, targeting `zion-v1.1-dev`. The 2026-10-16
+audit below is historical evidence for the earlier multi-agent core; its
+714-test total and release identity are not cognitive-v2 acceptance.
+
+### Identity and measured boundaries
+
+- Remote development base: `57a10444422373271fbd602acc083199346b5031`;
+  production ref, local checkout and runtime on the read-only 2026-10-26 check:
+  `472a4b3f0ce73a8635d400c0073701013c357b92`.
+- The last committed candidate before the comparison-context refinement was
+  `9926cc959033b8d2d857fda077eab50779f55075`. Exact-SHA ZION CI run
+  [40298660922](https://github.com/zettaceo/zion-community-bot/actions/runs/40298660922)
+  succeeded on that commit. Any subsequent commit needs its own exact-SHA CI.
+- Current isolated source and test changes passed 895/895 tests, shell checks,
+  sensitive-file checks, `SECRET SCAN: OK`, and `ZION VALIDATION: OK` in
+  `/home/zetta/.codex/worktrees/zion-v2-comparison-local-validation.log`.
+  This is local candidate evidence, not CI or production acceptance.
+- Production service was active/running, NRestarts 0 at that read-only check.
+  No service, production database, branch, runtime, or provider selection was
+  changed by this review. Kimi is privately registered but inactive.
+- The feature diff spans provider, routing, knowledge, output, evaluation,
+  Telegram capture and documentation code. It does not add a SQLite schema
+  migration or intentionally change Guardian's deterministic punitive authority.
+  A complete independent code/security sign-off is still pending; the focused
+  boundary review is in `COGNITIVE-V2-BOUNDARY-REVIEW.md`.
+
+### Functional and security evidence
+
+The exact short swap and developer-interface routing cases have deterministic
+regressions. ZION remains the single group intake and Guardian authority;
+provider output cannot select a punitive action or a second speaker. The
+protected Kimi registration flow does not activate model routing. Approved
+PUBLIC retrieval, per-agent classification, one-hop handoff, budget admission,
+sanitized output and one-speaker paths have local tests. The broad comparison
+forward-fix now supplies the same reviewed PUBLIC status evidence to the normal
+ZION answer path and the isolated evaluator; a failed generated answer gets a
+host-owned response only when positioning, feature map and beta/partial states
+are all present in retrieved evidence. Missing or altered evidence keeps the
+conservative response. This local containment is **not** a live model PASS.
+
+The 108-case synthetic corpus has 18 implementation labels. The mission's 20
+benchmark topics map as follows; a case ID denotes a fixture, not a successful
+provider test or correct Telegram delivery.
+
+| Mission topic | Versioned fixture coverage |
+| --- | --- |
+| clean intent | v2-001–020, 041–060 |
+| typo-heavy | v2-021–040 |
+| slang | v2-021–040, 043–044 |
+| fragmented messages | v2-086–087, plus bounded context v2-088–090 |
+| technical | v2-001–010, 021–030, 106 |
+| product | v2-031–040, 091–100, 107 |
+| roadmap | v2-094; topic change v2-084 |
+| support | v2-041–050, 086–090, 105 |
+| partnership | v2-051–060, 103–104, 108 |
+| competitive objections | v2-101–103, 107 |
+| security | v2-061–070, 072, 098–100 |
+| prompt injection | v2-065, 071–080; technical 12-turn scenario |
+| confidentiality | v2-061–070, 071–080 |
+| context switch | v2-081–090; four separate 12-turn scenarios |
+| ambiguous | v2-034–036, 090, 107; no separate ambiguity score yet |
+| multi-turn debate | v2-071–090, 101–108; `conversation-debate` 12 turns |
+| factual traps | v2-091–100, 105–108 |
+| unsupported claim | v2-073–080, 095–100, 104–108 |
+| cross-agent | v2-068–069, 077; separate router/delivery tests |
+| API/internal endpoints | v2-011–020, 061–070; technical 12-turn scenario |
+
+`scripts/evaluate-cognitive-v2.py --conversations` reported
+`DATASET_OK cases=108 selected=4 provider_calls=0`. The dataset is a
+generation fixture, not routing gold. It has sparse standalone roadmap,
+ambiguity and cross-agent cases; the full A/B scores, noisy-Portuguese quality,
+runtime tool path and human acceptance are still open.
+
+### Provider and release decision
+
+One bounded K3 debate retest stopped on turn 1 with
+`AUTOMATED_FAIL/missing_feature_status`; rejected model text was withheld. Turns
+2–12 and the other three conversations were **NOT EXECUTED**. Earlier Kimi and
+Ministral samples found unsupported competitor, fee-scope, availability and
+guarantee claims; see `COGNITIVE-V2-QUALITY-FINDINGS.md`. The isolated evaluation
+ledger totals 1,713,681 micro-USD reserved/estimated, not a provider invoice.
+No model winner or live-quality PASS has been established.
+
+The [Kimi terms](https://platform.kimi.ai/docs/agreement/modeluse) permit uses of
+customer content absent a separate written arrangement; enterprise
+[Zero Data Retention](https://platform.kimi.ai/docs/guide/zero-data-retention)
+is request-based and is not proven enabled for this account. Consequently the
+candidate evaluations used synthetic questions and PUBLIC projections only;
+real community messages, leads and CONTROLLED/INTERNAL/SECRET material remain
+blocked from Kimi pending a documented account-policy decision. Its
+[pricing documentation](https://platform.kimi.ai/docs/pricing/chat) describes
+K3 cache-write billing, so token estimates are not an account balance.
+
+Release gates remain open: independent security/code review and MEDIUM
+disposition, comparable provider benchmark and human scoring, provider/model
+selection and privacy acceptance, real Telegram routing/one-speaker/Guardian
+acceptance, operator approval, exact production SHA, disposable DB rehearsal,
+controlled Acer cutover and post-deploy rollback/health proof. The earlier
+option to ship infrastructure with Mistral retained and Kimi inactive is a
+**limited scope proposal**, not completion of the cognitive-v2 mission or
+permission to deploy. PR #66 stays draft; production is unchanged.
+
+---
+
 Date: 2026-10-16  
 Scope: development candidate based on `zion-v1.1-dev`  
 Status: development validation passed; integration, production, Acer, and live

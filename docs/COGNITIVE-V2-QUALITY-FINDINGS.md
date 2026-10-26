@@ -424,3 +424,23 @@ multi-turn quality, real Telegram acceptance, provider decision and production
 promotion remain open. Final isolated validation: 893 tests PASS, SECRET SCAN
 OK, ZION VALIDATION OK (`zion-v2-final-reviewed-validation.log`). No
 production setting or runtime was changed.
+
+## Broad comparison delivery alignment — 2026-10-26
+
+An independent local check found that the isolated evaluator's approved PUBLIC
+tool projection supplied the beta/partial sections for the exact debate turn 1,
+while the ordinary ZION answer path could retrieve only a smaller four-chunk
+context. The model-quality failure remains unchanged. For this broad product
+comparison only, the normal answer path now uses the same bounded PUBLIC tool
+projection. A rejected answer can receive a fuller host-owned reply about the
+Z-SWAP proposal, Terminal Pro beta and Portfolio/Orders partial status, but
+only when the retrieved positioning, feature map and all three status predicates
+are present. It does not assert competitor equivalence or superiority. Missing
+sections, narrow feature questions and unrelated/negated status text retain a
+conservative fallback. Focused delivery/guard tests and the complete local
+895-test suite pass with secret scan and ZION validation
+(`zion-v2-comparison-local-validation.log`).
+
+No Kimi call or Telegram message was sent for this refinement. The last actual
+K3 debate remains **AUTOMATED_FAIL at turn 1**; turns 2–12 and the other three
+scenarios remain NOT EXECUTED. This delivery containment is not a model PASS.

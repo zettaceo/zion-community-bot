@@ -1,9 +1,39 @@
 from __future__ import annotations
 import unittest
+from pathlib import Path
+from zion.knowledge import KnowledgeBase
+from zion.knowledge_tools import KnowledgeTools
 from zion.response_guard import public_fallback_for, validate_public_response
 
 
 class ResponseGuardTests(unittest.TestCase):
+    def test_broad_comparison_fallback_requires_complete_public_evidence(self):
+        question = 'Qual a diferença da Z-SWAP para outras plataformas?'
+        knowledge = KnowledgeBase(Path(__file__).resolve().parents[1] / 'knowledge')
+        context = KnowledgeTools(knowledge).call(
+            'search_approved_knowledge', {'query': question}, agent_id='zion').render()
+        reply = public_fallback_for(
+            'missing_feature_status', question=question, official_context=context)
+        self.assertIn('reúne análise, simulação, planejamento de ordens', reply)
+        self.assertIn('Terminal Pro está em beta', reply)
+        self.assertIn('Portfolio e Orders estão parcialmente disponíveis', reply)
+        self.assertIn('Não tenho uma comparação oficial', reply)
+        self.assertTrue(validate_public_response(reply, official_context=context).allowed)
+        without_positioning = context.replace(
+            '[Contexto oficial: Z-SWAP — Posicionamento institucional público]',
+            '[Contexto oficial: Seção não relacionada]')
+        without_map = context.replace(
+            '[Contexto oficial: Mapa público da plataforma]',
+            '[Contexto oficial: Seção não relacionada]')
+        for unapproved in (without_positioning, without_map):
+            with self.subTest(unapproved=unapproved[:70]):
+                self.assertNotIn('reúne análise, simulação', public_fallback_for(
+                    'missing_feature_status', question=question,
+                    official_context=unapproved))
+        self.assertNotIn('reúne análise, simulação', public_fallback_for(
+            'missing_feature_status', question='O Terminal Pro está disponível?',
+            official_context=context))
+
     def test_known_unsupported_claims_are_rejected(self):
         for value in (
             'Garantimos o melhor preço possível.',
