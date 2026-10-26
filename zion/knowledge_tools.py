@@ -12,7 +12,7 @@ import re
 from types import MappingProxyType
 
 from .agents import AgentId
-from .knowledge import KnowledgeBase, KnowledgeClassification
+from .knowledge import KnowledgeBase, KnowledgeClassification, _mentioned_tiers
 from .language_recovery import recover_language
 
 
@@ -27,6 +27,56 @@ _QUERIES = MappingProxyType({
 })
 TOOL_NAMES = frozenset(_QUERIES) | {'search_approved_knowledge', 'get_public_api_capabilities',
                                   'get_agent_authority'}
+_FEE_PLAN_TIERS = ('free', 'pro', 'trader', 'pilot')
+
+
+def _fee_plan_tier(chunk) -> str | None:
+    """Recognize a complete, fee-bearing plan section, not a generic mention."""
+    match = re.match(r'^Plano (Free|Pro|Trader|Pilot)\b', chunk.heading, re.IGNORECASE)
+    if not match:
+        return None
+    if not re.search(r'\bplatform fee\b.{0,100}\bEVM\b.{0,160}\d+(?:[.,]\d+)?\s*%',
+                     chunk.text, re.IGNORECASE | re.DOTALL):
+        return None
+    return match.group(1).lower()
+
+
+def _complete_fee_plan_siblings(chunks, corpus, agent: AgentId):
+    """Keep a broad fee-plan answer grounded in all four sibling sections.
+
+    Only the already selected PUBLIC/CURRENT source can supply siblings. An
+    unavailable or unauthorized section never gets reconstructed from memory.
+    """
+    by_source = {}
+    for chunk in chunks:
+        tier = _fee_plan_tier(chunk)
+        if (tier and chunk.authority.classification is KnowledgeClassification.PUBLIC
+                and chunk.authority.allows(agent)):
+            by_source.setdefault(chunk.source, {})[tier] = chunk
+    for source, selected in by_source.items():
+        if len(selected) < 2:
+            continue
+        siblings = dict(selected)
+        authority = next(iter(selected.values())).authority
+        for chunk in corpus:
+            tier = _fee_plan_tier(chunk)
+            if (chunk.source == source and chunk.authority == authority and tier
+                    and chunk.authority.classification is KnowledgeClassification.PUBLIC
+                    and chunk.authority.allows(agent)):
+                siblings[tier] = chunk
+        if set(siblings) != set(_FEE_PLAN_TIERS):
+            continue
+        result = []
+        inserted = False
+        for chunk in chunks:
+            if chunk.source == source and _fee_plan_tier(chunk):
+                if not inserted:
+                    result.extend(siblings[tier] for tier in _FEE_PLAN_TIERS)
+                    inserted = True
+                continue
+            result.append(chunk)
+        return result, tuple(siblings[tier] for tier in _FEE_PLAN_TIERS)
+    return chunks, ()
 
 
 class KnowledgeToolError(ValueError):
@@ -159,16 +209,32 @@ class KnowledgeTools:
         if self._knowledge.load_errors:
             return KnowledgeToolResult(operation, (), 'SOURCE_INVALID')
         chunks = self._knowledge.search(query, limit=12, agent_id=agent)
+        fee_bundle = ()
+        if operation == 'search_approved_knowledge' and not _mentioned_tiers(query):
+            chunks, fee_bundle = _complete_fee_plan_siblings(
+                chunks, getattr(self._knowledge, 'chunks', ()), agent)
         evidence = []
         remaining = 8000
+        def chunk_size(chunk):
+            return len(chunk.heading) + len(chunk.text) + 24
+        reserved = sum(chunk_size(chunk) for chunk in fee_bundle)
+        bundle_ids = {id(chunk) for chunk in fee_bundle}
+        if reserved > remaining:
+            # A whole authoritative matrix is unavailable within the output
+            # bound. Do not supply a misleading subset of its four sections.
+            chunks = [chunk for chunk in chunks if id(chunk) not in bundle_ids]
+            bundle_ids.clear()
+            reserved = 0
         for chunk in chunks:
             # Defense in depth: do not trust a future retrieval implementation
             # to enforce both source status and audience classification.
             if (not chunk.authority.allows(agent)
                     or chunk.authority.classification is not KnowledgeClassification.PUBLIC):
                 continue
-            size = len(chunk.heading) + len(chunk.text) + 24
-            if size > remaining:
+            size = chunk_size(chunk)
+            if id(chunk) in bundle_ids:
+                reserved -= size
+            elif size > remaining - reserved:
                 continue  # Never truncate a finite list or status qualifier.
             evidence.append(PublicEvidence(chunk.heading, chunk.text))
             remaining -= size

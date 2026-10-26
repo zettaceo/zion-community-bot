@@ -64,3 +64,86 @@ class KnowledgeToolsTests(unittest.TestCase):
         self.assertEqual(recover_language('cm funciona swap?').canonical, 'como funciona swap?')
         self.assertEqual(recover_language('parceria cm vcs').canonical, 'parceria com voces')
         self.assertIn('https://example.test/cm', recover_language('https://example.test/cm funciona').canonical)
+
+    def test_broad_plan_retrieval_keeps_all_four_public_fee_sections(self):
+        query = 'Então qual vantagem? Isso é marketing. Me dá prova, sem prometer desempenho.'
+        result = self.tools.call('search_approved_knowledge', {'query': query}, agent_id=AgentId.MIMIR)
+        headings = [item.heading for item in result.evidence]
+        for tier in ('Free', 'Pro', 'Trader', 'Pilot'):
+            with self.subTest(tier=tier):
+                self.assertTrue(any(heading.startswith('Plano ' + tier) for heading in headings))
+        trader = next(item for item in result.evidence if item.heading == 'Plano Trader')
+        self.assertIn('0,25%', trader.text)
+        self.assertLessEqual(len(result.render()), 8000)
+
+    def test_exact_tier_query_does_not_expand_fee_plan_siblings(self):
+        result = self.tools.call('search_approved_knowledge',
+            {'query': 'Qual a platform fee EVM do plano Pro?'}, agent_id=AgentId.MIMIR)
+        plan_headings = [item.heading for item in result.evidence if item.heading.startswith('Plano ')]
+        self.assertTrue(any(heading.startswith('Plano Pro') for heading in plan_headings))
+        self.assertFalse(any(heading.startswith(('Plano Free', 'Plano Trader', 'Plano Pilot'))
+                             for heading in plan_headings))
+
+    def test_fee_siblings_require_same_public_current_agent_authorized_source(self):
+        plans = {tier: next(chunk for chunk in self.knowledge.chunks
+                            if chunk.heading.startswith('Plano ' + tier))
+                 for tier in ('Free', 'Pro', 'Trader', 'Pilot')}
+        free, pro = plans['Free'], plans['Pro']
+        trader = replace(plans['Trader'], text='CONTROLLED SIBLING 0,25%',
+            authority=replace(plans['Trader'].authority,
+                              classification=KnowledgeClassification.CONTROLLED))
+        pilot = replace(plans['Pilot'], text='STALE SIBLING 0,10%',
+            authority=replace(plans['Pilot'].authority,
+                              status=KnowledgeSourceStatus.SUPERSEDED))
+        kb = SimpleNamespace(load_errors=[], chunks=[free, pro, trader, pilot],
+            search=lambda *a, **kw: [free, pro])
+        result = KnowledgeTools(kb).call('search_approved_knowledge',
+            {'query': 'Explique vantagens dos planos'}, agent_id=AgentId.MIMIR)
+        self.assertEqual([item.heading for item in result.evidence],
+                         [free.heading, pro.heading])
+        self.assertNotIn('CONTROLLED SIBLING', result.render())
+        self.assertNotIn('STALE SIBLING', result.render())
+
+    def test_fee_siblings_are_never_truncated_to_fit_the_evidence_bound(self):
+        plans = {tier: next(chunk for chunk in self.knowledge.chunks
+                            if chunk.heading.startswith('Plano ' + tier))
+                 for tier in ('Free', 'Pro', 'Trader', 'Pilot')}
+        huge_trader = replace(plans['Trader'], text=plans['Trader'].text + 'x' * 8000)
+        kb = SimpleNamespace(load_errors=[],
+            chunks=[plans['Free'], plans['Pro'], huge_trader, plans['Pilot']],
+            search=lambda *a, **kw: [plans['Free'], plans['Pro']])
+        result = KnowledgeTools(kb).call('search_approved_knowledge',
+            {'query': 'Explique vantagens dos planos'}, agent_id=AgentId.MIMIR)
+        self.assertFalse(any(item.heading.startswith('Plano ') for item in result.evidence))
+        self.assertLessEqual(len(result.render()), 8000)
+
+    def test_fee_sibling_capacity_is_reserved_before_other_broad_hits(self):
+        plans = {tier: next(chunk for chunk in self.knowledge.chunks
+                            if chunk.heading.startswith('Plano ' + tier))
+                 for tier in ('Free', 'Pro', 'Trader', 'Pilot')}
+        generic = next(chunk for chunk in self.knowledge.chunks
+                       if chunk.heading == 'Z-SWAP — Guia Público de Recursos')
+        generic = replace(generic, text='PUBLIC OVERVIEW ' + 'x' * 7000)
+        kb = SimpleNamespace(load_errors=[], chunks=list(plans.values()),
+            search=lambda *a, **kw: [generic, plans['Free'], plans['Pro']])
+        result = KnowledgeTools(kb).call('search_approved_knowledge',
+            {'query': 'Explique vantagens dos planos'}, agent_id=AgentId.MIMIR)
+        headings = [item.heading for item in result.evidence]
+        self.assertEqual([heading.split()[1] for heading in headings],
+                         ['Free', 'Pro', 'Trader', 'Pilot'])
+        self.assertLessEqual(len(result.render()), 8000)
+
+    def test_fee_siblings_do_not_cross_agent_allowlist(self):
+        plans = {tier: next(chunk for chunk in self.knowledge.chunks
+                            if chunk.heading.startswith('Plano ' + tier))
+                 for tier in ('Free', 'Pro', 'Trader', 'Pilot')}
+        unauthorized_trader = replace(plans['Trader'],
+            authority=replace(plans['Trader'].authority,
+                              allowed_agents=frozenset({AgentId.EIR})))
+        kb = SimpleNamespace(load_errors=[],
+            chunks=[plans['Free'], plans['Pro'], unauthorized_trader, plans['Pilot']],
+            search=lambda *a, **kw: [plans['Free'], plans['Pro']])
+        result = KnowledgeTools(kb).call('search_approved_knowledge',
+            {'query': 'Explique vantagens dos planos'}, agent_id=AgentId.MIMIR)
+        self.assertEqual([item.heading for item in result.evidence],
+                         [plans['Free'].heading, plans['Pro'].heading])

@@ -256,3 +256,37 @@ calls were made to seek a green result; multi-turn quality acceptance and model
 choice remain open.
 Final post-fix local validation: 870 tests PASS, SECRET SCAN OK,
 ZION VALIDATION OK (`zion-v2-kimi-final-validation.log`).
+
+## Post-K3 deterministic follow-up — 2026-10-25
+
+The K3 rejected turn-10 text was withheld. Its `safety_guarantee` reason does
+not prove whether the generated wording was an actual promise or a negated
+warning. Local regression testing did show both false rejections of explicit
+denials (for example, “não há como garantir a segurança”) and missed absolute
+safety claims (for example, “a operação é risco zero”). The output guard now
+handles these narrow constructions with clause-scoped denials, including
+qualified claims such as “segurança plenamente garantida”. A rejected price
+or safety guarantee produces a host-owned, topic-specific caveat. The rejected
+model text is not retained in the incident/event evidence.
+
+For K3 turn 8, the approved PUBLIC/CURRENT plan source had Free, Pro, Trader
+and Pilot EVM fees, but the broad knowledge-tool result omitted the Trader
+section. Retrieval now includes all four whole plan sections from that same
+authorized source when a broad answer already contains at least two fee-bearing
+plan sections. The evidence budget reserves space for all four whole sections;
+if that matrix cannot fit, no partial plan bundle is returned. The output guard
+derives the four EVM percentages from those official titled sections and rejects
+an EVM or network-unspecified three-or-four-tier fee schedule if it omits
+a tier or assigns an incorrect percentage. It does not apply this completeness
+rule to a one- or two-plan comparison or to Solana-only wording. Percentages may
+precede or follow their tier names. A local replay
+of the K3 question confirmed Trader/0,25% in retrieved evidence, rejection of
+the observed three-tier pattern, and acceptance of the complete four-tier
+pattern. These are deterministic checks, not a new Kimi or Telegram acceptance.
+
+The bounded live evaluation remains FAILED/PENDING: the K3 conversation
+stopped at turn 10, later turns and other scenarios were not executed, and no
+new paid provider requests were made for this follow-up. Kimi remains
+provisioned privately but inactive; production still uses the existing model.
+Local post-fix validation: 878 tests PASS, SECRET SCAN OK, ZION VALIDATION OK
+(`zion-v2-post-kimi-local-validation.log`, local isolated run).

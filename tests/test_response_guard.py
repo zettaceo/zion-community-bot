@@ -1,6 +1,6 @@
 from __future__ import annotations
 import unittest
-from zion.response_guard import validate_public_response
+from zion.response_guard import public_fallback_for, validate_public_response
 
 
 class ResponseGuardTests(unittest.TestCase):
@@ -19,6 +19,17 @@ class ResponseGuardTests(unittest.TestCase):
             'Nenhuma plataforma é livre de risco, mas é seguro usar a Z-SWAP.',
             'Aprovei sua parceria.',
             'Nenhuma rota é livre de riscos, mas a nossa é totalmente segura.',
+            'A Z-SWAP é segura para usar.',
+            'A plataforma é completamente segura.',
+            'Sua segurança está garantida.',
+            'A segurança da operação é garantida.',
+            'A segurança está plenamente garantida.',
+            'A operação não tem risco.',
+            'A operação é risco zero.',
+            'A plataforma garante proteção total.',
+            'A Z-SWAP oferece segurança total.',
+            'Garantimos que você não corre risco.',
+            'Não garantimos segurança, mas a operação é completamente segura.',
         ):
             with self.subTest(value=value):
                 self.assertFalse(validate_public_response(value, official_context='').allowed)
@@ -30,6 +41,10 @@ class ResponseGuardTests(unittest.TestCase):
             'Nenhuma plataforma pode garantir o melhor preço.',
             'É impossível garantir a melhor taxa.',
             'Não podemos garantir que a transação seja segura.',
+            'Não há como garantir a segurança de qualquer swap.',
+            'Não se pode garantir segurança absoluta.',
+            'Sem garantir a segurança, explique os controles.',
+            'Ninguém pode garantir segurança absoluta.',
             'Não é seguro usar qualquer plataforma sem avaliar os riscos.',
             'A Z-SWAP implementa controles para reduzir riscos, mas nenhuma plataforma ou transação é livre de risco.',
             'Nenhuma plataforma é livre de riscos.',
@@ -133,3 +148,36 @@ class ResponseGuardTests(unittest.TestCase):
         self.assertFalse(validate_public_response('Custa R$ 10.', official_context='Preço: US$ 10').allowed)
         self.assertFalse(validate_public_response('Custa US$ 1.000.', official_context='Preço: USD 1').allowed)
         self.assertTrue(validate_public_response('Nenhuma plataforma é 100% segura.', official_context='').allowed)
+
+    def test_evm_plan_fee_enumeration_uses_complete_official_matrix(self):
+        context = '\n\n'.join((
+            '[Contexto oficial: Plano Free ou Thrall]\nA platform fee nas rotas EVM é 1,00%.',
+            '[Contexto oficial: Plano Pro ou profissional]\nA platform fee EVM pública é 0,50%.',
+            '[Contexto oficial: Plano Trader]\nA platform fee EVM pública é 0,25%.',
+            '[Contexto oficial: Plano Pilot ou plano piloto]\nA platform fee EVM pública é 0,10%.',
+        ))
+        partial = 'Nas rotas EVM: Free 1,00%, Pro 0,50% e Pilot 0,10%.'
+        partial_without_network = 'As taxas por plano são Free 1%, Pro 0,5% e Pilot 0,1%.'
+        wrong = 'Nas rotas EVM: Free 1,00%, Pro 0,50%, Trader 0,50% e Pilot 0,10%.'
+        complete = 'Nas rotas EVM: Free 1%, Pro 0,5%, Trader 0,25% e Pilot 0,1%.'
+        complete_reverse = ('Nas rotas EVM, as taxas são 1% no Free, 0,5% no Pro, '
+                            '0,25% no Trader e 0,1% no Pilot.')
+        for answer in (partial, partial_without_network, wrong):
+            with self.subTest(answer=answer):
+                check = validate_public_response(answer, official_context=context)
+                self.assertFalse(check.allowed)
+                self.assertEqual(check.reason, 'incomplete_plan_fee_matrix')
+        self.assertTrue(validate_public_response(complete, official_context=context).allowed)
+        self.assertTrue(validate_public_response(
+            complete_reverse, official_context=context).allowed)
+        self.assertTrue(validate_public_response(
+            'No Pro a platform fee EVM é 0,50%.', official_context=context).allowed)
+        self.assertTrue(validate_public_response(
+            'Na Solana, Free 1%, Pro 0,5% e Pilot 0,1% podem ser elegíveis.',
+            official_context=context).allowed)
+        self.assertEqual(validate_public_response(
+            partial, official_context=context.split('[Contexto oficial: Plano Trader]')[0]
+        ).reason, 'incomplete_plan_fee_matrix')
+        fallback = public_fallback_for('incomplete_plan_fee_matrix')
+        self.assertIn('Trader', fallback)
+        self.assertTrue(validate_public_response(fallback, official_context='').allowed)

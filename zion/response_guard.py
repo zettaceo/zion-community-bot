@@ -65,6 +65,66 @@ def _monetary_claims(text: str) -> set[tuple[str, str]]:
     return result
 
 
+_EVM_TIERS = ('free', 'pro', 'trader', 'pilot')
+_TIER_PATTERN = r'free|pro|trader|pilot'
+_PERCENT_PATTERN = r'(\d{1,2}(?:[.,]\d{1,2})?)\s*%'
+
+
+def _fold(text: str) -> str:
+    return ''.join(c for c in unicodedata.normalize('NFKD', text)
+                   if not unicodedata.combining(c)).casefold()
+
+
+def _evm_plan_fees(context: str) -> dict[str, Decimal]:
+    """Read fee pairs from titled, approved evidence, never from a local tariff."""
+    parts = re.split(r'\[contexto oficial: ([^\]]+)\]\s*', _fold(context))
+    fees: dict[str, Decimal] = {}
+    for heading, body in zip(parts[1::2], parts[2::2]):
+        tier = next((name for name in _EVM_TIERS
+                     if re.match(r'plano ' + name + r'\b', heading)), None)
+        if tier is None:
+            continue
+        body = ' '.join(body.split())
+        match = re.search(r'\bplatform fee\b.{0,180}?\bevm\b.{0,180}?'
+                          + _PERCENT_PATTERN, body)
+        if match:
+            fees[tier] = Decimal(match[1].replace(',', '.'))
+    return fees
+
+
+def _evm_fee_enumeration_is_complete(answer: str, context: str) -> bool:
+    """A broad EVM tier schedule must be the whole source-derived matrix."""
+    folded = _fold(answer)
+    if '%' not in folded:
+        return True
+    if (not re.search(r'\bevm\b', folded)
+            and (re.search(r'\bsolana\b', folded)
+                 or not re.search(r'\b(?:taxas?|fees?|cobrancas?)\b', folded))):
+        return True
+    named = set(re.findall(r'\b(?:' + _TIER_PATTERN + r')\b', folded))
+    if len(named) < 3:
+        return True  # Two-tier comparisons are not claims to list every tier.
+    source = _evm_plan_fees(context)
+    if set(source) != set(_EVM_TIERS):
+        return False
+    pairs: dict[str, set[Decimal]] = {}
+    # An inverse phrase such as "0,5% no Pro" must own that percentage; a
+    # forward scan from the previous tier must not steal it across a comma.
+    for match in re.finditer(
+        _PERCENT_PATTERN + r'\s*(?:no|na|para(?: o)?|do|da)?\s*\b('
+        + _TIER_PATTERN + r')\b', folded,
+    ):
+        pairs.setdefault(match[2], set()).add(Decimal(match[1].replace(',', '.')))
+    for match in re.finditer(
+        r'\b(' + _TIER_PATTERN + r')\b'
+        r'(?:(?!\b(?:' + _TIER_PATTERN + r')\b)[^,.!?;\n%]){0,50}?'
+        + _PERCENT_PATTERN, folded,
+    ):
+        if match[1] not in pairs:
+            pairs.setdefault(match[1], set()).add(Decimal(match[2].replace(',', '.')))
+    return all(pairs.get(tier) == {value} for tier, value in source.items())
+
+
 def validate_public_response(text: str, *, official_context: str) -> ResponseCheck:
     if not isinstance(text, str) or not text.strip():
         return ResponseCheck(False, 'empty_response')
@@ -80,9 +140,10 @@ def validate_public_response(text: str, *, official_context: str) -> ResponseChe
     quality_rules = (
         ('best_price_guarantee', r"\b(?:garant\w*|assegur\w*)\b(?:(?!\s*,\s*mas\b)[^.!?;\n]){0,60}\bmelhor(?:es)? (?:precos?|taxas?)\b"),
         ('universal_swap_execution', r"\btodos os swaps (?:sao (?:sempre )?(?:executados|realizados|processados) (?:por|via|em)|usam) (?:smart contracts?|contratos? inteligentes?)\b"),
-        ('safety_guarantee', r'\b(?:garant\w*|assegur\w*)\b[^.!?\n]{0,80}\b(?:seguranca|segur[oa]s?)\b'),
+        ('safety_guarantee', r'\b(?:garant\w*|assegur\w*)\b(?:(?!\s*,\s*mas\b)[^.!?;\n]){0,80}\b(?:seguranca|segur[oa]s?|protecao total)\b'),
+        ('safety_guarantee', r'\bseguranca(?: da (?:operacao|transacao))?\s+(?:esta|e)\s+(?:(?:plenamente|totalmente|completamente|100%)\s+)?garantid[ao]s?\b'),
         ('execution_guarantee', r'\b(?:garant\w*|assegur\w*)\b[^.!?\n]{0,70}\b(?:transacao|ordem|swap|operacao)\b[^.!?\n]{0,50}\b(?:executad[oa]|concluid[oa]|bem.sucedid[oa])\b|\b(?:garant\w*|assegur\w*)\b[^.!?\n]{0,30}\bexecucao (?:da|do|de) (?:sua |seu |uma |um )?(?:transacao|ordem|swap|operacao)\b'),
-        ('absolute_safety', r"\b(?:e seguro usar|100% segur[oa]|totalmente segur[oa]|livre de riscos?)\b"),
+        ('absolute_safety', r"\b(?:e segur[oa](?: para usar)?|(?:100%|totalmente|completamente) segur[oa]|livre de riscos?|seguranca total|risco zero|nao (?:tem|corre|existe) riscos?)\b"),
     )
     checked = folded
     for reason, pattern in quality_rules:
@@ -96,7 +157,8 @@ def validate_public_response(text: str, *, official_context: str) -> ResponseChe
                 continue
             if re.search(
                 r"\b(?:(?:nao|nunca|nem) (?:(?:podemos|posso|pode|e|e possivel|da para) )?"
-                r"|nenhuma plataforma pode |e impossivel )$", prefix):
+                r"|nao ha como |nao se pode |sem |ninguem pode |"
+                r"nenhuma plataforma pode |e impossivel )$", prefix):
                 continue
             return ResponseCheck(False, reason)
     if re.search(r"\bz-?swap nao cobra (?:por )?(?:transacoes de )?swaps?\b|\bswaps? (?:sao|e) gratuit[oa]s?\b", folded):
@@ -127,6 +189,8 @@ def validate_public_response(text: str, *, official_context: str) -> ResponseChe
     if (re.search(no_standard_partnership_fee, folded)
             and not re.search(no_standard_partnership_fee, approved)):
         return ResponseCheck(False, 'unsupported_partnership_fee_policy')
+    if not _evm_fee_enumeration_is_complete(text, official_context):
+        return ResponseCheck(False, 'incomplete_plan_fee_matrix')
     for brand in ('uniswap', 'pancakeswap', '1inch', 'raydium', 'bisq'):
         pattern = r'\b' + re.escape(brand) + r'\b'
         if re.search(pattern, folded) and not re.search(pattern, approved):
@@ -150,6 +214,14 @@ PUBLIC_FALLBACK = (
 
 def public_fallback_for(reason: str) -> str:
     """Host-owned public reply for a few known quality failures."""
+    if reason == 'best_price_guarantee':
+        return ('A Z-SWAP compara rotas disponíveis conforme as condições daquele '
+                'momento, mas não garante o melhor preço ou taxa. Confira a cotação '
+                'e os custos antes de confirmar.')
+    if reason in {'safety_guarantee', 'absolute_safety'}:
+        return ('A Z-SWAP implementa controles para reduzir riscos, mas nenhuma '
+                'plataforma ou transação é livre de risco. Confira os detalhes da '
+                'operação antes de confirmar.')
     if reason in {'unapproved_market_service_claim', 'unsupported_competitor_comparison'}:
         return ('Não tenho dados oficiais para comparar a Z-SWAP com essa plataforma '
                 'ou confirmar que as propostas são equivalentes. Posso explicar os '
@@ -157,4 +229,8 @@ def public_fallback_for(reason: str) -> str:
     if reason == 'unsupported_partnership_fee_policy':
         return ('Não tenho informação oficial sobre uma taxa padrão de parceria. '
                 'Posso explicar o processo público de triagem, sem prometer condições comerciais.')
+    if reason == 'incomplete_plan_fee_matrix':
+        return ('As taxas da plataforma variam por plano e rota. Não vou tratar '
+                'uma lista parcial como completa; posso detalhar Free, Pro, '
+                'Trader e Pilot com os valores publicados.')
     return PUBLIC_FALLBACK

@@ -950,3 +950,26 @@ four-tier fee-list instruction are local forward-fixes without live PASS.
 The isolated evaluation ledger stands at 996,139 micro-USD reserved/estimated.
 Final post-fix local validation: 870 tests PASS, SECRET SCAN OK,
 ZION VALIDATION OK (`zion-v2-kimi-final-validation.log`).
+
+## Post-K3 deterministic quality hardening — 2026-10-25
+
+- [x] Add clause-scoped tests for explicit safety denials and absolute safety
+  promises, including a denial followed by an unsafe claim after “mas”.
+- [x] Return a fixed, risk-qualified host reply after a rejected price or
+  safety guarantee; do not retain the rejected model output.
+- [x] Complete broad PUBLIC/CURRENT fee-plan retrieval with the missing
+  same-source sibling section when all four authorized Free/Pro/Trader/Pilot
+  sections are available. Keep exact-tier queries narrow and reserve capacity
+  for the complete bundle; omit it when it cannot fit whole.
+- [x] Reject an EVM or network-unspecified fee schedule naming at least three
+  plans when it omits a tier or disagrees with the four percentages parsed from
+  official titled context. Accept percentage-before-tier wording. Preserve
+  one/two-plan comparisons and Solana-only explanations.
+- [ ] Re-evaluate model output and the complete multi-turn conversation under
+  a separately bounded acceptance run; deterministic regressions do not
+  establish live quality or a model winner.
+- [ ] Validate real Telegram routing, one-speaker delivery, source fidelity and
+  natural answers on the candidate before any separately approved promotion.
+
+Local isolated regression: 878 tests PASS, SECRET SCAN OK, ZION VALIDATION OK
+(`zion-v2-post-kimi-local-validation.log`). Production remains unchanged.
