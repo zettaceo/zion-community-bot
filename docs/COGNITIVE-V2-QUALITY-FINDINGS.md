@@ -381,3 +381,46 @@ neither the model nor Telegram acceptance becomes PASS by this change.
 Local post-reconciliation validation: 890 tests PASS, SECRET SCAN OK, ZION
 VALIDATION OK (`zion-v2-solana-final-validation.log`). No additional provider
 call was made; the evaluation ledger remains unchanged.
+
+## Named-conversation harness failure and bounded K3 retest — 2026-10-26
+
+The first `--conversation-id conversation-debate` attempt created an empty
+evidence file (`20261026T090158342604Z-kimi-k3.jsonl`) and exited with
+`KeyError`. Its isolated ledger rose by 40,680 micro-USD to 1,678,858
+micro-USD reserved/estimated. Independent offline reproduction found that the
+CLI selected a conversation fixture but dispatched it to the single-case
+evaluator. That evaluator completed the provider call and budget settlement,
+then attempted to read the conversation's absent `required_terms` field. No
+model response was retained from that attempt, so it has no quality verdict.
+
+The candidate now uses one conversation-mode decision for selection and
+dispatch. A fake-provider integration regression proves that a named
+conversation emits its first turn. A second fake-provider path forces a
+post-provider `KeyError` and verifies that a sanitized `HARNESS_FAIL` row is
+durably written without response text, exception message, or a second request.
+This fixes the evidence gap without reinterpreting the lost answer.
+
+One bounded K3 retest after that local harness fix produced
+`20261026T090942234213Z-kimi-k3.jsonl`. It stopped on debate turn 1:
+`AUTOMATED_FAIL / missing_feature_status`. The generated text was withheld.
+The record shows 4,064 input tokens, 309 output tokens, 9,220 ms latency and
+34,823 micro-USD estimated charge. Debate turns 2–12 and the three other
+conversations were NOT EXECUTED. The cumulative isolated ledger is now
+1,713,681 micro-USD reserved/estimated, not an invoice or provider balance.
+The reason code establishes that a source-backed beta/partial qualifier was
+missing under the deterministic gate; it does not reveal the exact wording.
+
+The candidate delivery path now offers a short host-owned reply that includes
+only Terminal Pro beta and/or Portfolio/Orders partial statuses found in the
+already retrieved PUBLIC context. Without that evidence it keeps the existing
+conservative fallback. Independent diff review found that the first local
+version could wrongly attach another section's or a negated status to a
+feature. The source-status matcher now requires a direct affirmative predicate
+within the same evidence section; regressions cover cross-section and
+same-section false associations plus negation. Focused source/guard and
+fake-provider tests pass, but
+this does not turn the failed model generation into a PASS. Human-accepted
+multi-turn quality, real Telegram acceptance, provider decision and production
+promotion remain open. Final isolated validation: 893 tests PASS, SECRET SCAN
+OK, ZION VALIDATION OK (`zion-v2-final-reviewed-validation.log`). No
+production setting or runtime was changed.

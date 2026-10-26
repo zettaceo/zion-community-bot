@@ -350,3 +350,38 @@ class ResponseGuardTests(unittest.TestCase):
             'O Terminal Pro reúne gráficos.', official_context='Sem estado oficial publicado.').allowed)
         self.assertTrue(validate_public_response(
             public_fallback_for('missing_feature_status'), official_context='').allowed)
+        source_reply = public_fallback_for('missing_feature_status', official_context=context)
+        self.assertIn('Terminal Pro está em beta', source_reply)
+        self.assertIn('Portfolio está parcialmente disponível', source_reply)
+        self.assertIn('Orders está parcialmente disponível', source_reply)
+        self.assertTrue(validate_public_response(source_reply, official_context=context).allowed)
+        self.assertNotIn('Portfolio', public_fallback_for(
+            'missing_feature_status', official_context='Terminal Pro está em beta.'))
+
+    def test_feature_status_does_not_cross_sections_or_invert_negation(self):
+        cases = (
+            ('[Contexto oficial: Terminal Pro]\nO Terminal Pro oferece gráficos.\n'
+             '[Contexto oficial: Produto X]\nO Produto X está em beta.',
+             'O Terminal Pro oferece gráficos.', 'Terminal Pro está em beta'),
+            ('[Contexto oficial: Terminal Pro]\nO Terminal Pro não está em beta; '
+             'o Beta antigo terminou.',
+             'O Terminal Pro oferece gráficos.', 'Terminal Pro está em beta'),
+            ('[Contexto oficial: Portfolio]\nPortfolio agrega saldos.\n'
+             '[Contexto oficial: Produto X]\nO Produto X está parcialmente disponível.',
+             'Portfolio agrega saldos.', 'Portfolio está parcialmente disponível'),
+            ('[Contexto oficial: Orders]\nOrders mostra planos.\n'
+             '[Contexto oficial: Produto X]\nO Produto X está parcialmente disponível.',
+             'Orders mostra planos.', 'Orders está parcialmente disponível'),
+            ('[Contexto oficial: Recursos]\nTerminal Pro oferece gráficos e '
+             'Produto X está em beta.',
+             'O Terminal Pro oferece gráficos.', 'Terminal Pro está em beta'),
+            ('[Contexto oficial: Recursos]\nPortfolio agrega saldos e '
+             'Produto X está parcialmente disponível.',
+             'Portfolio agrega saldos.', 'Portfolio está parcialmente disponível'),
+        )
+        for context, answer, false_status in cases:
+            with self.subTest(false_status=false_status):
+                self.assertTrue(validate_public_response(
+                    answer, official_context=context).allowed)
+                self.assertNotIn(false_status, public_fallback_for(
+                    'missing_feature_status', official_context=context))

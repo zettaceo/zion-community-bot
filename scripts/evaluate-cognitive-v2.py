@@ -37,8 +37,9 @@ def private_directory(path: Path) -> None:
 async def run(args) -> int:
     if args.native_mistral and args.model not in {'ministral-8b-2512', 'mistral-large-2512'}:
         raise ValueError('native_evaluation_requires_mistral')
+    conversation_mode = args.conversations or bool(args.conversation_id)
     cases = load_cases(ROOT / 'evaluations/cognitive-v2.jsonl')
-    if args.conversations or args.conversation_id:
+    if conversation_mode:
         selected = load_conversations(ROOT / 'evaluations/cognitive-v2-conversations.jsonl')
         if args.conversation_id:
             selected = [case for case in selected if case['id'] == args.conversation_id]
@@ -91,7 +92,7 @@ async def run(args) -> int:
         failed = False
         with os.fdopen(fd, 'w', encoding='utf-8') as output:
             async def results_for_case(case):
-                if args.conversations:
+                if conversation_mode:
                     async for result in evaluate_conversation(case, knowledge=knowledge,
                             provider=provider, model=args.model, budget=budget):
                         yield result
@@ -100,14 +101,27 @@ async def run(args) -> int:
                         provider=provider, model=args.model, budget=budget)
 
             for case in selected:
-                async for result in results_for_case(case):
-                    output.write(json.dumps(result, ensure_ascii=False) + '\n')
+                try:
+                    async for result in results_for_case(case):
+                        output.write(json.dumps(result, ensure_ascii=False) + '\n')
+                        output.flush(); os.fsync(output.fileno())
+                        print(f"case={result['id']} status={result['status']}", flush=True)
+                        if result['status'] in {'PROVIDER_FAIL', 'AUTOMATED_FAIL', 'HARNESS_FAIL'}:
+                            failed = True
+                            break
+                        await asyncio.sleep(1)
+                except Exception as error:
+                    # A post-provider evaluator error must not leave a paid or
+                    # reserved attempt with an empty evidence file. Neither the
+                    # exception text nor the generated response is safe to log.
+                    failure = {'id': case['id'], 'model': args.model,
+                               'status': 'HARNESS_FAIL', 'error_type': type(error).__name__,
+                               'usage_outcome': 'check_isolated_ledger',
+                               'human_review': 'PENDING'}
+                    output.write(json.dumps(failure) + '\n')
                     output.flush(); os.fsync(output.fileno())
-                    print(f"case={result['id']} status={result['status']}", flush=True)
-                    if result['status'] in {'PROVIDER_FAIL', 'AUTOMATED_FAIL'}:
-                        failed = True
-                        break
-                    await asyncio.sleep(1)
+                    print(f"case={case['id']} status=HARNESS_FAIL", flush=True)
+                    failed = True
                 if failed:
                     break
         print(f'EVIDENCE={path}')

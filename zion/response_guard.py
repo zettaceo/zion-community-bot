@@ -204,19 +204,47 @@ def _snapshot_proof_is_preserved(answer: str) -> bool:
     return True
 
 
+def _source_feature_statuses(context: str) -> set[str]:
+    """Find direct affirmative feature-state predicates in one evidence section."""
+    statuses: set[str] = set()
+    sections = re.split(r'(?m)^\[contexto oficial: [^\]\n]+\][ \t]*$', _fold(context))
+    partial = r'\b(?:partial|parcial(?:mente)?)\b'
+    patterns = {
+        'terminal pro': (
+            r'\bterminal pro\s+(?:esta|permanece|segue|aparece)\b[^.!?,;]{0,25}\bbeta\b',
+            r'\bterminal pro\b[^.!?,;]{0,80}\be aparece como beta\b',
+        ),
+        'portfolio': (
+            r'\bportfolio\s+(?:esta|permanece|segue)\b[^.!?,;]{0,25}' + partial,
+            r'\bportfolio e orders\s+estao\b[^.!?,;]{0,25}' + partial,
+            r'\bportfolio\s*:\s*acompanhamento\b[^.!?,;]{0,25}' + partial,
+        ),
+        'orders': (
+            r'\borders\s+(?:esta|estao|permanece|segue)\b[^.!?,;]{0,25}' + partial,
+            r'\borders\s*:\s*planejamento e gatilhos,\s*em estado\s+' + partial,
+        ),
+    }
+    for section in sections:
+        for feature, rules in patterns.items():
+            for pattern in rules:
+                for match in re.finditer(pattern, section):
+                    fragment = match.group()
+                    if not re.search(r'\b(?:nao|nunca|sem|fora|deixou|saiu)\b', fragment):
+                        statuses.add(feature)
+    return statuses
+
+
 def _feature_status_is_preserved(answer: str, context: str) -> bool:
     """Carry explicit beta/partial status when approved evidence supplies it."""
-    source = _fold(context)
+    source_statuses = _source_feature_statuses(context)
     folded = _fold(answer)
     statuses = (
-        ('terminal pro', r'\bbeta\b', r'\bterminal pro\b.{0,80}\bbeta\b'),
-        ('portfolio', r'\b(?:parcial\w*|partial\w*)\b',
-         r'\bportfolio\b.{0,85}\b(?:partial|parcialmente)\b'),
-        ('orders', r'\b(?:parcial\w*|partial\w*)\b',
-         r'\borders\b.{0,85}\b(?:partial|parcialmente)\b'),
+        ('terminal pro', r'\bbeta\b'),
+        ('portfolio', r'\b(?:parcial\w*|partial\w*)\b'),
+        ('orders', r'\b(?:parcial\w*|partial\w*)\b'),
     )
-    for feature, required, source_pattern in statuses:
-        if not re.search(source_pattern, source, re.DOTALL):
+    for feature, required in statuses:
+        if feature not in source_statuses:
             continue
         if not re.search(r'\b' + feature + r'\b', folded):
             continue
@@ -396,6 +424,25 @@ def _public_solana_fee_reply(official_context: str) -> str | None:
     return None
 
 
+def _public_feature_status_reply(official_context: str) -> str | None:
+    """Carry only feature states present in already approved retrieved context."""
+    source_statuses = _source_feature_statuses(official_context)
+    states = []
+    if 'terminal pro' in source_statuses:
+        states.append('o Terminal Pro está em beta')
+    if 'portfolio' in source_statuses:
+        states.append('Portfolio está parcialmente disponível')
+    if 'orders' in source_statuses:
+        states.append('Orders está parcialmente disponível')
+    if not states:
+        return None
+    reply = ('Na base pública revisada, ' + '; '.join(states) + '. '
+             'Posso detalhar o que cada recurso oferece e suas limitações atuais.')
+    if validate_public_response(reply, official_context=official_context).allowed:
+        return reply
+    return None
+
+
 def public_fallback_for(reason: str, *, official_context: str = '') -> str:
     """Host-owned public reply for a few known quality failures."""
     if reason == 'best_price_guarantee':
@@ -429,6 +476,9 @@ def public_fallback_for(reason: str, *, official_context: str = '') -> str:
                 'mas não fiz uma verificação ao vivo da plataforma. Confira a '
                 'disponibilidade na interface para o seu caso.')
     if reason == 'missing_feature_status':
+        reply = _public_feature_status_reply(official_context)
+        if reply is not None:
+            return reply
         return ('A base pública distingue recursos em beta ou parcialmente '
                 'disponíveis. Posso detalhar o estado documentado de cada um; '
                 'confira a disponibilidade na interface para o seu caso.')

@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import ExitStack, redirect_stdout
 from datetime import date
+import importlib.util
+from io import StringIO
 import json
 from pathlib import Path
 import subprocess
 import sys
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -26,6 +30,59 @@ class ConversationEvaluationTests(unittest.TestCase):
         result = subprocess.run(command, cwd=ROOT, capture_output=True,
                                 text=True, check=True)
         self.assertIn('selected=1 provider_calls=0', result.stdout)
+
+    def test_named_live_conversation_dispatches_and_persists_first_turn_with_fake_provider(self):
+        spec = importlib.util.spec_from_file_location(
+            'zion_cognitive_evaluator', ROOT / 'scripts/evaluate-cognitive-v2.py')
+        self.assertIsNotNone(spec)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        args = SimpleNamespace(native_mistral=False, model='kimi-k3',
+                               conversations=False, conversation_id='conversation-debate',
+                               case_ids=None, full=False, live=True)
+        for postprocess_failure in (False, True):
+            with self.subTest(postprocess_failure=postprocess_failure):
+                calls = []
+
+                class FakeProvider:
+                    configured = True
+
+                    async def complete(self, messages, *, max_tokens):
+                        calls.append(messages)
+                        return Completion('Veja /home/private', 'kimi-k3', 10, 10, 1)
+
+                with tempfile.TemporaryDirectory() as tmp:
+                    (Path(tmp) / '.local/state/zion-community-bot').mkdir(parents=True)
+                    price = EvaluationBudget.price('kimi-k3', date(2026, 10, 25))
+                    with ExitStack() as stack:
+                        stack.enter_context(patch.object(module.Path, 'home', return_value=Path(tmp)))
+                        stores = stack.enter_context(patch.object(module, 'ProviderSecretStore'))
+                        stores.return_value.for_provider.return_value = object()
+                        stack.enter_context(patch.object(
+                            module, 'KimiCompletionProvider', return_value=FakeProvider()))
+                        stack.enter_context(patch.object(EvaluationBudget, 'price', return_value=price))
+                        stack.enter_context(redirect_stdout(StringIO()))
+                        if postprocess_failure:
+                            stack.enter_context(patch(
+                                'zion.evaluation.validate_public_response',
+                                side_effect=KeyError('private error marker')))
+                        exit_code = asyncio.run(module.run(args))
+                    self.assertEqual(exit_code, 1)
+                    self.assertEqual(len(calls), 1)
+                    files = list((Path(tmp) / '.local/state/zion-community-bot/evaluations/cognitive-v2').glob('*.jsonl'))
+                    self.assertEqual(len(files), 1)
+                    results = [json.loads(line) for line in files[0].read_text().splitlines()]
+                    self.assertEqual(len(results), 1)
+                    self.assertNotIn('/home/private', str(results))
+                    self.assertNotIn('private error marker', str(results))
+                    if postprocess_failure:
+                        self.assertEqual(results[0]['status'], 'HARNESS_FAIL')
+                        self.assertEqual(results[0]['error_type'], 'KeyError')
+                    else:
+                        self.assertEqual(results[0]['conversation_id'], 'conversation-debate')
+                        self.assertEqual(results[0]['turn'], 1)
+                        self.assertEqual(results[0]['status'], 'AUTOMATED_FAIL')
+                        self.assertEqual(results[0]['response'], '[WITHHELD_BY_OUTPUT_GUARD]')
 
     def test_dataset_has_long_synthetic_scenarios_for_all_four_agents(self):
         cases = load_conversations(ROOT / 'evaluations/cognitive-v2-conversations.jsonl')

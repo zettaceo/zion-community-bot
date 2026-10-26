@@ -1012,4 +1012,32 @@ multi-turn and Telegram gates remain open; no production promotion is implied.
 
 Post-reconciliation isolated validation: 890 tests PASS, SECRET SCAN OK,
 ZION VALIDATION OK (`zion-v2-solana-final-validation.log`). No new paid K3 run
-or Telegram acceptance was performed after the source clarification.
+or Telegram acceptance was performed at that checkpoint.
+
+## Named-conversation retest checkpoint — 2026-10-26
+
+- [x] Diagnose the failed named-conversation run without repeating a provider
+  call: selection used conversation mode but execution used single-case mode.
+  The attempt settled an estimated 40,680 micro-USD, then raised `KeyError`
+  before writing a case row. Its empty evidence file provides no quality result.
+- [x] Use one mode for both paths and add fake-provider regression of actual
+  named live dispatch. Post-provider harness errors now write a minimized
+  `HARNESS_FAIL` row and stop, with no response or exception text retained.
+- [x] Run one bounded K3 debate retest. Turn 1 stopped at
+  `AUTOMATED_FAIL / missing_feature_status`; rejected text was withheld. No
+  later turn or other conversation executed. The evaluation ledger now totals
+  1,713,681 micro-USD reserved/estimated, not a bill.
+- [x] Add a delivery fallback that carries only beta/partial statuses present
+  in the approved retrieved context. Independent review caught cross-section
+  and negated-status false associations in the first local version; direct
+  affirmative, same-section matching and negative regressions now cover them.
+  The evaluation failure remains a failure; this is not Telegram proof.
+- [ ] Obtain human-accepted multi-turn answers for all four scenarios, then
+  test natural routing/delivery in the controlled Telegram group.
+- [ ] Review provider reliability, latency, cost and privacy against explicit
+  acceptance criteria before proposing any production activation or release.
+
+Production remains unchanged. The candidate PR stays draft until the open
+quality and real-channel gates are independently accepted. Final isolated
+validation for this increment: 893 tests PASS, SECRET SCAN OK, ZION VALIDATION
+OK (`zion-v2-final-reviewed-validation.log`).

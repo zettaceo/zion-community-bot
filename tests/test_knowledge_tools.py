@@ -89,6 +89,13 @@ class KnowledgeToolsTests(unittest.TestCase):
         self.assertIn('Produto antes de promessa',
                       [item.heading for item in natural_comparison.evidence])
         self.assertIn('Beta', [item.heading for item in natural_comparison.evidence])
+        status_reply = public_fallback_for('missing_feature_status',
+                                           official_context=natural_comparison.render())
+        self.assertIn('Terminal Pro está em beta', status_reply)
+        self.assertIn('Portfolio está parcialmente disponível', status_reply)
+        self.assertIn('Orders está parcialmente disponível', status_reply)
+        self.assertTrue(validate_public_response(
+            status_reply, official_context=natural_comparison.render()).allowed)
 
     def test_failed_k3_fee_turn_can_use_complete_public_fallback(self):
         query = 'Uniswap faz isso.\nBinance também.\nVocês cobram mais?'
