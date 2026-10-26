@@ -161,3 +161,144 @@ class ConversationEvaluationTests(unittest.TestCase):
                 self.assertNotIn('/home/operator/private', str(results))
                 self.assertNotIn('private provider body', str(results))
                 self.assertIn(results[0]['status'], {'AUTOMATED_FAIL', 'PROVIDER_FAIL'})
+
+
+class IndependentBenchmarkTests(unittest.TestCase):
+    @staticmethod
+    def _module():
+        spec = importlib.util.spec_from_file_location(
+            'zion_cognitive_evaluator', ROOT / 'scripts/evaluate-cognitive-v2.py')
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    @staticmethod
+    def _case(case_id):
+        return {'id': case_id, 'turns': ['Como funciona o swap?'],
+                'expected_speaker': 'mimir', 'required_terms': [],
+                'human_review_required': True}
+
+    def _run_fake(self, *, responses, conversations=False, continue_independent_cases=True,
+                  postprocess_failure=False):
+        module = self._module()
+        calls = []
+        safe_reply = 'A Z-SWAP permite avaliar rotas públicas de swap conforme a rede e o provedor.'
+
+        class FakeProvider:
+            configured = True
+
+            async def complete(self, messages, *, max_tokens):
+                calls.append(messages)
+                outcome = responses[len(calls) - 1]
+                if isinstance(outcome, Exception):
+                    raise outcome
+                return Completion(outcome or safe_reply, 'kimi-k3', 10, 10, 1)
+
+        async def no_sleep(_seconds):
+            return None
+
+        args = SimpleNamespace(native_mistral=False, model='kimi-k3', live=True,
+                               full=not conversations, conversations=conversations,
+                               conversation_id=None, case_ids=None,
+                               continue_independent_cases=continue_independent_cases)
+        cases = [self._case(f'case-{i}') for i in range(len(responses))]
+        scenarios = [
+            {'id': f'conversation-{i}', 'turns': ['Como funciona o swap?'] * 12,
+             'expected_speaker': 'mimir', 'human_review_required': True}
+            for i in range(2)
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            state = Path(tmp) / '.local/state/zion-community-bot'
+            state.mkdir(parents=True)
+            price = EvaluationBudget.price('kimi-k3', date(2026, 10, 25))
+            with ExitStack() as stack:
+                stack.enter_context(patch.object(module.Path, 'home', return_value=Path(tmp)))
+                store = stack.enter_context(patch.object(module, 'ProviderSecretStore'))
+                store.return_value.for_provider.return_value = object()
+                stack.enter_context(patch.object(module, 'KimiCompletionProvider',
+                                                 return_value=FakeProvider()))
+                stack.enter_context(patch.object(module, 'load_cases', return_value=cases))
+                stack.enter_context(patch.object(module, 'load_conversations',
+                                                 return_value=scenarios))
+                stack.enter_context(patch.object(EvaluationBudget, 'price', return_value=price))
+                stack.enter_context(patch.object(module.asyncio, 'sleep', no_sleep))
+                fsync = stack.enter_context(patch.object(module.os, 'fsync', wraps=module.os.fsync))
+                if postprocess_failure:
+                    stack.enter_context(patch('zion.evaluation.validate_public_response',
+                                              side_effect=KeyError('private error marker')))
+                stdout = StringIO()
+                stack.enter_context(redirect_stdout(stdout))
+                code = asyncio.run(module.run(args))
+            evidence_files = list((state / 'evaluations/cognitive-v2').glob('*.jsonl'))
+            self.assertEqual(len(evidence_files), 1)
+            results = [json.loads(line) for line in evidence_files[0].read_text().splitlines()]
+            db = ZionDB(state / 'evaluations/cognitive-v2/evaluation.db')
+            db.initialize()
+            try:
+                budget_total = EvaluationBudget(db).total_micro_usd()
+            finally:
+                db.close()
+            return code, results, len(calls), budget_total, fsync.call_count, stdout.getvalue()
+
+    def test_opt_in_full_records_failures_and_continues_only_independent_cases(self):
+        outcomes = ['Veja /home/private', None,
+                    ProviderError('private provider body'), None]
+        code, results, calls, budget, syncs, stdout = self._run_fake(responses=outcomes)
+        self.assertEqual(code, 1)
+        self.assertEqual(calls, 4)
+        self.assertEqual([r['status'] for r in results],
+                         ['AUTOMATED_FAIL', 'REVIEW_REQUIRED', 'PROVIDER_FAIL', 'REVIEW_REQUIRED'])
+        self.assertEqual([r['id'] for r in results], ['case-0', 'case-1', 'case-2', 'case-3'])
+        self.assertEqual(results[0]['response'], '[WITHHELD_BY_OUTPUT_GUARD]')
+        self.assertNotIn('/home/private', str(results))
+        self.assertNotIn('private provider body', str(results))
+        self.assertGreater(budget, 0)
+        self.assertGreaterEqual(syncs, len(results))
+        self.assertIn('ACCEPTANCE=PENDING_HUMAN_REVIEW_AND_CORE_TELEGRAM_TESTS', stdout)
+
+        # The existing --full mode remains fail-fast without the new flag.
+        code, results, calls, _, _, _ = self._run_fake(
+            responses=outcomes, continue_independent_cases=False)
+        self.assertEqual(code, 1)
+        self.assertEqual(calls, 1)
+        self.assertEqual(len(results), 1)
+
+    def test_opt_in_conversations_stop_failed_turn_but_start_next_scenario(self):
+        code, results, calls, budget, syncs, _ = self._run_fake(
+            conversations=True,
+            responses=[None, 'Veja /home/private', ProviderError('private provider body')])
+        self.assertEqual(code, 1)
+        self.assertEqual(calls, 3)
+        self.assertEqual([(r['conversation_id'], r['turn'], r['status']) for r in results], [
+            ('conversation-0', 1, 'REVIEW_REQUIRED'),
+            ('conversation-0', 2, 'AUTOMATED_FAIL'),
+            ('conversation-1', 1, 'PROVIDER_FAIL'),
+        ])
+        self.assertGreater(budget, 0)
+        self.assertGreaterEqual(syncs, len(results))
+
+    def test_harness_failure_still_stops_entire_opt_in_run(self):
+        code, results, calls, budget, syncs, _ = self._run_fake(
+            responses=[None, None], postprocess_failure=True)
+        self.assertEqual(code, 1)
+        self.assertEqual(calls, 1)
+        self.assertEqual([r['status'] for r in results], ['HARNESS_FAIL'])
+        self.assertNotIn('private error marker', str(results))
+        self.assertGreater(budget, 0)
+        self.assertGreaterEqual(syncs, 1)
+
+    def test_continuation_flag_requires_full_or_conversations(self):
+        module = self._module()
+        args = SimpleNamespace(native_mistral=False, model='kimi-k3',
+                               conversations=False, conversation_id=None,
+                               case_ids=None, full=False, live=False,
+                               continue_independent_cases=True)
+        with self.assertRaisesRegex(ValueError, 'independent_case_mode_requires_full_or_conversations'):
+            asyncio.run(module.run(args))
+
+    def test_opt_in_full_is_still_offline_without_live(self):
+        result = subprocess.run([
+            sys.executable, str(ROOT / 'scripts/evaluate-cognitive-v2.py'),
+            '--full', '--continue-independent-cases',
+        ], cwd=ROOT, capture_output=True, text=True, check=True)
+        self.assertIn('selected=108 provider_calls=0', result.stdout)

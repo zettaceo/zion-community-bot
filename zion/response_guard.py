@@ -68,6 +68,19 @@ def _monetary_claims(text: str) -> set[tuple[str, str]]:
 _EVM_TIERS = ('free', 'pro', 'trader', 'pilot')
 _TIER_PATTERN = r'free|pro|trader|pilot'
 _PERCENT_PATTERN = r'(\d{1,2}(?:[.,]\d{1,2})?)\s*%'
+_SPELLED_PERCENT_VALUES = {
+    'zero': Decimal('0'), 'um': Decimal('1'), 'uma': Decimal('1'),
+    'dois': Decimal('2'), 'duas': Decimal('2'), 'tres': Decimal('3'),
+    'quatro': Decimal('4'), 'cinco': Decimal('5'), 'seis': Decimal('6'),
+    'sete': Decimal('7'), 'oito': Decimal('8'), 'nove': Decimal('9'),
+    'dez': Decimal('10'), 'meio': Decimal('0.5'),
+    'zero virgula cinco': Decimal('0.5'),
+    'zero virgula vinte e cinco': Decimal('0.25'),
+    'zero virgula um': Decimal('0.1'),
+    'zero virgula dez': Decimal('0.1'),
+    'um decimo': Decimal('0.1'),
+    'um quarto': Decimal('0.25'),
+}
 
 
 def _fold(text: str) -> str:
@@ -92,8 +105,53 @@ def _evm_plan_fees(context: str) -> dict[str, Decimal]:
     return fees
 
 
+def _evm_spelled_fee_claims_match_source(answer: str, context: str) -> bool:
+    """Fail closed on a bounded written-out EVM plan rate, not general prose."""
+    folded = _fold(answer)
+    if 'por cento' not in folded:
+        return True
+    source = _evm_plan_fees(context)
+    for clause in re.split(r'[.!?;\n]+', folded):
+        if (not re.search(r'\bevm\b', clause)
+                or not re.search(r'\b(?:taxas?|fees?|cobrancas?|cobra|paga)\b', clause)):
+            continue
+        # A comma followed by a new conjunction can introduce an unrelated
+        # statement. Keep the EVM fee topic, but require a tier in that part.
+        for part in re.split(r',\s+e\s+', clause):
+            for rate in re.finditer(r'\bpor cento\b', part):
+                before, after = part[:rate.start()], part[rate.end():]
+                earlier_tiers = list(re.finditer(r'\b(' + _TIER_PATTERN + r')\b', before))
+                later_tier = re.match(
+                    r'\s+(?:para quem\s+(?:esta|fica)\s+(?:no|na)|'
+                    r'(?:no|na|para o)\s+(?:plano\s+)?)\s*\b('
+                    + _TIER_PATTERN + r')\b', after)
+                if earlier_tiers:
+                    tier = earlier_tiers[-1][1]
+                    claim = before[earlier_tiers[-1].end():]
+                    if '%' in claim:  # A preceding numeric fee owns this tier.
+                        continue
+                elif later_tier:
+                    tier = later_tier[1]
+                    claim = before
+                else:
+                    continue  # No bounded plan attribution in this part.
+                fee_markers = list(re.finditer(
+                    r'\b(?:taxas?|fees?|cobrancas?|cobra|paga)\b', claim))
+                tail = (claim[fee_markers[-1].end():] if fee_markers else claim)
+                tail = tail.strip(' ,:')
+                if re.search(r'\bnao\s+(?:e|cobra|paga|fica)\b[^.!?;\n]{0,35}$', tail):
+                    continue  # Explicitly denied rate, not a rate assertion.
+                cue = re.search(r'\b(?:e|fica(?: em)?|vale|de)\s+', tail)
+                words = (tail[cue.end():] if cue else tail).strip()
+                words = re.sub(r'^de\s+', '', words)
+                value = _SPELLED_PERCENT_VALUES.get(words)
+                if value is None or source.get(tier) != value:
+                    return False
+    return True
+
+
 def _evm_fee_enumeration_is_complete(answer: str, context: str) -> bool:
-    """A broad EVM tier schedule must be the whole source-derived matrix."""
+    """Check numeric EVM tier/fee claims; broad schedules need every tier."""
     folded = _fold(answer)
     if '%' not in folded:
         return True
@@ -101,27 +159,71 @@ def _evm_fee_enumeration_is_complete(answer: str, context: str) -> bool:
             and (re.search(r'\bsolana\b', folded)
                  or not re.search(r'\b(?:taxas?|fees?|cobrancas?)\b', folded))):
         return True
-    named = set(re.findall(r'\b(?:' + _TIER_PATTERN + r')\b', folded))
-    if len(named) < 3:
-        return True  # Two-tier comparisons are not claims to list every tier.
     source = _evm_plan_fees(context)
-    if set(source) != set(_EVM_TIERS):
-        return False
     pairs: dict[str, set[Decimal]] = {}
+
+    def belongs_to_evm(match: re.Match[str]) -> bool:
+        # In an answer that discusses both networks, do not assign a Solana
+        # rate to the EVM tier matrix. The latest explicit network in this
+        # sentence owns the claim; an unscoped claim keeps the old behavior.
+        sentence_start = max(folded.rfind(mark, 0, match.start())
+                             for mark in '.!?;\n') + 1
+        window = folded[sentence_start:match.end()]
+        networks = list(re.finditer(r'\b(?:evm|solana)\b', window))
+        if networks:
+            return networks[-1].group() == 'evm'
+        trailing_network = re.match(r'\s*(?:(?:na|no|em)\s+)?(evm|solana)\b',
+                                    folded[match.end():match.end() + 14])
+        return trailing_network is None or trailing_network[1] == 'evm'
+
     # An inverse phrase such as "0,5% no Pro" must own that percentage; a
     # forward scan from the previous tier must not steal it across a comma.
     for match in re.finditer(
-        _PERCENT_PATTERN + r'\s*(?:no|na|para(?: o)?|do|da)?\s*\b('
+        _PERCENT_PATTERN + r'\s*(?:(?:e|corresponde)\s+(?:ao|do|da|para(?: o| a)?)\s+)?'
+        r'(?:(?:no|na|para(?: o| a)?|do|da|ao)\s+)?'
+        r'(?:plano\s+)?\b('
         + _TIER_PATTERN + r')\b', folded,
     ):
-        pairs.setdefault(match[2], set()).add(Decimal(match[1].replace(',', '.')))
+        if belongs_to_evm(match):
+            pairs.setdefault(match[2], set()).add(Decimal(match[1].replace(',', '.')))
+    for match in re.finditer(
+        _PERCENT_PATTERN + r'\s+para quem\s+(?:esta|fica)\s+(?:no|na)\s+'
+        r'(?:plano\s+)?\b(' + _TIER_PATTERN + r')\b', folded,
+    ):
+        if belongs_to_evm(match):
+            pairs.setdefault(match[2], set()).add(Decimal(match[1].replace(',', '.')))
+    # In a direct correction, the denied value is not a fee claim. The next
+    # affirmative EVM rate may refer back to that same, single named tier.
+    for match in re.finditer(
+        r'\b(' + _TIER_PATTERN + r')\b[^;.!?\n]{0,65}\bnao\s+'
+        r'(?:cobra|paga|tem|e)\s+' + _PERCENT_PATTERN
+        + r'\s*[;.!?]\s*(?:a\s+)?(?:taxa|platform fee)\s+evm\s+'
+        r'(?:e|fica(?:\s+em)?)\s+(?:de\s+)?' + _PERCENT_PATTERN,
+        folded,
+    ):
+        pairs.setdefault(match[1], set()).add(Decimal(match[3].replace(',', '.')))
     for match in re.finditer(
         r'\b(' + _TIER_PATTERN + r')\b'
-        r'(?:(?!\b(?:' + _TIER_PATTERN + r')\b)[^,.!?;\n%]){0,50}?'
+        r'(?:(?!\b(?:' + _TIER_PATTERN + r')\b)[^.!?;\n%]){0,75}?'
         + _PERCENT_PATTERN, folded,
     ):
-        if match[1] not in pairs:
+        denied_rate = re.search(
+            r'\b(?:nao|nunca|nem)\s+(?:cobra|paga|tem|possui|aplica|e)\s*'
+            r'(?:(?:a|uma|taxa|platform|fee|evm|de)\s*)*$',
+            folded[match.start():match.start(2)],
+        )
+        if belongs_to_evm(match) and not denied_rate and match[1] not in pairs:
             pairs.setdefault(match[1], set()).add(Decimal(match[2].replace(',', '.')))
+    # A one- or two-tier comparison need not enumerate every plan, but each
+    # concrete rate it *does* attach to a tier still needs matching evidence.
+    if any(source.get(tier) is None or values != {source[tier]}
+           for tier, values in pairs.items()):
+        return False
+    named = set(re.findall(r'\b(?:' + _TIER_PATTERN + r')\b', folded))
+    if len(pairs) < 3 and ('solana' in folded or len(named) < 3):
+        return True
+    if set(source) != set(_EVM_TIERS):
+        return False
     return all(pairs.get(tier) == {value} for tier, value in source.items())
 
 
@@ -252,6 +354,8 @@ def _feature_status_is_preserved(answer: str, context: str) -> bool:
             r'\bterminal pro\b.{0,55}\b(?:nao (?:esta |segue |permanece )?(?:mais )?(?:em )?'
             r'|deixou (?:o |a |de (?:estar )?(?:em )?)|saiu (?:do |da ))beta\b', folded):
             return False
+        if feature == 'terminal pro' and _terminal_beta_is_promoted(folded):
+            return False
         if feature in {'portfolio', 'orders'} and re.search(
             r'\b' + feature + r'\b.{0,55}\bnao (?:esta |segue )?(?:so |apenas )?'
             r'(?:parcial\w*|partial\w*)\b', folded):
@@ -261,6 +365,42 @@ def _feature_status_is_preserved(answer: str, context: str) -> bool:
                    for match in mentions):
             return False
     return True
+
+
+def _terminal_beta_is_promoted(folded_answer: str) -> bool:
+    """A beta can be used in beta; it cannot be described as fully launched."""
+    full_release = (
+        r'\b(?:ja\s+)?(?:esta|foi|ficou)\s+(?:em\s+)?producao\s+para\s+todos\b'
+        r'|\b(?:ja\s+)?(?:esta|foi|ficou)\s+(?:totalmente|plenamente|completamente)\s+'
+        r'(?:lancad[oa]|disponivel|operacional)\b'
+        r'|\b(?:ja\s+)?(?:foi|esta)\s+lancad[oa]\s+(?:para\s+todos|sem\s+restricoes)\b'
+        r'|\b(?:ja\s+)?(?:saiu|deixou)\s+(?:de|do|da)\s+beta\b'
+        r'|\bfase\s+de\s+testes?\s+(?:ja\s+)?(?:acabou|terminou|foi\s+encerrad[ao])\b'
+    )
+    clauses = re.split(r'[.!?;\n]+', folded_answer)
+    prior_terminal = False
+    for clause in clauses:
+        mentions_terminal = bool(re.search(r'\bterminal pro\b', clause))
+        # An immediate "Já está ..." can refer back to Terminal Pro. A named
+        # different feature ends that carry-over rather than borrowing status.
+        carries_terminal = bool(prior_terminal and re.match(
+            r'\s*(?:(?:mas|porem|e)\s+)?(?:ele|esse recurso|o recurso)?\s*'
+            r'(?:ja\s+)?(?:esta|foi|ficou)\b', clause))
+        carries_terminal = carries_terminal or bool(prior_terminal and re.match(
+            r'\s*(?:a\s+)?fase\s+de\s+testes?\b', clause))
+        if mentions_terminal or carries_terminal:
+            for claim in re.finditer(full_release, clause):
+                # "Para todos os participantes do beta" is a bounded beta
+                # audience, not a claim of unrestricted general release.
+                scope = clause[claim.start():claim.end() + 55]
+                if re.search(r'\bpara todos os (?:participantes|testadores|usuarios)\b'
+                             r'[^.!?;\n]{0,25}\bbeta\b', scope):
+                    continue
+                if not re.search(r'\b(?:nao|nunca|nem)\s*$',
+                                 clause[max(0, claim.start() - 12):claim.start()]):
+                    return True
+        prior_terminal = mentions_terminal
+    return False
 
 
 def validate_public_response(text: str, *, official_context: str) -> ResponseCheck:
@@ -340,6 +480,8 @@ def validate_public_response(text: str, *, official_context: str) -> ResponseChe
     if (re.search(no_standard_partnership_fee, folded)
             and not re.search(no_standard_partnership_fee, approved)):
         return ResponseCheck(False, 'unsupported_partnership_fee_policy')
+    if not _evm_spelled_fee_claims_match_source(text, official_context):
+        return ResponseCheck(False, 'unsupported_spelled_plan_fee')
     if not _evm_fee_enumeration_is_complete(text, official_context):
         return ResponseCheck(False, 'incomplete_plan_fee_matrix')
     if not _solana_fee_scope_is_preserved(text):
@@ -372,6 +514,50 @@ PUBLIC_FALLBACK = (
 _SOLANA_FEE_HEADING = '[Contexto oficial: Taxas Solana, Jupiter e LI.FI]'
 _SOLANA_FEE_TIERS = ('free/thrall', 'pro/drengr',
                     'trader/berserkr', 'pilot/einherjar')
+
+
+def _public_evm_fee_reply(question: str, official_context: str) -> str | None:
+    """Restate only the requested EVM plan fees from complete public sections."""
+    requested = set(re.findall(r'\b(?:' + _TIER_PATTERN + r')\b', _fold(question)))
+    if 1 <= len(requested) <= 2:
+        tiers = tuple(tier for tier in _EVM_TIERS if tier in requested)
+    elif (len(requested) >= 3 or re.search(
+            r'\b(?:todos os planos|taxas? (?:evm )?(?:por plano|dos planos))\b',
+                                      _fold(question))):
+        tiers = _EVM_TIERS
+    else:
+        return None
+    parts = re.split(r'\[contexto oficial: ([^\]]+)\]\s*', _fold(official_context))
+    approved: set[str] = set()
+    for heading, body in zip(parts[1::2], parts[2::2]):
+        for tier in tiers:
+            if not re.match(r'plano ' + tier + r'\b', heading):
+                continue
+            flat = ' '.join(body.split())
+            if (re.search(r'\bplatform fee\b.{0,180}?\bevm\b.{0,180}?'
+                          + _PERCENT_PATTERN, flat)
+                    and re.search(r'\brotas?\s+(?:evm\s+)?suportadas?\s+onde o '
+                                  r'mecanismo esta ativo\b', flat)):
+                approved.add(tier)
+    source = _evm_plan_fees(official_context)
+    if any(tier not in approved or tier not in source for tier in tiers):
+        return None
+    rates = [f'{tier.title()} {source[tier]:.2f}%'.replace('.', ',')
+             for tier in tiers]
+    if len(tiers) == 1:
+        amount = f'{source[tiers[0]]:.2f}'.replace('.', ',')
+        reply = ('Nas rotas EVM suportadas onde a cobrança está ativa, a taxa '
+                 f'da plataforma para o plano {tiers[0].title()} é '
+                 f'{amount}%.')
+    else:
+        schedule = ', '.join(rates[:-1]) + ' e ' + rates[-1]
+        reply = ('Nas rotas EVM suportadas onde a cobrança está ativa, as taxas '
+                 f'da plataforma por plano são: {schedule}.')
+    reply += (' Custos de rede e de terceiros podem existir à parte; confira '
+              'os custos da rota antes de confirmar.')
+    if validate_public_response(reply, official_context=official_context).allowed:
+        return reply
+    return None
 
 
 def _public_solana_fee_reply(official_context: str) -> str | None:
@@ -500,7 +686,10 @@ def public_fallback_for(reason: str, *, official_context: str = '', question: st
     if reason == 'unsupported_partnership_fee_policy':
         return ('Não tenho informação oficial sobre uma taxa padrão de parceria. '
                 'Posso explicar o processo público de triagem, sem prometer condições comerciais.')
-    if reason == 'incomplete_plan_fee_matrix':
+    if reason in {'incomplete_plan_fee_matrix', 'unsupported_spelled_plan_fee'}:
+        reply = _public_evm_fee_reply(question, official_context)
+        if reply is not None:
+            return reply
         return ('As taxas da plataforma variam por plano e rota. Não vou tratar '
                 'uma lista parcial como completa; posso detalhar Free, Pro, '
                 'Trader e Pilot com os valores publicados.')

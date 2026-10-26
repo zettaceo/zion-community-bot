@@ -29,6 +29,11 @@ output-guard failure, empty output or exact repeated answer stops the run.
 Remaining turns are unexecuted, not successful. Repetition is a conservative
 sequence acceptance failure even when repeating a refusal might be legitimate;
 a reviewer must distinguish that case. No guard is relaxed to continue the run.
+An opt-in `--conversations --continue-independent-cases` mode may start the next
+independent 12-turn scenario after such a failure. It never resumes the failed
+scenario or upgrades its result, and a harness failure stops the whole run.
+The existing mode remains fail-fast by default. See `AI-BENCHMARK.md` for the
+frozen-run and human scoring protocol before any paid evaluation.
 
 Allowed answers always remain REVIEW_REQUIRED with human review PENDING.
 Human review must assess factual stability, evidence use, useful progression,

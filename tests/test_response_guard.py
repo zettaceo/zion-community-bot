@@ -237,6 +237,113 @@ class ResponseGuardTests(unittest.TestCase):
         self.assertIn('Trader', fallback)
         self.assertTrue(validate_public_response(fallback, official_context='').allowed)
 
+    def test_single_and_two_tier_evm_rates_match_retrieved_public_sections(self):
+        knowledge = KnowledgeBase(Path(__file__).resolve().parents[1] / 'knowledge')
+        tools = KnowledgeTools(knowledge)
+        context = tools.call('search_approved_knowledge',
+                             {'query': 'Quais as taxas EVM dos planos?'},
+                             agent_id='zion').render()
+        self.assertIn('[Contexto oficial: Plano Free ou Thrall]', context)
+        self.assertIn('[Contexto oficial: Plano Pro ou profissional]', context)
+        for answer in (
+            'No Free, a taxa EVM é 9%.',
+            'No Free, a taxa EVM é 0,50%.',
+            'A taxa EVM de 0,50% no plano Free é a mesma do Pro.',
+            'A taxa EVM de 9% é do Free.',
+            'A taxa EVM é de 9% para quem está no Free.',
+            'Nas rotas EVM, Free paga 1% e Pro paga 9%.',
+            '9% no plano Free EVM.',
+            'Não, o Free não cobra 9%; a taxa EVM é 8%.',
+        ):
+            with self.subTest(answer=answer):
+                self.assertEqual(validate_public_response(
+                    answer, official_context=context).reason,
+                    'incomplete_plan_fee_matrix')
+        for answer in (
+            'No Free, a taxa EVM é 1%.',
+            'A taxa EVM é de 1% para quem está no Free.',
+            'No Pro, a taxa EVM é 0,50%.',
+            'Não, o Free não cobra 9%; a taxa EVM é 1%.',
+            'O Free não cobra 9% de taxa EVM.',
+            'O Free não é gratuito e cobra 1% de taxa EVM.',
+            'Nas rotas EVM, Free 1% e Pro 0,50%.',
+            'Na Solana, Free 7%, mas em EVM Free 1%.',
+            'Em EVM, Free 1%; na Solana, Free 7%.',
+        ):
+            with self.subTest(answer=answer):
+                self.assertTrue(validate_public_response(
+                    answer, official_context=context).allowed)
+        free_only = tools.call('search_approved_knowledge',
+                               {'query': 'Quanto paga de platform fee EVM no Free?'},
+                               agent_id='zion').render()
+        self.assertIn('[Contexto oficial: Plano Free ou Thrall]', free_only)
+        self.assertTrue(validate_public_response(
+            'No Free, a taxa EVM é 1%.', official_context=free_only).allowed)
+        self.assertEqual(validate_public_response(
+            'No Pro, a taxa EVM é 0,50%.', official_context=free_only).reason,
+            'incomplete_plan_fee_matrix')
+
+    def test_written_out_evm_plan_fee_is_bounded_by_public_rate(self):
+        knowledge = KnowledgeBase(Path(__file__).resolve().parents[1] / 'knowledge')
+        context = KnowledgeTools(knowledge).call(
+            'search_approved_knowledge',
+            {'query': 'Quanto paga de platform fee EVM no Free?'},
+            agent_id='zion').render()
+        self.assertIn('[Contexto oficial: Plano Free ou Thrall]', context)
+        for answer in (
+            'No Free, a taxa em EVM é nove por cento.',
+            'A taxa EVM é nove por cento para quem está no Free.',
+            'No Free, a taxa em EVM é quatorze por cento.',
+        ):
+            with self.subTest(answer=answer):
+                self.assertEqual(validate_public_response(
+                    answer, official_context=context).reason,
+                    'unsupported_spelled_plan_fee')
+        self.assertEqual(validate_public_response(
+            'No Free, a taxa em EVM é um por cento.',
+            official_context='').reason, 'unsupported_spelled_plan_fee')
+        for answer in (
+            'No Free, a taxa em EVM é um por cento.',
+            'O progresso da pesquisa aumentou nove por cento.',
+            'No Free, a taxa EVM é 1%. O progresso aumentou nove por cento.',
+            'No Free, a taxa EVM é baixa, e o progresso cresceu nove por cento.',
+            'No Free, a taxa EVM é um por cento, e o progresso cresceu nove por cento.',
+        ):
+            with self.subTest(answer=answer):
+                self.assertTrue(validate_public_response(
+                    answer, official_context=context).allowed)
+        reply = public_fallback_for('unsupported_spelled_plan_fee',
+                                    question='Qual é a taxa EVM do Free?',
+                                    official_context=context)
+        self.assertIn('plano Free é 1,00%', reply)
+        self.assertIn('rotas EVM suportadas onde a cobrança está ativa', reply)
+        self.assertTrue(validate_public_response(reply, official_context=context).allowed)
+        without_free_heading = context.replace(
+            '[Contexto oficial: Plano Free ou Thrall]',
+            '[Contexto oficial: Outra seção]')
+        self.assertNotIn('1,00%', public_fallback_for(
+            'unsupported_spelled_plan_fee', question='Qual é a taxa EVM do Free?',
+            official_context=without_free_heading))
+        self.assertNotIn('1,00%', public_fallback_for(
+            'unsupported_spelled_plan_fee', question='Qual é a taxa EVM do Pro?',
+            official_context=context))
+        all_plans = KnowledgeTools(knowledge).call(
+            'search_approved_knowledge', {'query': 'Quais as taxas EVM dos planos?'},
+            agent_id='zion').render()
+        complete_reply = public_fallback_for(
+            'unsupported_spelled_plan_fee', question='Quais as taxas EVM dos planos?',
+            official_context=all_plans)
+        for expected in ('Free 1,00%', 'Pro 0,50%', 'Trader 0,25%', 'Pilot 0,10%'):
+            self.assertIn(expected, complete_reply)
+        self.assertTrue(validate_public_response(
+            complete_reply, official_context=all_plans).allowed)
+        self.assertTrue(validate_public_response(
+            'No Free, a taxa EVM é um por cento, e o Pro é meio por cento.',
+            official_context=all_plans).allowed)
+        self.assertEqual(validate_public_response(
+            'No Free, a taxa EVM é um por cento, e o Pro é nove por cento.',
+            official_context=all_plans).reason, 'unsupported_spelled_plan_fee')
+
     def test_solana_jupiter_fee_condition_is_not_generalized_to_every_route(self):
         context = ('[Contexto oficial: Taxas Solana, Jupiter e LI.FI]\n'
                    'Na Jupiter, essa cobrança se aplica quando USDC ou SOL é um dos lados do swap. '
@@ -387,6 +494,38 @@ class ResponseGuardTests(unittest.TestCase):
         self.assertTrue(validate_public_response(source_reply, official_context=context).allowed)
         self.assertNotIn('Portfolio', public_fallback_for(
             'missing_feature_status', official_context='Terminal Pro está em beta.'))
+
+    def test_terminal_beta_does_not_become_broad_public_production(self):
+        knowledge = KnowledgeBase(Path(__file__).resolve().parents[1] / 'knowledge')
+        context = KnowledgeTools(knowledge).call(
+            'search_approved_knowledge', {'query': 'Qual o estado do Terminal Pro?'},
+            agent_id='zion').render()
+        self.assertIn('[Contexto oficial: Beta]', context)
+        for answer in (
+            'O Terminal Pro está em beta. Já está em produção para todos.',
+            'O Terminal Pro está em beta e já está em produção para todos.',
+            'O Terminal Pro está em beta; ele já está totalmente lançado.',
+            'O Terminal Pro está em beta. O recurso foi lançado sem restrições.',
+            'O Terminal Pro está em beta, mas já saiu de beta e está disponível sem restrições.',
+            'O Terminal Pro está em beta. A fase de testes acabou, versão final.',
+        ):
+            with self.subTest(answer=answer):
+                self.assertEqual(validate_public_response(
+                    answer, official_context=context).reason,
+                    'missing_feature_status')
+        for answer in (
+            'O Terminal Pro está disponível em beta para usuários autorizados.',
+            'O Terminal Pro está em beta. Já está em produção para todos os participantes do beta.',
+            'O Terminal Pro está em beta; a disponibilidade para a sua conta depende do acesso.',
+            'O Terminal Pro está em beta. Não está em produção para todos.',
+            'O Terminal Pro está em beta. O Swap já está em produção para todos.',
+            'O Terminal Pro está em beta. A fase de testes não acabou.',
+            'O Terminal Pro está em beta e não saiu de beta.',
+            'O Terminal Pro está em beta. O Swap já saiu de beta.',
+        ):
+            with self.subTest(answer=answer):
+                self.assertTrue(validate_public_response(
+                    answer, official_context=context).allowed)
 
     def test_feature_status_does_not_cross_sections_or_invert_negation(self):
         cases = (

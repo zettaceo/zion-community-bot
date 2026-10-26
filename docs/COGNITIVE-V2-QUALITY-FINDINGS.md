@@ -444,3 +444,28 @@ conservative fallback. Focused delivery/guard tests and the complete local
 No Kimi call or Telegram message was sent for this refinement. The last actual
 K3 debate remains **AUTOMATED_FAIL at turn 1**; turns 2–12 and the other three
 scenarios remain NOT EXECUTED. This delivery containment is not a model PASS.
+
+## Independent output review and benchmark preparation — 2026-10-26
+
+A read-only candidate review reproduced two additional output-guard gaps with
+actual retrieved PUBLIC evidence: an incorrect Free EVM fee could pass when
+only one or two plans were named, and a Terminal Pro answer could say both
+“beta” and “em produção para todos.” The isolated forward-fix compares stated
+plan percentages to the retrieved plan sections and rejects explicit general
+release claims that contradict the retrieved beta state. Adversarial follow-up
+also found a natural inverse-fee phrasing, a valid negated correction and the
+false Free rate “nove por cento”; all received local regressions. A small
+written-percentage parser now checks explicit EVM plan-fee claims against the
+retrieved PUBLIC rate and fails closed on unknown bounded wording. A rejected
+fee claim may receive a source-derived reply only when the requested plan
+sections and EVM condition are present. The guard still cannot certify
+arbitrary model claims or every linguistic fee formulation.
+
+The evaluator now has an opt-in mode to keep collecting independent cases
+after a failed case, while keeping every failed 12-turn scenario stopped. The
+comparison protocol, fixed ten-case smoke and human scorecard are recorded in
+`AI-BENCHMARK.md`; the controlled Telegram checklist is in
+`COGNITIVE-V2-TELEGRAM-ACCEPTANCE.md`. Neither document is execution evidence.
+Local validation of this revision: 903/903 tests, `SECRET SCAN: OK`, `ZION
+VALIDATION: OK` (`/tmp/zion-v2-candidate-final-validation-2.log`). No
+provider call, Telegram message, production write or new model PASS occurred.

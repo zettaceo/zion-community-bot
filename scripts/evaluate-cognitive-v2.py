@@ -37,6 +37,9 @@ def private_directory(path: Path) -> None:
 async def run(args) -> int:
     if args.native_mistral and args.model not in {'ministral-8b-2512', 'mistral-large-2512'}:
         raise ValueError('native_evaluation_requires_mistral')
+    continue_independent_cases = getattr(args, 'continue_independent_cases', False)
+    if continue_independent_cases and not (args.full or args.conversations):
+        raise ValueError('independent_case_mode_requires_full_or_conversations')
     conversation_mode = args.conversations or bool(args.conversation_id)
     cases = load_cases(ROOT / 'evaluations/cognitive-v2.jsonl')
     if conversation_mode:
@@ -90,6 +93,7 @@ async def run(args) -> int:
         path = directory / (stamp + '-' + args.model + '.jsonl')
         fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
         failed = False
+        stop_run = False
         with os.fdopen(fd, 'w', encoding='utf-8') as output:
             async def results_for_case(case):
                 if conversation_mode:
@@ -108,6 +112,11 @@ async def run(args) -> int:
                         print(f"case={result['id']} status={result['status']}", flush=True)
                         if result['status'] in {'PROVIDER_FAIL', 'AUTOMATED_FAIL', 'HARNESS_FAIL'}:
                             failed = True
+                            # A failed turn ends its conversation. An opt-in full
+                            # benchmark may start another independent case, but
+                            # never continues after a harness failure.
+                            stop_run = (not continue_independent_cases
+                                        or result['status'] == 'HARNESS_FAIL')
                             break
                         await asyncio.sleep(1)
                 except Exception as error:
@@ -122,7 +131,8 @@ async def run(args) -> int:
                     output.flush(); os.fsync(output.fileno())
                     print(f"case={case['id']} status=HARNESS_FAIL", flush=True)
                     failed = True
-                if failed:
+                    stop_run = True
+                if stop_run:
                     break
         print(f'EVIDENCE={path}')
         print(f'BUDGET_RESERVED_OR_SPENT_MICRO_USD={budget.total_micro_usd()}')
@@ -145,6 +155,9 @@ def main() -> int:
     selection.add_argument('--conversation-id',
         help='one named synthetic conversation for a bounded retest')
     selection.add_argument('--case-ids', nargs='+')
+    parser.add_argument('--continue-independent-cases', action='store_true',
+        help='with --full or --conversations, record a failed case and continue to the next '
+             'independent synthetic case; each conversation still stops at its first failed turn')
     args = parser.parse_args()
     try:
         return asyncio.run(run(args))

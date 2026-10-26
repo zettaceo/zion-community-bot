@@ -12,17 +12,26 @@ audit below is historical evidence for the earlier multi-agent core; its
 - Remote development base: `57a10444422373271fbd602acc083199346b5031`;
   production ref, local checkout and runtime on the read-only 2026-10-26 check:
   `472a4b3f0ce73a8635d400c0073701013c357b92`.
-- The last committed candidate before the comparison-context refinement was
-  `9926cc959033b8d2d857fda077eab50779f55075`. Exact-SHA ZION CI run
-  [40298660922](https://github.com/zettaceo/zion-community-bot/actions/runs/40298660922)
+- The prior committed candidate was
+  `220803f06ad7911a4e93adedcada77f7f68a56b5`. Exact-SHA ZION CI run
+  [40345835465](https://github.com/zettaceo/zion-community-bot/actions/runs/40345835465)
   succeeded on that commit. Any subsequent commit needs its own exact-SHA CI.
-- Current isolated source and test changes passed 895/895 tests, shell checks,
+- Current isolated source and test changes passed 903/903 tests, shell checks,
   sensitive-file checks, `SECRET SCAN: OK`, and `ZION VALIDATION: OK` in
-  `/home/zetta/.codex/worktrees/zion-v2-comparison-local-validation.log`.
+  `/tmp/zion-v2-candidate-final-validation-2.log`.
   This is local candidate evidence, not CI or production acceptance.
 - Production service was active/running, NRestarts 0 at that read-only check.
   No service, production database, branch, runtime, or provider selection was
   changed by this review. Kimi is privately registered but inactive.
+- A later metadata-only check found that the active production SQLite database
+  is **already schema v4**. Its read-only source passed integrity and FK checks.
+  The official backup API copied it to a private disposable file (1,200,128
+  bytes); candidate initialization on the copy, twice, preserved counts and
+  in-memory fingerprints for all 19 pre-existing tables, migrations 1–4,
+  integrity, FK checks and required PRAGMAs. The copy was removed. The
+  synthetic v2→v4 migration regression passed separately (1/1); it is not a
+  claim that the real current database migrated from v2 in this rehearsal.
+  Candidate versus production has no schema or migration delta.
 - The feature diff spans provider, routing, knowledge, output, evaluation,
   Telegram capture and documentation code. It does not add a SQLite schema
   migration or intentionally change Guardian's deterministic punitive authority.
@@ -42,10 +51,23 @@ ZION answer path and the isolated evaluator; a failed generated answer gets a
 host-owned response only when positioning, feature map and beta/partial states
 are all present in retrieved evidence. Missing or altered evidence keeps the
 conservative response. This local containment is **not** a live model PASS.
+An independent read-only review found that a wrong single-plan EVM percentage
+and a sentence contradicting Terminal Pro beta could pass the output guard.
+The isolated candidate now compares extracted one/two-tier percentages with
+retrieved PUBLIC fee sections and rejects explicit broad-release claims that
+contradict beta. Focused regressions include natural wording, negated correct
+denials and beta-scoped availability. A second adversarial recheck exposed a
+written-out false rate; the candidate now parses bounded, explicit EVM plan-fee
+wording and checks it against PUBLIC source sections. Rejected claims receive
+source-derived fee replies only when the requested sections and EVM conditions
+are complete. Live model acceptance remains separate; this deterministic guard
+is not a general factuality oracle.
 
 The 108-case synthetic corpus has 18 implementation labels. The mission's 20
 benchmark topics map as follows; a case ID denotes a fixture, not a successful
 provider test or correct Telegram delivery.
+The predeclared provider comparison and human scoring procedure is in
+`AI-BENCHMARK.md`; its creation does not change the current quality verdict.
 
 | Mission topic | Versioned fixture coverage |
 | --- | --- |
@@ -99,11 +121,13 @@ K3 cache-write billing, so token estimates are not an account balance.
 Release gates remain open: independent security/code review and MEDIUM
 disposition, comparable provider benchmark and human scoring, provider/model
 selection and privacy acceptance, real Telegram routing/one-speaker/Guardian
-acceptance, operator approval, exact production SHA, disposable DB rehearsal,
+acceptance, operator approval, exact production SHA and release-time backup,
 controlled Acer cutover and post-deploy rollback/health proof. The earlier
 option to ship infrastructure with Mistral retained and Kimi inactive is a
 **limited scope proposal**, not completion of the cognitive-v2 mission or
-permission to deploy. PR #66 stays draft; production is unchanged.
+permission to deploy. The original 17 cases and the added cognitive-v2 cases
+are prepared, but not executed, in `COGNITIVE-V2-TELEGRAM-ACCEPTANCE.md`.
+PR #66 stays draft; production is unchanged.
 
 ---
 

@@ -17,6 +17,11 @@ checklists remain historical evidence, not proof of v2 completion.
 - Read-only host check on 2026-10-26: service active/running, NRestarts 0;
   current runtime and production checkout resolve to the production SHA above.
   No restart/deploy in this increment.
+- The active SQLite database is already schema v4. A private disposable copy
+  passed candidate v4→v4 double-initialization with integrity/FK, 19-table
+  count and fingerprint preservation. A separate synthetic v2→v4 regression
+  passed; there is no candidate schema/migration delta. Release-time backup
+  and exact-SHA preflight remain pending.
 - Open unrelated PR #11 remains untouched. Recent related merged PRs: #59–65.
 - Rulesets and production protection endpoints returned HTTP 403 (account plan
   restriction). Governance is NOT PROVEN. Prior waivers are not silently renewed.
@@ -130,26 +135,32 @@ Never label deferred Kimi benchmarks PASS or the entire v2 mission complete.
 - [!] 30 Live A/B benchmark: store, dated official prices, credential, bounded
   spend and synthetic/PUBLIC-only inputs supported small Mistral/Kimi trials.
   The full comparable benchmark, human review and provider decision remain open.
+  The frozen-run protocol, predeclared smoke set and scoring rubric are prepared
+  in `AI-BENCHMARK.md`; no new provider PASS is inferred from that document.
 - [~] 31 Four versioned 12-turn generation scenarios and bounded actual-answer
   history implemented; stop on provider/guard/repetition failure, per-turn durable
   evidence and mandatory human review. Simulated-provider regression passes;
   the latest bounded K3 debate stopped at turn 1 on `missing_feature_status`;
   other scenarios and runtime routing/tools/Telegram acceptance remain pending.
   See `COGNITIVE-V2-CONVERSATION-EVALUATION.md`.
-- [~] 32 Full regression: committed candidate `9926cc9` passed 893/893.
-  The later local comparison-context refinement passed 895/895, SECRET SCAN OK
-  and ZION VALIDATION OK (`zion-v2-comparison-local-validation.log`). It still
-  needs an exact-SHA CI after commit. The baseline was 724/724.
+- [~] 32 Full regression: prior committed candidate `220803f` passed exact-SHA
+  CI [40345835465](https://github.com/zettaceo/zion-community-bot/actions/runs/40345835465)
+  with 895/895. This revision's fee/status guard and opt-in independent-case
+  evaluation changes passed 903/903 locally, SECRET SCAN OK and ZION
+  VALIDATION OK (`/tmp/zion-v2-candidate-final-validation-2.log`). Its own
+  exact-SHA CI is pending. The baseline was 724/724.
 - [~] 33 Documentation: this checkpoint and cognitive routing contract added.
 - [~] 34 Draft PR #66 open against development. Exact-SHA CI passed at
-  `9926cc959033b8d2d857fda077eab50779f55075` (run 40298660922).
-  Subsequent commits need their own exact-SHA checks and final v2 release audit.
+  `220803f06ad7911a4e93adedcada77f7f68a56b5` (run 40345835465).
+  This later local revision needs its own exact-SHA check and final v2 release audit.
 - [!] 35 Production promotion: requires NEW user approval after the final report,
   plus release/security gates. Kimi activation separately blocked.
 - [ ] 36 Exact production SHA revalidation.
 - [ ] 37 Controlled Acer cutover.
 - [!] 38 Real Telegram acceptance: requires messages from a real human/test account;
-  sending with a bot is not a substitute. New v2 behavior is not deployed.
+  sending with a bot is not a substitute. The 17-case and cognitive-v2 record
+  is prepared in `COGNITIVE-V2-TELEGRAM-ACCEPTANCE.md`; none was executed on
+  this candidate. New v2 behavior is not deployed.
 
 ## Tools, policy and source checkpoint — 2026-10-20
 
