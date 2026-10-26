@@ -973,3 +973,32 @@ ZION VALIDATION OK (`zion-v2-kimi-final-validation.log`).
 
 Local isolated regression: 878 tests PASS, SECRET SCAN OK, ZION VALIDATION OK
 (`zion-v2-post-kimi-local-validation.log`). Production remains unchanged.
+
+## K3 acceptance follow-up — 2026-10-26 UTC
+
+- [x] Run one bounded, live-provider, PUBLIC synthetic 12-turn debate after the
+  four-tier retrieval fix. It stopped at turn 12 on `best_price_guarantee`;
+  rejected text was withheld. Human review failed turn 5 (Solana fee scope)
+  and flagged turn 7–8 snapshot facts presented as live proof.
+- [x] Add narrow source-scope and freshness regressions, plus clause-scoped
+  noun-denial tests for a reproducible price-guarantee guard false positive.
+  Rechecking allowed historical responses locally now rejects turns 5/7/8.
+- [x] Run one bounded K3 retest after the fixes. It stopped at turn 5 on
+  `overbroad_solana_fee_scope`; the model output was withheld. No retry loop.
+- [x] Carry PUBLIC/CURRENT Terminal Pro beta and Portfolio/Orders partial
+  status as an atomic comparison evidence pair, and reject an answer that
+  drops those qualifiers. Independent negative probes covered safe denials
+  and Jupiter-only fee scoping without a paid provider retry.
+- [ ] Obtain human-accepted multi-turn generation across all four scenarios;
+  automated `REVIEW_REQUIRED` is not quality PASS. The qualifier fix has only
+  deterministic retrieval/replay coverage, not a new K3 or Telegram PASS.
+- [ ] Complete real Telegram candidate acceptance and independent provider/
+  cost/privacy decision before proposing any production promotion.
+
+Isolated full validation: 882 tests PASS, SECRET SCAN OK, ZION VALIDATION OK
+(`zion-v2-k3-followup-validation.log`). The cumulative evaluation ledger is
+1,638,178 micro-USD reserved/estimated, not a bill. Production is unchanged.
+
+Final validation of the later comparison-status refinement: 888 tests PASS,
+SECRET SCAN OK, ZION VALIDATION OK (`zion-v2-k3-final-validation.log`). The
+multi-turn and Telegram gates remain open; no production promotion is implied.

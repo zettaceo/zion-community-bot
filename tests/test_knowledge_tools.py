@@ -10,6 +10,10 @@ from zion.knowledge_tools import KnowledgeTools, KnowledgeToolError, TOOL_NAMES
 from zion.language_recovery import recover_language
 
 
+_COMPARISON_QUERY = ('Qual a diferença da Z-SWAP para outras plataformas?\n'
+                     'Isso já existe.\nUniswap faz isso.')
+
+
 class KnowledgeToolsTests(unittest.TestCase):
     def setUp(self):
         self.knowledge = KnowledgeBase(Path(__file__).resolve().parents[1] / 'knowledge')
@@ -64,6 +68,106 @@ class KnowledgeToolsTests(unittest.TestCase):
         self.assertEqual(recover_language('cm funciona swap?').canonical, 'como funciona swap?')
         self.assertEqual(recover_language('parceria cm vcs').canonical, 'parceria com voces')
         self.assertIn('https://example.test/cm', recover_language('https://example.test/cm funciona').canonical)
+
+    def test_product_comparison_carries_precise_feature_status(self):
+        result = self.tools.call('search_approved_knowledge',
+            {'query': _COMPARISON_QUERY}, agent_id=AgentId.ZION)
+        headings = [item.heading for item in result.evidence]
+        self.assertEqual(headings.count('Produto antes de promessa'), 1)
+        self.assertEqual(headings.count('Beta'), 1)
+        self.assertIn('Portfolio e Orders estão parcialmente disponíveis', result.render())
+        self.assertIn('Terminal Pro está marcado como beta', result.render())
+        self.assertLessEqual(len(result.render()), 8000)
+        feature_result = self.tools.call('search_approved_knowledge',
+            {'query': 'Qual a diferença do Terminal Pro da Z-SWAP para outras plataformas?'},
+            agent_id=AgentId.ZION)
+        self.assertIn('Terminal Pro está marcado como beta', feature_result.render())
+        natural_comparison = self.tools.call('search_approved_knowledge',
+            {'query': 'O que a Z-SWAP oferece que a Uniswap não oferece?'},
+            agent_id=AgentId.ZION)
+        self.assertIn('Produto antes de promessa',
+                      [item.heading for item in natural_comparison.evidence])
+        self.assertIn('Beta', [item.heading for item in natural_comparison.evidence])
+
+    def test_comparison_status_companions_require_public_current_agent_authority(self):
+        generic = next(chunk for chunk in self.knowledge.chunks
+                       if chunk.heading == 'Z-SWAP — Posicionamento institucional público')
+        portfolio = next(chunk for chunk in self.knowledge.chunks
+                         if chunk.heading == 'Produto antes de promessa')
+        beta = next(chunk for chunk in self.knowledge.chunks
+                    if chunk.heading == 'Beta' and chunk.source == 'zswap-status.md')
+        for authority in (
+            replace(beta.authority, classification=KnowledgeClassification.CONTROLLED),
+            replace(beta.authority, status=KnowledgeSourceStatus.SUPERSEDED),
+            replace(beta.authority, allowed_agents=frozenset({AgentId.EIR})),
+        ):
+            with self.subTest(authority=authority):
+                kb = SimpleNamespace(load_errors=[], chunks=[portfolio, replace(beta, authority=authority)],
+                    search=lambda *a, **kw: [generic])
+                result = KnowledgeTools(kb).call('search_approved_knowledge',
+                    {'query': _COMPARISON_QUERY}, agent_id=AgentId.ZION)
+                self.assertEqual([item.heading for item in result.evidence], [generic.heading])
+
+    def test_exact_plan_comparison_does_not_force_product_status(self):
+        generic = next(chunk for chunk in self.knowledge.chunks
+                       if chunk.heading == 'Z-SWAP — Posicionamento institucional público')
+        statuses = [chunk for chunk in self.knowledge.chunks
+                    if (chunk.source, chunk.heading) in {
+                        ('zswap-apn.md', 'Produto antes de promessa'),
+                        ('zswap-status.md', 'Beta'),
+                    }]
+        kb = SimpleNamespace(load_errors=[], chunks=statuses,
+            search=lambda *a, **kw: [generic])
+        result = KnowledgeTools(kb).call('search_approved_knowledge',
+            {'query': 'Qual a diferença do plano Pro para o Pilot da Z-SWAP?'},
+            agent_id=AgentId.ZION)
+        self.assertEqual([item.heading for item in result.evidence], [generic.heading])
+
+    def test_comparison_status_capacity_is_reserved_and_atomic(self):
+        generic = next(chunk for chunk in self.knowledge.chunks
+                       if chunk.heading == 'Z-SWAP — Posicionamento institucional público')
+        statuses = [chunk for chunk in self.knowledge.chunks
+                    if (chunk.source, chunk.heading) in {
+                        ('zswap-apn.md', 'Produto antes de promessa'),
+                        ('zswap-status.md', 'Beta'),
+                    }]
+        oversized_generic = replace(generic, text='x' * 7900)
+        kb = SimpleNamespace(load_errors=[], chunks=statuses,
+            search=lambda *a, **kw: [oversized_generic])
+        result = KnowledgeTools(kb).call('search_approved_knowledge',
+            {'query': _COMPARISON_QUERY}, agent_id=AgentId.ZION)
+        self.assertEqual([item.heading for item in result.evidence],
+                         ['Produto antes de promessa', 'Beta'])
+        self.assertLessEqual(len(result.render()), 8000)
+
+        oversized_beta = replace(statuses[1], text='x' * 8000)
+        kb.chunks = [statuses[0], oversized_beta]
+        kb.search = lambda *a, **kw: [generic]
+        result = KnowledgeTools(kb).call('search_approved_knowledge',
+            {'query': _COMPARISON_QUERY}, agent_id=AgentId.ZION)
+        self.assertEqual([item.heading for item in result.evidence], [generic.heading])
+
+    def test_comparison_status_and_complete_fee_matrix_both_fit(self):
+        generic = next(chunk for chunk in self.knowledge.chunks
+                       if chunk.heading == 'Z-SWAP — Posicionamento institucional público')
+        statuses = [chunk for chunk in self.knowledge.chunks
+                    if (chunk.source, chunk.heading) in {
+                        ('zswap-apn.md', 'Produto antes de promessa'),
+                        ('zswap-status.md', 'Beta'),
+                    }]
+        plans = [next(chunk for chunk in self.knowledge.chunks
+                      if chunk.heading.startswith('Plano ' + tier))
+                 for tier in ('Free', 'Pro', 'Trader', 'Pilot')]
+        kb = SimpleNamespace(load_errors=[], chunks=[*plans, *statuses],
+            search=lambda *a, **kw: [replace(generic, text='x' * 7000), *plans[:2]])
+        result = KnowledgeTools(kb).call('search_approved_knowledge',
+            {'query': _COMPARISON_QUERY + '\nVocês cobram mais?'}, agent_id=AgentId.ZION)
+        headings = [item.heading for item in result.evidence]
+        self.assertIn('Produto antes de promessa', headings)
+        self.assertIn('Beta', headings)
+        self.assertEqual([heading.split()[1] for heading in headings if heading.startswith('Plano ')],
+                         ['Free', 'Pro', 'Trader', 'Pilot'])
+        self.assertLessEqual(len(result.render()), 8000)
 
     def test_broad_plan_retrieval_keeps_all_four_public_fee_sections(self):
         query = 'Então qual vantagem? Isso é marketing. Me dá prova, sem prometer desempenho.'

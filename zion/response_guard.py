@@ -125,6 +125,116 @@ def _evm_fee_enumeration_is_complete(answer: str, context: str) -> bool:
     return all(pairs.get(tier) == {value} for tier, value in source.items())
 
 
+def _solana_fee_scope_is_preserved(answer: str) -> bool:
+    """Jupiter's pair condition cannot be stated as an all-Solana policy."""
+    folded = _fold(answer).replace('li.fi', 'lifi')
+    previous_solana = False
+    for clause in re.split(r'[.!?;\n]+', folded):
+        solana_scope = 'solana' in clause or (previous_solana and bool(re.search(
+            r'\b(?:os )?(?:outros|demais) pares?\b', clause)))
+        previous_solana = 'solana' in clause
+        if not solana_scope:
+            continue
+        jupiter_scope = (bool(re.search(r'\b(?:na|pela|via|com|da|de|a) jupiter\b', clause))
+                         and not bool(re.search(r'\bjupiter\b.{0,15}\bou lifi\b', clause)))
+        pair_condition = bool(re.search(r'\busdc\b.{0,12}\bsol\b|\bsol\b.{0,12}\busdc\b', clause))
+        if pair_condition and re.search(
+            r'\b(?:todas? as?|qualquer|cada) rotas? (?:de |da )?solana\b', clause
+        ):
+            return False
+        if (pair_condition and not jupiter_scope
+                and re.search(r'\b(?:so|somente|apenas|sem)\b', clause)
+                and re.search(r'\b(?:taxa|fee|cobranca|cobra|pagam)\b', clause)):
+            return False
+        if (pair_condition and not jupiter_scope
+                and re.search(r'\bnao (?:incluem|contem|tem)\b.{0,35}'
+                              r'\bnao (?:pagam|tem|incide|cobram)\b', clause)):
+            return False
+        if (pair_condition and not jupiter_scope
+                and re.search(r'\b(?:em|na) solana\b.{0,90}\bmesma escada vale quando\b', clause)):
+            return False
+        if (not jupiter_scope and re.search(
+            r'\b(?:outros|demais) pares? (?:solana )?nao (?:tem|pagam|possuem)\b'
+            r'.{0,45}\b(?:platform fee|taxa)\b', clause
+        )):
+            return False
+    return True
+
+
+def _snapshot_proof_is_preserved(answer: str) -> bool:
+    """This answer path has reviewed snapshots, not a live product probe."""
+    folded = _fold(answer)
+    for match in re.finditer(r'\b(?:verificavel|comprovad[ao]) '
+                             r'(?:hoje|agora|neste momento)\b', folded):
+        prefix = folded[max(0, match.start() - 90):match.start()]
+        if not (re.search(r'\bnao (?:e|foi|esta|ha nada|comprovado) $', prefix)
+                or re.search(r'\bnao e possivel afirmar que seja $', prefix)
+                or re.search(r'\bsem prova $', prefix)
+                or re.search(r'\bnao $', prefix)):
+            return False
+    for match in re.finditer(r'\b(?:hoje|agora) (?:eu )?(?:testei|confirmei|verifiquei)\b'
+                             r'|\bacabei de (?:testar|verificar|confirmar)\b', folded):
+        if not re.search(r'\bnao $', folded[max(0, match.start() - 15):match.start()]):
+            return False
+    for match in re.finditer(r'\b(?:eu )?(?:testei|confirmei|verifiquei)\b'
+                             r'[^.!?;\n]{0,80}\b(?:hoje|agora|em tempo real)\b', folded):
+        prefix = folded[max(0, match.start() - 20):match.start()]
+        if not re.search(r'\b(?:eu )?(?:nao|nunca) $', prefix):
+            return False
+    for match in re.finditer(r'\b(?:foi|esta) (?:verificado|confirmado|testado) '
+                             r'(?:hoje|agora|em tempo real)\b', folded):
+        if not re.search(r'\bnao $', folded[max(0, match.start() - 12):match.start()]):
+            return False
+    for match in re.finditer(r'\b(?:esta|estao) disponive(?:l|is) agora na plataforma\b', folded):
+        if not re.search(r'\bnao $', folded[max(0, match.start() - 12):match.start()]):
+            return False
+    for match in re.finditer(r'\binterface (?:foi|esta) testada em tempo real\b', folded):
+        if not re.search(r'\bnao $', folded[max(0, match.start() - 12):match.start()]):
+            return False
+    for match in re.finditer(
+        r'\bno momento,? .{0,80}\bdisponive(?:l|is) na plataforma\b', folded
+    ):
+        if not re.search(r'\bnao (?:esta|estao) disponive(?:l|is) na plataforma\b',
+                         match.group()):
+            return False
+    for match in re.finditer(r'\bisso e prova\b', folded):
+        previous = folded[max(0, match.start() - 240):match.start()]
+        if re.search(r'\b(?:abra|acesse|rode|execute|teste|verifique)\b', previous):
+            return False
+    return True
+
+
+def _feature_status_is_preserved(answer: str, context: str) -> bool:
+    """Carry explicit beta/partial status when approved evidence supplies it."""
+    source = _fold(context)
+    folded = _fold(answer)
+    statuses = (
+        ('terminal pro', r'\bbeta\b', r'\bterminal pro\b.{0,80}\bbeta\b'),
+        ('portfolio', r'\b(?:parcial\w*|partial\w*)\b',
+         r'\bportfolio\b.{0,85}\b(?:partial|parcialmente)\b'),
+        ('orders', r'\b(?:parcial\w*|partial\w*)\b',
+         r'\borders\b.{0,85}\b(?:partial|parcialmente)\b'),
+    )
+    for feature, required, source_pattern in statuses:
+        if not re.search(source_pattern, source, re.DOTALL):
+            continue
+        if not re.search(r'\b' + feature + r'\b', folded):
+            continue
+        if feature == 'terminal pro' and re.search(
+            r'\bterminal pro\b.{0,55}\b(?:nao (?:esta |segue |permanece )?(?:mais )?(?:em )?'
+            r'|deixou (?:o |a |de (?:estar )?(?:em )?)|saiu (?:do |da ))beta\b', folded):
+            return False
+        if feature in {'portfolio', 'orders'} and re.search(
+            r'\b' + feature + r'\b.{0,55}\bnao (?:esta |segue )?(?:so |apenas )?'
+            r'(?:parcial\w*|partial\w*)\b', folded):
+            return False
+        mentions = list(re.finditer(r'\b' + feature + r'\b', folded))
+        if not any(re.search(required, folded[max(0, match.start() - 35):match.end() + 100])
+                   for match in mentions):
+            return False
+    return True
+
+
 def validate_public_response(text: str, *, official_context: str) -> ResponseCheck:
     if not isinstance(text, str) or not text.strip():
         return ResponseCheck(False, 'empty_response')
@@ -139,6 +249,8 @@ def validate_public_response(text: str, *, official_context: str) -> ResponseChe
             return ResponseCheck(False, reason)
     quality_rules = (
         ('best_price_guarantee', r"\b(?:garant\w*|assegur\w*)\b(?:(?!\s*,\s*mas\b)[^.!?;\n]){0,60}\bmelhor(?:es)? (?:precos?|taxas?)\b"),
+        ('best_price_guarantee', r'\bmelhor(?:es)? (?:precos?|taxas?) (?:e|sao|esta)? ?garantid[ao]s?\b'),
+        ('best_price_guarantee', r'\b(?:oferece|oferecemos|entrega|entregamos|obtem|obtemos) sempre (?:o|a) melhor(?:es)? (?:precos?|taxas?)\b|\b(?:menor|mais baixa) taxa (?:do mercado )?(?:e|esta)? ?garantid[ao]\b'),
         ('universal_swap_execution', r"\btodos os swaps (?:sao (?:sempre )?(?:executados|realizados|processados) (?:por|via|em)|usam) (?:smart contracts?|contratos? inteligentes?)\b"),
         ('safety_guarantee', r'\b(?:garant\w*|assegur\w*)\b(?:(?!\s*,\s*mas\b)[^.!?;\n]){0,80}\b(?:seguranca|segur[oa]s?|protecao total)\b'),
         ('safety_guarantee', r'\bseguranca(?: da (?:operacao|transacao))?\s+(?:esta|e)\s+(?:(?:plenamente|totalmente|completamente|100%)\s+)?garantid[ao]s?\b'),
@@ -154,6 +266,17 @@ def validate_public_response(text: str, *, official_context: str) -> ResponseChe
             if reason == 'absolute_safety' and re.search(
                 r"\b(?:nenhuma?|nenhum) (?:plataforma|transacao|sistema|servico|rota|swap|protocolo|ponte)"
                 r"(?: ou (?:plataforma|transacao|sistema|servico|rota|swap|protocolo|ponte))? e $", prefix):
+                continue
+            if (reason in {'best_price_guarantee', 'safety_guarantee'}
+                    and match.group().startswith('garantia')
+                    and (re.search(r'\bnao (?:ha|existe|tem|temos|oferece|oferecemos|fornece|damos) '
+                                   r'(?:(?:uma?|qualquer) )?$', prefix)
+                         or re.search(r'\bnenhuma plataforma oferece $', prefix)
+                         or re.match(r'\s+nao existe\b',
+                                     checked[match.end():match.end() + 25]))):
+                continue
+            if (reason == 'best_price_guarantee' and match.group().startswith('melhor')
+                    and re.search(r'\bnao (?:ha|existe) $', prefix)):
                 continue
             if re.search(
                 r"\b(?:(?:nao|nunca|nem) (?:(?:podemos|posso|pode|e|e possivel|da para) )?"
@@ -191,6 +314,12 @@ def validate_public_response(text: str, *, official_context: str) -> ResponseChe
         return ResponseCheck(False, 'unsupported_partnership_fee_policy')
     if not _evm_fee_enumeration_is_complete(text, official_context):
         return ResponseCheck(False, 'incomplete_plan_fee_matrix')
+    if not _solana_fee_scope_is_preserved(text):
+        return ResponseCheck(False, 'overbroad_solana_fee_scope')
+    if not _snapshot_proof_is_preserved(text):
+        return ResponseCheck(False, 'unverified_live_proof')
+    if not _feature_status_is_preserved(text, official_context):
+        return ResponseCheck(False, 'missing_feature_status')
     for brand in ('uniswap', 'pancakeswap', '1inch', 'raydium', 'bisq'):
         pattern = r'\b' + re.escape(brand) + r'\b'
         if re.search(pattern, folded) and not re.search(pattern, approved):
@@ -233,4 +362,16 @@ def public_fallback_for(reason: str) -> str:
         return ('As taxas da plataforma variam por plano e rota. Não vou tratar '
                 'uma lista parcial como completa; posso detalhar Free, Pro, '
                 'Trader e Pilot com os valores publicados.')
+    if reason == 'overbroad_solana_fee_scope':
+        return ('As condições de taxa na Solana dependem da rota e do provedor. '
+                'Não vou aplicar a condição de uma rota a todos os swaps; confira '
+                'os custos mostrados antes de confirmar.')
+    if reason == 'unverified_live_proof':
+        return ('Posso explicar o estado documentado na base pública revisada, '
+                'mas não fiz uma verificação ao vivo da plataforma. Confira a '
+                'disponibilidade na interface para o seu caso.')
+    if reason == 'missing_feature_status':
+        return ('A base pública distingue recursos em beta ou parcialmente '
+                'disponíveis. Posso detalhar o estado documentado de cada um; '
+                'confira a disponibilidade na interface para o seu caso.')
     return PUBLIC_FALLBACK

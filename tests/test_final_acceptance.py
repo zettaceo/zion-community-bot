@@ -93,6 +93,14 @@ class FinalAcceptanceTests(unittest.TestCase):
         self.assertIn('Não afirme que todos os swaps', system)
         self.assertIn('rota, rede e provedor autorizados', system)
 
+    def test_public_snapshot_and_solana_fee_scope_are_in_provider_contract(self):
+        system = self._system_prompt('Quais são as taxas na Solana hoje?')
+        self.assertIn('explicitamente vinculada às rotas Jupiter', system)
+        self.assertIn('rotas LI.FI que saem da Solana', system)
+        self.assertIn('Terminal Pro beta e Portfolio/Orders parciais', system)
+        self.assertIn('snapshots públicos revisados', system)
+        self.assertIn('não uma consulta ao produto neste instante', system)
+
     def test_absolute_safety_is_prohibited_in_provider_contract(self):
         system = self._system_prompt('É seguro usar a Z-SWAP?')
         self.assertIn("Não responda categoricamente 'É seguro usar a Z-SWAP'", system)

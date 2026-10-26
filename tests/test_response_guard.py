@@ -67,6 +67,31 @@ class ResponseGuardTests(unittest.TestCase):
                 self.assertEqual(validate_public_response(
                     value, official_context='').reason, 'best_price_guarantee')
 
+    def test_guarantee_noun_denials_are_not_promises(self):
+        for text in ('Não há garantia de melhor preço.',
+                     'Não existe garantia de melhor preço.',
+                     'A Z-SWAP não oferece garantia de melhor preço.',
+                     'Não há qualquer garantia de melhor preço.',
+                     'Não existe uma garantia de melhor preço.',
+                     'Não damos garantia de melhor preço.',
+                     'Nenhuma plataforma oferece garantia do melhor preço.',
+                     'Garantia de melhor preço não existe.',
+                     'Não existe melhor preço garantido.',
+                     'Não temos garantia de melhor preço.',
+                     'Não há garantia de segurança.'):
+            with self.subTest(text=text):
+                self.assertTrue(validate_public_response(text, official_context='').allowed)
+        for text in ('Há garantia de melhor preço.',
+                     'A Z-SWAP oferece garantia de melhor preço.',
+                     'Não há garantia de melhor preço, mas garantimos a melhor taxa.',
+                     'Garantia de melhor preço não existe, mas oferecemos a melhor taxa garantida.',
+                     'O melhor preço é garantido.',
+                     'A Z-SWAP oferece sempre o melhor preço.',
+                     'A menor taxa do mercado é garantida.'):
+            with self.subTest(text=text):
+                self.assertEqual(validate_public_response(
+                    text, official_context='').reason, 'best_price_guarantee')
+
     def test_execution_guarantee_from_native_smoke_is_rejected_with_scoped_negation(self):
         for text in (
             'Assim, você evita surpresas e garante que a transação seja executada conforme o planejado.',
@@ -181,3 +206,106 @@ class ResponseGuardTests(unittest.TestCase):
         fallback = public_fallback_for('incomplete_plan_fee_matrix')
         self.assertIn('Trader', fallback)
         self.assertTrue(validate_public_response(fallback, official_context='').allowed)
+
+    def test_solana_jupiter_fee_condition_is_not_generalized_to_every_route(self):
+        context = ('[Contexto oficial: Taxas Solana, Jupiter e LI.FI]\n'
+                   'Na Jupiter, essa cobrança se aplica quando USDC ou SOL é um dos lados do swap. '
+                   'A política também abrange rotas LI.FI saindo da Solana.')
+        wrong = (
+            'Em Solana, a mesma escada vale quando USDC ou SOL é um dos lados do swap; '
+            'outros pares Solana não têm platform fee da Z-SWAP.',
+            'Na Solana, só há platform fee quando USDC ou SOL participa do swap.',
+            'Outros pares Solana não têm platform fee da Z-SWAP.',
+            'Em Solana, só há cobrança quando USDC ou SOL participa, e Jupiter também existe.',
+            'Todas as rotas Solana, inclusive Jupiter e LI.FI, só pagam taxa com USDC ou SOL.',
+            'Na Solana, não há platform fee para swaps sem USDC ou SOL.',
+            'Em Solana, swaps que não incluem USDC ou SOL não pagam a taxa da plataforma.',
+            'Pela Jupiter ou LI.FI na Solana, a taxa só incide quando USDC ou SOL entra no par.',
+            'Em Solana, a taxa depende de USDC ou SOL; outros pares não pagam taxa.',
+            'Em Solana, os pares com USDC ou SOL pagam a platform fee. '
+            'Os demais pares não pagam taxa.',
+        )
+        for text in wrong:
+            with self.subTest(text=text):
+                self.assertEqual(validate_public_response(
+                    text, official_context=context).reason, 'overbroad_solana_fee_scope')
+        for text in (
+            'Na Jupiter, a condição de USDC ou SOL vale para a cobrança. '
+            'Rotas LI.FI saindo da Solana devem ser avaliadas separadamente.',
+            'Em Solana, quando USDC ou SOL é um dos lados do swap na Jupiter, '
+            'há cobrança. LI.FI é diferente.',
+            'Em Solana, a taxa varia quando USDC ou SOL participa, conforme a rota.',
+            'As taxas na Solana dependem do provedor e da rota. Confira os custos antes do swap.',
+        ):
+            with self.subTest(text=text):
+                self.assertTrue(validate_public_response(text, official_context=context).allowed)
+        self.assertTrue(validate_public_response(
+            'Em Solana, USDC ou SOL pode importar conforme a rota.',
+            official_context='Sem política de taxa aprovada.').allowed)
+        self.assertTrue(validate_public_response(
+            'Na Solana, somente a Jupiter condiciona a cobrança à presença de USDC ou SOL.',
+            official_context=context).allowed)
+        self.assertTrue(validate_public_response(
+            public_fallback_for('overbroad_solana_fee_scope'), official_context='').allowed)
+
+    def test_snapshot_evidence_is_not_called_live_proof(self):
+        for text in (
+            'O que é fato verificável agora: Free tem cinco análises diárias.',
+            'Vou trazer só o que é verificável hoje sobre os planos.',
+            'Abra a plataforma e rode um backtest no Free. Isso é prova.',
+            'Eu confirmei hoje que está aberto.',
+            'Testei a interface agora e confirmei.',
+            'Foi verificado hoje que a função está disponível.',
+            'Está disponível agora na plataforma.',
+            'Hoje testei a interface e confirmei que funciona.',
+            'Acabei de testar a interface e confirmei que funciona.',
+            'Confirmei em tempo real que funciona.',
+            'A interface foi testada em tempo real e está funcionando.',
+            'No momento, as funções estão disponíveis na plataforma.',
+            'No momento, o recurso está disponível na plataforma.',
+        ):
+            with self.subTest(text=text):
+                self.assertEqual(validate_public_response(
+                    text, official_context='Snapshot público datado.').reason,
+                    'unverified_live_proof')
+        for text in (
+            'Na base pública revisada, o recurso está listado; confira sua disponibilidade na interface.',
+            'Não verifiquei agora a disponibilidade da sua conta.',
+            'Isso não é verificável hoje pela base pública revisada.',
+            'Não é possível afirmar que seja comprovado hoje.',
+            'Não foi verificado hoje na plataforma.',
+            'Não está disponível agora na plataforma segundo a base pública.',
+            'Não comprovado hoje pela base pública.',
+            'Sem prova verificável hoje, prefiro não afirmar.',
+            'Não há nada verificável hoje na base pública.',
+            'No momento, as funções não estão disponíveis na plataforma.',
+            'As redes ativas documentadas são Ethereum e Polygon.',
+        ):
+            with self.subTest(text=text):
+                self.assertTrue(validate_public_response(
+                    text, official_context='Snapshot público datado.').allowed)
+        self.assertTrue(validate_public_response(
+            public_fallback_for('unverified_live_proof'), official_context='').allowed)
+
+    def test_approved_beta_and_partial_status_survive_feature_comparison(self):
+        context = ('[Contexto oficial: Beta]\nTerminal Pro está marcado como beta.\n\n'
+                   '[Contexto oficial: Produto antes de promessa]\n'
+                   'Portfolio e Orders estão parcialmente disponíveis.')
+        for answer in (
+            'O Terminal Pro reúne gráficos e o Portfolio acompanha ativos.',
+            'O Terminal Pro reúne gráficos e indicadores.',
+            'O Portfolio acompanha ativos.',
+            'Orders está totalmente disponível.',
+            'O Terminal Pro deixou o beta e está totalmente disponível.',
+        ):
+            with self.subTest(answer=answer):
+                self.assertEqual(validate_public_response(
+                    answer, official_context=context).reason, 'missing_feature_status')
+        self.assertTrue(validate_public_response(
+            'O Terminal Pro está em beta; o Portfolio e Orders estão parcialmente disponíveis. '
+            'O Terminal Pro inclui análise e Orders apresenta ordens.',
+            official_context=context).allowed)
+        self.assertTrue(validate_public_response(
+            'O Terminal Pro reúne gráficos.', official_context='Sem estado oficial publicado.').allowed)
+        self.assertTrue(validate_public_response(
+            public_fallback_for('missing_feature_status'), official_context='').allowed)

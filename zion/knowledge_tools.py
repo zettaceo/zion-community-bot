@@ -12,7 +12,7 @@ import re
 from types import MappingProxyType
 
 from .agents import AgentId
-from .knowledge import KnowledgeBase, KnowledgeClassification, _mentioned_tiers
+from .knowledge import KnowledgeBase, KnowledgeClassification, _mentioned_tiers, _normalize
 from .language_recovery import recover_language
 
 
@@ -28,6 +28,35 @@ _QUERIES = MappingProxyType({
 TOOL_NAMES = frozenset(_QUERIES) | {'search_approved_knowledge', 'get_public_api_capabilities',
                                   'get_agent_authority'}
 _FEE_PLAN_TIERS = ('free', 'pro', 'trader', 'pilot')
+_COMPARISON_STATUS_SECTIONS = (
+    ('zswap-apn.md', 'Produto antes de promessa'),
+    ('zswap-status.md', 'Beta'),
+)
+
+
+def _comparison_status_companions(query: str, corpus, agent: AgentId):
+    """Keep public feature qualifiers with a broad product comparison.
+
+    The source text supplies the facts; these exact section identities only
+    select reviewed evidence already present in the loaded corpus.
+    """
+    folded = _normalize(query)
+    # Terminal Pro is a feature, not a request to compare the Pro plan tier.
+    tier_query = re.sub(r'\bterminal pro\b', 'terminal', folded)
+    if (_mentioned_tiers(tier_query) or not re.search(r'\bz[\s-]*swap\b', folded)
+            or not re.search(r'\b(?:outras?\s+plataformas?|concorrent\w*|'
+                             r'compar\w*|vantag\w*|diferenc\w*|oferece que)\b', folded)):
+        return ()
+    selected = {}
+    for chunk in corpus:
+        identity = (chunk.source, chunk.heading)
+        if (identity in _COMPARISON_STATUS_SECTIONS
+                and chunk.authority.classification is KnowledgeClassification.PUBLIC
+                and chunk.authority.allows(agent)):
+            selected[identity] = chunk
+    if len(selected) != len(_COMPARISON_STATUS_SECTIONS):
+        return ()
+    return tuple(selected[identity] for identity in _COMPARISON_STATUS_SECTIONS)
 
 
 def _fee_plan_tier(chunk) -> str | None:
@@ -213,18 +242,36 @@ class KnowledgeTools:
         if operation == 'search_approved_knowledge' and not _mentioned_tiers(query):
             chunks, fee_bundle = _complete_fee_plan_siblings(
                 chunks, getattr(self._knowledge, 'chunks', ()), agent)
+        status_bundle = ()
+        if operation == 'search_approved_knowledge':
+            status_bundle = _comparison_status_companions(
+                query, getattr(self._knowledge, 'chunks', ()), agent)
+            if status_bundle:
+                status_keys = {(chunk.source, chunk.heading) for chunk in status_bundle}
+                chunks = list(status_bundle) + [chunk for chunk in chunks
+                                                if (chunk.source, chunk.heading) not in status_keys]
         evidence = []
         remaining = 8000
         def chunk_size(chunk):
             return len(chunk.heading) + len(chunk.text) + 24
-        reserved = sum(chunk_size(chunk) for chunk in fee_bundle)
-        bundle_ids = {id(chunk) for chunk in fee_bundle}
-        if reserved > remaining:
+        fee_ids = {id(chunk) for chunk in fee_bundle}
+        status_ids = {id(chunk) for chunk in status_bundle}
+        fee_size = sum(chunk_size(chunk) for chunk in fee_bundle)
+        status_size = sum(chunk_size(chunk) for chunk in status_bundle)
+        if fee_size > remaining:
             # A whole authoritative matrix is unavailable within the output
             # bound. Do not supply a misleading subset of its four sections.
-            chunks = [chunk for chunk in chunks if id(chunk) not in bundle_ids]
-            bundle_ids.clear()
-            reserved = 0
+            chunks = [chunk for chunk in chunks if id(chunk) not in fee_ids]
+            fee_ids.clear()
+            fee_size = 0
+        if fee_size + status_size > remaining:
+            # Preserve the complete fee matrix when both atomic bundles cannot
+            # fit. Never publish only one of the two feature-status sections.
+            chunks = [chunk for chunk in chunks if id(chunk) not in status_ids]
+            status_ids.clear()
+            status_size = 0
+        bundle_ids = fee_ids | status_ids
+        reserved = fee_size + status_size
         for chunk in chunks:
             # Defense in depth: do not trust a future retrieval implementation
             # to enforce both source status and audience classification.

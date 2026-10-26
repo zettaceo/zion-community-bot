@@ -359,7 +359,11 @@ class AITests(unittest.TestCase):
             "# Preço e rotas\nNão é possível garantir o melhor preço. "
             "Compare rotas disponíveis conforme as condições do momento.\n\n"
             "# Segurança e risco\nUsar qualquer plataforma envolve risco. "
-            "Nenhuma plataforma ou transação é livre de risco.\n",
+            "Nenhuma plataforma ou transação é livre de risco.\n\n"
+            "# Taxas Solana\nNa Jupiter, USDC ou SOL define a elegibilidade da taxa. "
+            "Rotas LI.FI saindo da Solana são tratadas separadamente.\n\n"
+            "# Estado público\nO estado documentado não é uma verificação ao vivo "
+            "de disponibilidade hoje.\n",
             encoding="utf-8")
         ai = AIService(replace(self.settings, ai_enabled=True), self.db,
                        KnowledgeBase(self.settings.knowledge_dir))
@@ -376,6 +380,10 @@ class AITests(unittest.TestCase):
             ('É seguro usar?', 'É seguro usar a Z-SWAP.', 'absolute_safety'),
             ('Existe risco?', 'Garantimos a segurança de todas as transações.',
              'safety_guarantee'),
+            ('Taxas Solana?', 'Na Solana, só há taxa quando USDC ou SOL participa.',
+             'overbroad_solana_fee_scope'),
+            ('Está disponível hoje?', 'Hoje testei a interface e confirmei.',
+             'unverified_live_proof'),
         )
         for index, (question, output, reason) in enumerate(cases):
             with self.subTest(reason=reason):

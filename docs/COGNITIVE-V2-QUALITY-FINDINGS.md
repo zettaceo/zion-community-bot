@@ -290,3 +290,67 @@ new paid provider requests were made for this follow-up. Kimi remains
 provisioned privately but inactive; production still uses the existing model.
 Local post-fix validation: 878 tests PASS, SECRET SCAN OK, ZION VALIDATION OK
 (`zion-v2-post-kimi-local-validation.log`, local isolated run).
+
+## K3 long-conversation acceptance follow-up — 2026-10-26 UTC
+
+One bounded PUBLIC synthetic conversation run on the candidate at
+`1ddccee01c419b449676555775c1c348fb503504` reached debate turn 12.
+Evidence basename: `20261026T024614070697Z-kimi-k3.jsonl`. Turns 1–11 were
+`REVIEW_REQUIRED`, which is an automated allow decision, not a human PASS.
+Turn 12 was `AUTOMATED_FAIL / best_price_guarantee`; the rejected response was
+withheld. Its text and the possibility of a false positive cannot be inferred
+from the reason code. The other three 12-turn conversations were NOT EXECUTED.
+
+Human review found a material fee-scope error at turn 5: the answer applied
+Jupiter's USDC-or-SOL condition to Solana broadly and said other Solana pairs
+have no Z-SWAP platform fee. The approved source treats Jupiter and LI.FI routes
+leaving Solana separately. Turns 7–8 called snapshot facts “verificáveis
+agora/hoje” and treated a suggested future UI check as proof already obtained;
+the evaluation performed no live product check. The EVM Free/Pro/Trader/Pilot
+rates were complete and correct. These findings make human quality acceptance
+FAIL despite the earlier automated allow decisions.
+
+The candidate prompt now requires Jupiter/LI.FI fee scoping and marks the
+PUBLIC corpus as a reviewed snapshot. Narrow output regressions reject the
+observed Solana overgeneralization and unwarranted live-proof claims. A
+separate reproducible guard false positive for “Não há garantia de melhor
+preço” was corrected with clause-scoped denials; this is **not** evidence that
+the withheld turn-12 output used that wording. Rechecking only the previously
+accepted responses through the revised local guard yields rejection at turns
+5, 7 and 8 for the intended reasons. No rejected model text was opened or
+stored as a fixture.
+
+One post-fix bounded K3 retest, evidence basename
+`20261026T025841571973Z-kimi-k3.jsonl`, stopped at turn 5 with
+`AUTOMATED_FAIL / overbroad_solana_fee_scope`. Turns 1–4 were
+`REVIEW_REQUIRED`; human review marked turns 2 and 4 factual PASS, turn 1 WARN
+for unqualified Portfolio wording, and turn 3 FAIL for presenting Terminal Pro
+without its beta status and Portfolio without its partial status in a
+capability comparison. Turns 6–12 and all other conversations were NOT EXECUTED. The
+guard prevented that answer from being counted as accepted, but the model
+still did not complete the conversation. No further paid retries were made.
+
+The isolated evaluation ledger after the retest is 1,638,178 micro-USD
+reserved or estimated spent (about USD 1.64), not an invoice or provider
+balance. Local validation after the deterministic fixes: 882 tests PASS,
+SECRET SCAN OK, ZION VALIDATION OK
+(`zion-v2-k3-followup-validation.log`). Kimi remains privately provisioned
+and inactive in production. Multi-turn quality and Telegram acceptance remain
+FAILED/PENDING; no provider winner or production promotion is certified.
+
+After that retest, the candidate retrieval was extended for broad product
+comparisons: the same approved PUBLIC/CURRENT evidence now carries Terminal Pro
+beta and Portfolio/Orders partial status together, including a natural
+“o que oferece que outra plataforma não oferece?” question. The output gate
+checks those source-derived qualifiers without treating the user-named
+competitor as official evidence. A local replay of the already accepted K3
+turn 3 is now rejected as `missing_feature_status`; this is a deterministic
+replay, not a new provider result. Independent negative probes also led to
+narrow corrections for a correctly scoped Jupiter statement and a negated
+availability statement. No new K3 request or Telegram test was performed.
+
+Final isolated validation for these additional changes: 888 tests PASS,
+SECRET SCAN OK, ZION VALIDATION OK
+(`zion-v2-k3-final-validation.log`). The K3 conversation still failed at turn 5, all later
+turns and the three other scenarios remain unexecuted, and the cumulative
+estimated/reserved evaluation ledger remains 1,638,178 micro-USD.
