@@ -4,6 +4,8 @@ import asyncio
 from datetime import date
 import json
 from pathlib import Path
+import subprocess
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -18,6 +20,13 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class ConversationEvaluationTests(unittest.TestCase):
+    def test_cli_selects_one_conversation_without_provider_call_by_default(self):
+        command = [sys.executable, str(ROOT / 'scripts/evaluate-cognitive-v2.py'),
+                   '--conversation-id', 'conversation-debate']
+        result = subprocess.run(command, cwd=ROOT, capture_output=True,
+                                text=True, check=True)
+        self.assertIn('selected=1 provider_calls=0', result.stdout)
+
     def test_dataset_has_long_synthetic_scenarios_for_all_four_agents(self):
         cases = load_conversations(ROOT / 'evaluations/cognitive-v2-conversations.jsonl')
         self.assertEqual({c['expected_speaker'] for c in cases}, {'zion', 'mimir', 'eir', 'freyr'})

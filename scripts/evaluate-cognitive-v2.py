@@ -38,8 +38,12 @@ async def run(args) -> int:
     if args.native_mistral and args.model not in {'ministral-8b-2512', 'mistral-large-2512'}:
         raise ValueError('native_evaluation_requires_mistral')
     cases = load_cases(ROOT / 'evaluations/cognitive-v2.jsonl')
-    if args.conversations:
+    if args.conversations or args.conversation_id:
         selected = load_conversations(ROOT / 'evaluations/cognitive-v2-conversations.jsonl')
+        if args.conversation_id:
+            selected = [case for case in selected if case['id'] == args.conversation_id]
+            if len(selected) != 1:
+                raise ValueError('invalid_conversation_selection')
     elif args.case_ids:
         by_id = {case['id']: case for case in cases}
         if (len(args.case_ids) > 10 or len(set(args.case_ids)) != len(args.case_ids)
@@ -124,6 +128,8 @@ def main() -> int:
     selection.add_argument('--full', action='store_true')
     selection.add_argument('--conversations', action='store_true',
         help='four synthetic 12-turn conversations; generation only, not Telegram acceptance')
+    selection.add_argument('--conversation-id',
+        help='one named synthetic conversation for a bounded retest')
     selection.add_argument('--case-ids', nargs='+')
     args = parser.parse_args()
     try:
