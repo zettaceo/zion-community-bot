@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import ExitStack, redirect_stdout
-from datetime import date
 import importlib.util
 from io import StringIO
 import json
@@ -15,7 +14,7 @@ import unittest
 from unittest.mock import patch
 
 from zion.db import ZionDB
-from zion.evaluation_budget import EvaluationBudget
+from zion.evaluation_budget import EvaluationBudget, PRICES
 from zion.evaluation_conversations import bounded_history, evaluate_conversation, load_conversations
 from zion.knowledge import KnowledgeBase
 from zion.providers import Completion, ProviderError
@@ -53,7 +52,7 @@ class ConversationEvaluationTests(unittest.TestCase):
 
                 with tempfile.TemporaryDirectory() as tmp:
                     (Path(tmp) / '.local/state/zion-community-bot').mkdir(parents=True)
-                    price = EvaluationBudget.price('kimi-k3', date(2026, 10, 25))
+                    price = EvaluationBudget.price('kimi-k3', PRICES['kimi-k3'].verified_on)
                     with ExitStack() as stack:
                         stack.enter_context(patch.object(module.Path, 'home', return_value=Path(tmp)))
                         stores = stack.enter_context(patch.object(module, 'ProviderSecretStore'))
@@ -124,7 +123,8 @@ class ConversationEvaluationTests(unittest.TestCase):
                     return [r async for r in evaluate_conversation(case,
                         knowledge=KnowledgeBase(ROOT / 'knowledge'),
                         provider=Provider(), model='ministral-8b-2512', budget=budget)]
-                price = EvaluationBudget.price('ministral-8b-2512', date(2026, 10, 25))
+                price = EvaluationBudget.price('ministral-8b-2512',
+                                               PRICES['ministral-8b-2512'].verified_on)
                 with patch.object(EvaluationBudget, 'price', return_value=price):
                     results = asyncio.run(collect())
                 self.assertGreater(budget.total_micro_usd(), 0)
@@ -210,7 +210,7 @@ class IndependentBenchmarkTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             state = Path(tmp) / '.local/state/zion-community-bot'
             state.mkdir(parents=True)
-            price = EvaluationBudget.price('kimi-k3', date(2026, 10, 25))
+            price = EvaluationBudget.price('kimi-k3', PRICES['kimi-k3'].verified_on)
             with ExitStack() as stack:
                 stack.enter_context(patch.object(module.Path, 'home', return_value=Path(tmp)))
                 store = stack.enter_context(patch.object(module, 'ProviderSecretStore'))

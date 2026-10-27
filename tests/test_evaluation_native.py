@@ -3,7 +3,6 @@ import json
 import tempfile
 import unittest
 from dataclasses import replace
-from datetime import date
 from pathlib import Path
 from unittest.mock import patch
 
@@ -11,7 +10,7 @@ from tests.helpers import make_settings
 from tests.test_mistral_boundaries import FakePrivateSecretStore
 from zion.db import ZionDB
 from zion.evaluation import evaluate_case
-from zion.evaluation_budget import EvaluationBudget
+from zion.evaluation_budget import EvaluationBudget, PRICES
 from zion.evaluation_native import NativeEvaluationClient
 from zion.knowledge import KnowledgeBase
 from zion.knowledge_tools import KnowledgeTools
@@ -32,7 +31,7 @@ class NativeEvaluationTests(unittest.TestCase):
             mistral_rate_limit_retries=0, mistral_max_tokens=700)
         self.client = NativeEvaluationClient(self.settings, FakePrivateSecretStore(),
             knowledge_tools=KnowledgeTools(self.knowledge), budget=self.budget)
-        price = EvaluationBudget.price(MODEL, date(2026, 10, 25))
+        price = EvaluationBudget.price(MODEL, PRICES[MODEL].verified_on)
         self.pricing = patch.object(EvaluationBudget, 'price', return_value=price)
         self.pricing.start(); self.addCleanup(self.pricing.stop)
         self.case = {'id': 'native', 'turns': ['Como funciona o swap?'],
