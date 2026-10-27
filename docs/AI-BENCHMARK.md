@@ -1,6 +1,6 @@
 # Cognitive v2 — provider benchmark protocol
 
-Status: LATEST 0b67cbe SMOKE FAILED AT v2-001 FOR BOTH MINISTRAL AND K3.
+Status: LATEST f678720 SMOKE FAILED AT v2-001 FOR BOTH MINISTRAL AND K3.
 EARLIER c06f53b K3 SMOKE PASSED, BUT ITS 98-CASE CONTINUATION FAILED AT
 v2-003. NOT CERTIFIED. This is a
 generation-quality comparison, not evidence of correct Telegram routing,
@@ -119,7 +119,34 @@ generation, native tool path, runtime delivery and controlled Telegram tests
 have separate verdicts. No overall model winner is declared while any required
 dimension remains untested or failed.
 
-## Latest frozen smoke — 2026-10-27, candidate 0b67cbe
+## Latest frozen smoke — 2026-10-27, candidate f678720
+
+Candidate `f6787207ec45de6f52edd846962cb7f37f3acd9f` passed 922/922
+local tests, secret scan and project validation, plus exact-SHA
+[ZION CI 40579482818](https://github.com/zettaceo/zion-community-bot/actions/runs/40579482818)
+with 922 tests. The private
+`20261027T203709932920Z-swap-context-smoke-manifest.json` froze the same ten
+synthetic/PUBLIC case IDs for both models; all 20 source/cost preflights passed
+without provider calls. Only v2-001 was then called once per model.
+
+Ministral 8B returned `AUTOMATED_FAIL / unsupported_route_optimization`; its
+generated text was withheld, so it received no human content score. K3 returned
+`REVIEW_REQUIRED / accepted` and correctly grounded network-based 0x, Jupiter
+and LI.FI source selection in retrieved PUBLIC sections. Human factual review
+still marked **FAIL**: the ending changed the normative seed-phrase rule into
+an unconditional passive future promise. The initial failures remain recorded
+in private `20261027T203709932920Z-swap-context-smoke-review.jsonl`, with no
+raw answer in this document. The other nine smoke IDs per model were
+**NOT EXECUTED**. Neither model advances to the full benchmark.
+
+A further candidate forward-fix targets this observed passive wording with
+a narrow output check, safe-question/denial controls and explicit user-facing
+seed guidance in the prompt. Its focused tests passed 39/39; full local
+validation passed **922/922**, secret scan and project validation OK.
+Exact-SHA CI and any new frozen provider retest are **PENDING**;
+no previous FAIL is converted to PASS. Kimi remains inactive.
+
+## Prior frozen smoke — 2026-10-27, candidate 0b67cbe
 
 Candidate `0b67cbe6ca254f5d120fc872f4d8f3da89a92325` passed 914/914
 local tests, `SECRET SCAN: OK`, `ZION VALIDATION: OK`, and exact-SHA

@@ -580,15 +580,22 @@ def _unsupported_swap_confirmation_signature(answer: str, official_context: str)
 def _absolute_seed_request_promise(text: str) -> bool:
     """A future guarantee is stronger than the documented security rule."""
     folded = _mask_reported_quotes(_fold(text))
-    pattern = re.compile(
+    active = re.compile(
         r'\b(?:a z[\s-]?swap|a plataforma)\s+(?:nunca|jamais)\s+'
         r'(?:(?:vai|ira)\s+)?(?:pedir|pedira|solicitar|solicitara)\b'
         r'[^.!?;\n]{0,70}\b(?:seed phrase|frase semente|chave privada)\b')
+    passive = re.compile(
+        r'\b(?:nunca|jamais)\s+(?:(?:vai|ira)\s+ser|sera|serao)\s+'
+        r'(?:pedid[ao]s?|solicitad[ao]s?)\b[^.!?;\n]{0,70}'
+        r'\b(?:seed phrase|frase semente|chave privada)\b|'
+        r'\b(?:seed phrase|frase semente|chave privada)\b[^.!?;\n]{0,50}'
+        r'\b(?:nunca|jamais)\s+(?:(?:vai|ira)\s+ser|sera|serao)\s+'
+        r'(?:pedid[ao]s?|solicitad[ao]s?)\b')
     for sentence in re.finditer(r'[^.!?;\n]+[.!?;\n]?', folded):
         clause = sentence.group().strip()
         if clause.endswith('?'):
             continue
-        for match in pattern.finditer(clause):
+        for match in (*active.finditer(clause), *passive.finditer(clause)):
             before = clause[:match.start()]
             if (_reported_or_denied_prefix(before)
                     or re.search(r'\bnao (?:posso|podemos) (?:garantir|prometer) que\b'

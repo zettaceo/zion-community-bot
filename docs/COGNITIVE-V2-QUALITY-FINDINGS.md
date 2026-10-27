@@ -613,3 +613,27 @@ validation passed **922/922**, secret scan and validation OK. Exact-SHA CI
 and a newly frozen provider smoke are **PENDING**;
 this is not a model-quality PASS. Kimi remains inactive and no production
 change follows from this evidence.
+
+## f678720 frozen smoke and passive seed-promise gap — 2026-10-27
+
+Candidate `f6787207ec45de6f52edd846962cb7f37f3acd9f` passed 922/922
+local tests, secret scan and project validation and exact-SHA
+[ZION CI 40579482818](https://github.com/zettaceo/zion-community-bot/actions/runs/40579482818)
+with the same test total. Private manifest
+`20261027T203709932920Z-swap-context-smoke-manifest.json` froze two models,
+ten synthetic/PUBLIC cases each and source/price identities; 20/20 preflights
+passed. Only v2-001 was executed once per model.
+
+| Model | Automated result | Factual review | Finding |
+| --- | --- | --- | --- |
+| Ministral 8B | `AUTOMATED_FAIL / unsupported_route_optimization` | **FAIL**, text withheld and not scored | An unsupported best-route claim was caught; no generated text was retained in the result. |
+| Kimi K3 | `REVIEW_REQUIRED / accepted` | **FAIL** | Network-specific source selection was grounded, but a passive future promise about never requesting a seed phrase exceeded the normative PUBLIC rule. |
+
+The other nine smoke IDs for each model are **NOT EXECUTED**. Private review
+metadata is in `20261027T203709932920Z-swap-context-smoke-review.jsonl`; no
+raw model answer is reproduced. A narrow candidate forward-fix extends the
+absolute-promise guard to the observed passive wording and steers the prompt
+toward advice to the user. Focused response/prompt tests passed 39/39; full
+local validation passed 922/922, secret scan and validation OK. Exact-SHA CI
+and new provider acceptance remain **PENDING**. This
+does not establish model quality, Telegram acceptance or production readiness.

@@ -1,6 +1,29 @@
 # ZION Multi-Agent Command System - Release Audit
 
-## Cognitive v2 latest preproduction checkpoint — 2026-10-27, 0b67cbe
+## Cognitive v2 latest preproduction checkpoint — 2026-10-27, f678720
+
+**Verdict: NOT RELEASE CERTIFIED.** Candidate
+`f6787207ec45de6f52edd846962cb7f37f3acd9f` passed exact-SHA
+[ZION CI 40579482818](https://github.com/zettaceo/zion-community-bot/actions/runs/40579482818),
+922/922 local tests, secret scan and project validation. A frozen private
+synthetic/PUBLIC manifest passed 20/20 source and cost preflights. Only v2-001
+was called once per model. Ministral's result was
+`AUTOMATED_FAIL / unsupported_route_optimization` with text withheld; K3 was
+automated `REVIEW_REQUIRED / accepted` but human factual review marked **FAIL**
+for converting a normative seed warning into an absolute passive future
+promise. The remaining nine smoke IDs per model were **NOT EXECUTED**.
+Review metadata is private in
+`20261027T203709932920Z-swap-context-smoke-review.jsonl`.
+
+A narrow candidate fix now extends the output guard to the observed passive
+wording and prompts direct seed-safety advice. Focused tests passed 39/39;
+full local validation passed 922/922, secret scan and project validation OK.
+Exact-SHA CI and new provider acceptance are **PENDING**.
+The 108-case benchmark, four 12-turn conversations, native/Telegram acceptance,
+account data-handling approval and release authorization remain open. Kimi is
+inactive; production was not changed by this work.
+
+## Prior cognitive v2 preproduction checkpoint — 2026-10-27, 0b67cbe
 
 **Verdict: NOT RELEASE CERTIFIED.** Candidate
 `0b67cbe6ca254f5d120fc872f4d8f3da89a92325` passed exact-SHA

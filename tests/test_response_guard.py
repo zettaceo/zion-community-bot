@@ -376,6 +376,9 @@ class ResponseGuardTests(unittest.TestCase):
             'A Z-SWAP nunca vai pedir sua seed phrase ou chave privada.',
             'A Z-SWAP jamais pedirá sua chave privada.',
             'A plataforma nunca irá solicitar sua seed phrase.',
+            'E nunca será pedida sua seed phrase ou chave privada.',
+            'Sua seed phrase nunca será solicitada.',
+            'Sua chave privada jamais vai ser pedida.',
         ):
             with self.subTest(answer=answer):
                 self.assertEqual(validate_public_response(
@@ -385,16 +388,23 @@ class ResponseGuardTests(unittest.TestCase):
             'A Z-SWAP nunca deve pedir seed phrase ou chave privada.',
             'Não compartilhe sua seed phrase ou chave privada.',
             'A Z-SWAP nunca vai pedir sua seed phrase?',
+            'Sua seed phrase nunca será solicitada?',
             'Não posso garantir que a Z-SWAP nunca vai pedir sua seed phrase.',
+            'Não posso garantir que sua seed phrase nunca será solicitada.',
             'O usuário perguntou: "A Z-SWAP nunca vai pedir minha seed phrase?"',
+            'O usuário perguntou: "Minha seed phrase nunca será pedida?"',
         ):
             with self.subTest(answer=answer):
                 self.assertTrue(validate_public_response(
                     answer, official_context=normative).allowed)
         explicit_future = ('[Contexto oficial: Política pública]\n'
-                           'A Z-SWAP nunca vai pedir sua seed phrase.')
+                           'A Z-SWAP nunca vai pedir sua seed phrase. '
+                           'Sua chave privada jamais será solicitada.')
         self.assertTrue(validate_public_response(
             'A Z-SWAP nunca vai pedir sua seed phrase.',
+            official_context=explicit_future).allowed)
+        self.assertTrue(validate_public_response(
+            'Sua chave privada jamais será solicitada.',
             official_context=explicit_future).allowed)
         fallback = public_fallback_for('unsupported_absolute_seed_promise',
                                        official_context=normative)

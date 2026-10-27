@@ -103,6 +103,8 @@ class MistralBoundaryTests(unittest.TestCase):
         self.assertIn('nem que toda confirmação de swap exija assinatura', system)
         self.assertIn('afirme esse mecanismo somente se a fonte recuperada', system)
         self.assertIn('não a converta em promessa absoluta', system)
+        self.assertIn('Nunca compartilhe sua seed phrase ou chave privada', system)
+        self.assertIn('jamais será pedido no futuro', system)
 
     def test_each_agent_receives_a_distinct_bounded_identity_prompt(self):
         expectations = {

@@ -4,7 +4,28 @@ Date: 2026-10-27. Status: IN PROGRESS, not production accepted.
 This section supersedes older current-state labels below; the prior mission's
 checklists remain historical evidence, not proof of v2 completion.
 
-## 2026-10-27 current smoke and forward-fix checkpoint
+## 2026-10-27 current f678720 smoke and forward-fix checkpoint
+
+- [x] Freeze `f6787207ec45de6f52edd846962cb7f37f3acd9f` and verify exact-SHA
+  [ZION CI 40579482818](https://github.com/zettaceo/zion-community-bot/actions/runs/40579482818):
+  SUCCESS with 922 tests, secret scan and validation; local 922/922 also passed.
+  All 20 synthetic/PUBLIC source and cost preflights passed.
+- [!] Execute v2-001 once per model. Ministral stopped on
+  `AUTOMATED_FAIL / unsupported_route_optimization`, with output withheld.
+  K3 passed automated checks but human factual review marked **FAIL** for an
+  unconditional passive future seed-request promise; its 0x/Jupiter/LI.FI
+  routing explanation was grounded. Nine other smoke IDs per model were
+  NOT EXECUTED. Private metadata is in
+  `20261027T203709932920Z-swap-context-smoke-review.jsonl`.
+- [x] A narrow forward-fix adds a passive-voice guard and explicit seed-safety
+  wording in the prompt; focused tests passed 39/39 and full local validation
+  passed 922/922 with secret scan and project validation OK. Exact-SHA CI and
+  any new frozen smoke are pending. No prior model FAIL is erased.
+- [ ] Qualify a model through smoke, 108-case, four 12-turn and controlled
+  Telegram stages; complete security/data-handling and release approval gates.
+  Kimi remains inactive and production unchanged.
+
+## 2026-10-27 prior 0b67cbe smoke and forward-fix checkpoint
 
 - [x] Freeze `0b67cbe6ca254f5d120fc872f4d8f3da89a92325` and verify
   exact-SHA [ZION CI 40520733751](https://github.com/zettaceo/zion-community-bot/actions/runs/40520733751):
