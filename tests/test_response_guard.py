@@ -671,6 +671,119 @@ class ResponseGuardTests(unittest.TestCase):
         self.assertEqual(public_fallback_for('best_price_guarantee',
             official_context=context), public_fallback_for('best_price_guarantee'))
 
+    def test_bridge_costs_do_not_assume_universal_platform_fee(self):
+        # The public source mentions third-party costs, but only in a section
+        # that first limits where the Z-SWAP platform fee applies.
+        context = (
+            '[Contexto oficial: Plano Free ou Thrall]\n'
+            'A platform fee nas rotas EVM suportadas onde o mecanismo está ativo '
+            'é 1,00%. Custos de rede e terceiros podem existir além da platform fee.\n\n'
+            '[Contexto oficial: Taxas Solana, Jupiter e LI.FI]\n'
+            'Na Jupiter, a cobrança se aplica quando USDC ou SOL é um dos lados '
+            'do swap. Rotas LI.FI saindo da Solana são tratadas separadamente. '
+            'Se a conta de recebimento estiver indisponível, o swap prossegue '
+            'sem a platform fee da Z-SWAP.'
+        )
+        unsupported = (
+            'Um ponto importante: nem todo par de redes e tokens tem rota disponível '
+            'o tempo todo, e custos de rede, bridge ou terceiros podem existir '
+            'além da platform fee.',
+            'Custos de rede e terceiros podem surgir além da platform fee.',
+            'Numa bridge, os custos de rede vêm além da taxa da plataforma.',
+            'Fora a taxa da Z-SWAP, você pode pagar a bridge.',
+            'Toda bridge paga platform fee.',
+            'Qualquer swap tem taxa da plataforma.',
+            'A platform fee sempre incide em cada rota.',
+            'A Z-SWAP cobra platform fee em todas as bridges.',
+            'Sempre há taxa da plataforma nas bridges.',
+            'Todas as bridges incluem a taxa da plataforma.',
+            'A platform fee é aplicada a qualquer bridge.',
+            'The platform fee applies on every bridge.',
+            'Os custos de bridge são cobrados por cima da taxa da plataforma.',
+            'A taxa da plataforma entra no total de todas as pontes.',
+            'A taxa da plataforma se soma ao gas de cada bridge.',
+            'Nas pontes, sempre há duas taxas: da rede e da Z-SWAP.',
+            'A cobrança da Z-SWAP vale para todos os swaps.',
+            'Every cross-chain route includes the Z-SWAP platform fee.',
+            'Há platform fee em toda bridge.',
+            'Em qualquer bridge há platform fee.',
+            'Sempre existe platform fee nas bridges.',
+            'The platform fee is charged for all bridges.',
+            'Across every bridge, the platform fee applies.',
+            'Custos da rede se somam à platform fee.',
+            'Custos da rede somam-se à taxa da plataforma.',
+            'A Z-SWAP cobra taxa em toda bridge.',
+            'A Z-SWAP sempre cobra sua taxa em bridges.',
+            'A taxa da Z-SWAP é cobrada sempre que houver bridge.',
+            'Em todas as pontes, uma platform fee se aplica.',
+            'As bridges sempre incluem a platform fee.',
+            'There is always a platform fee on bridges.',
+            'Network gas comes on top of the platform fee.',
+            'Bridge fees are in addition to the platform fee.',
+            'Custos de rede são adicionais à taxa da plataforma.',
+            'Nas rotas EVM suportadas onde o mecanismo está ativo há cobrança, '
+            'e em todas as demais bridges os custos da rede vêm além da platform fee.',
+        )
+        for answer in unsupported:
+            with self.subTest(answer=answer):
+                self.assertEqual(validate_public_response(
+                    answer, official_context=context).reason,
+                    'overbroad_platform_fee')
+        allowed = (
+            'Custos de rede e terceiros podem existir mesmo quando a platform fee não incide.',
+            'Custos de rede podem existir além da platform fee, quando aplicável.',
+            'Quando a taxa da plataforma for aplicável, custos de rede podem '
+            'existir além da taxa da plataforma.',
+            'Nas rotas EVM suportadas onde o mecanismo está ativo, custos de '
+            'terceiros podem existir além da platform fee.',
+            'Na Jupiter, se a taxa da plataforma for aplicável, custos de '
+            'rede podem existir além da platform fee.',
+            'Na rota em que a cobrança está ativa, custos de terceiros podem '
+            'existir além da platform fee.',
+            'Custos externos podem existir além da platform fee quando ela for cobrada.',
+            'Se aplicável, custos de rede podem existir além da platform fee.',
+            'Se a rota cobrar a platform fee, custos externos podem existir '
+            'além da platform fee.',
+            'Além da taxa da plataforma, se houver, podem existir custos de rede.',
+            'Nas rotas em que a cobrança incide, custos de rede podem existir '
+            'além da platform fee.',
+            'Custos de rede podem existir além da platform fee na rota EVM '
+            'se o mecanismo estiver ativo.',
+            'Na rota EVM com mecanismo ativo, os custos externos existem '
+            'além da platform fee.',
+            'Custos externos podem existir além da platform fee na rota aplicável.',
+            'Quando aplicável, os custos de rede se somam à taxa da plataforma.',
+            'Nas rotas EVM suportadas com mecanismo ativo, custos de rede vêm '
+            'além da platform fee.',
+            'Nas rotas elegíveis, custos externos podem existir além da taxa '
+            'da plataforma.',
+            'Além da platform fee, quando houver, pode existir custo de rede.',
+            'Se houver platform fee; os custos da bridge vêm além da platform fee.',
+            'A platform fee não incide em todas as rotas.',
+            'Nem toda bridge paga platform fee.',
+            'Toda bridge paga platform fee?',
+            'Você perguntou: "Toda bridge paga platform fee?" Não posso '
+            'confirmar isso de modo geral.',
+            'Você perguntou: "Custos de rede podem existir além da platform fee?" '
+            'Depende da rota e da cobrança aplicável.',
+            'Não é verdade que custos externos existam além da platform fee '
+            'em toda rota.',
+            'Não devemos assumir que custos externos existam além da platform fee '
+            'em toda rota.',
+            'A frase ‘Toda bridge paga platform fee’ está incorreta.',
+            'A ideia de que toda bridge cobra platform fee é falsa.',
+            'It is incorrect to say that every bridge pays a platform fee.',
+            'Não assuma que custos de rede vêm além da platform fee em todas as rotas.',
+        )
+        for answer in allowed:
+            with self.subTest(answer=answer):
+                self.assertTrue(validate_public_response(
+                    answer, official_context=context).allowed)
+        fallback = public_fallback_for('overbroad_platform_fee')
+        self.assertIn('quando a taxa da plataforma não incide', fallback)
+        self.assertTrue(validate_public_response(
+            fallback, official_context=context).allowed)
+
     def test_snapshot_evidence_is_not_called_live_proof(self):
         for text in (
             'O que é fato verificável agora: Free tem cinco análises diárias.',

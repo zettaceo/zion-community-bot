@@ -1,6 +1,40 @@
 # ZION Multi-Agent Command System - Release Audit
 
-## Cognitive v2 preproduction audit checkpoint — 2026-10-26
+## Cognitive v2 preproduction audit checkpoint — 2026-10-27
+
+**Verdict: NOT RELEASE CERTIFIED.** Draft PR #66 remains a preproduction
+candidate. At frozen SHA `c06f53b1f1cdd018deadebc2e25991ee44162459`,
+exact-SHA [ZION CI 40474911066](https://github.com/zettaceo/zion-community-bot/actions/runs/40474911066)
+was SUCCESS; local validation passed 911/911 tests, secret scan and project
+validation. K3 and Ministral price snapshots were verified on 2026-10-27.
+
+The private ten-case smoke manifest is
+`20261027T083840602194Z-smoke-rerun-manifest.json`; the final K3 review is
+`20261027T083840602194Z-smoke-rerun-human-review-v2.jsonl`. Ministral 8B
+stopped at v2-001 (`AUTOMATED_FAIL / unsupported_route_optimization`); its
+other nine smoke cases were **NOT EXECUTED** (438 micro-USD estimated). Kimi
+K3 passed all ten human-reviewed smoke cases, mean 4.7811/5 (292,681
+micro-USD estimated). The older 2026-10-26 failures remain historical
+findings; this K3 smoke PASS is specific to the new frozen candidate.
+
+The private full-continuation manifest is
+`20261027T085139396155Z-full-continuation-manifest.json`. The 98 remaining
+synthetic cases were verified PUBLIC-only offline. K3 v2-002 passed human
+review (34,413 micro-USD estimated). K3 v2-003 **FAILED human review** after
+the guard allowed a Bridge answer implying a universal platform fee without
+source conditions: factuality 3/5, calibration 3/5, mean 4.33/5. Its estimated
+charge was 29,409 micro-USD. The other 96 cases were **NOT EXECUTED**.
+Therefore the full 108-case benchmark is **FAIL/incomplete**, with no provider
+winner or cognitive-v2 release acceptance. The isolated ledger total after
+v2-003 is 2,341,975 micro-USD reserved/estimated, not a provider invoice.
+
+A material v2-003 forward-fix passed 914/914 local tests, `SECRET SCAN: OK`
+and `ZION VALIDATION: OK` on 2026-10-27. Exact-SHA CI and fresh provider
+acceptance remain **PENDING**; no future result is inferred here. The four 12-turn
+conversations, native/Telegram acceptance, security and release gates remain
+open. Kimi stays inactive; production was not changed by this evaluation.
+
+## Historical cognitive v2 checkpoint — 2026-10-26
 
 **Verdict: NOT RELEASE CERTIFIED.** This section concerns draft PR #66 on
 `codex/multi-agent-cognitive-v2`, targeting `zion-v1.1-dev`. The 2026-10-16
@@ -27,9 +61,10 @@ have estimated charges of 5,132 and 266,221 micro-USD; cumulative isolated
 ledger is 1,985,034 micro-USD reserved/estimated, not an invoice. Detailed
 case scope and limitations are in `COGNITIVE-V2-QUALITY-FINDINGS.md`.
 Material fixes for the two observed claims passed 911/911 local tests, secret
-scan and project validation. A new frozen provider retest and exact-SHA CI are
-**PENDING**; neither model's smoke FAIL is erased. No new code SHA or CI
-verdict is inferred from this documentation checkpoint. Multi-turn quality,
+scan and project validation. A new frozen provider retest and exact-SHA CI were
+**PENDING at that checkpoint**; neither model's smoke FAIL was erased then. No
+new code SHA or CI verdict was inferred from that documentation checkpoint.
+Multi-turn quality,
 controlled Telegram acceptance and production authorization remain open;
 Kimi remains inactive and production unchanged.
 

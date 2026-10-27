@@ -569,6 +569,131 @@ def _solana_fee_scope_is_preserved(answer: str) -> bool:
     return True
 
 
+_PLATFORM_FEE = (r'(?:platform fee|taxa (?:da |de )?(?:plataforma|z[\s-]?swap)'
+                 r'|cobranca da z[\s-]?swap)')
+
+
+def _overbroad_platform_fee_claim(answer: str) -> bool:
+    """Catch a known unconditional fee assumption, not arbitrary fee policy."""
+    folded = _mask_reported_quotes(_fold(answer))
+
+    def mask_disclaimed_quote(match: re.Match[str]) -> str:
+        after = folded[match.end():match.end() + 45]
+        if re.match(r'\s+(?:esta|e|foi)\s+'
+                    r'(?:incorret[ao]|fals[ao]|imprecis[ao]|errad[ao])\b', after):
+            return ' ' * len(match.group())
+        return match.group()
+
+    folded = _QUOTED_CONCERN.sub(mask_disclaimed_quote, folded)
+    fee = _PLATFORM_FEE
+    target = (r'(?:cross[- ]chain\s+)?(?:swaps?|bridges?|pontes?|rotas?|'
+              r'routes?|operacoes?|transacoes?)')
+    quantified = (r'\b(?:todos?|todas?|qualquer|cada|every|all|any)\s+'
+                  r'(?:(?:os?|as?|the)\s+)?(?:demais\s+)?' + target + r'\b')
+    additive = re.compile(
+        r'\b(?:alem d[aeo]s?|fora (?:a|da)|por cima d[aeo]s?|'
+        r'se somam? (?:a|ao)|somam-se (?:a|ao)|'
+        r'sao adicionais? (?:a|ao)|in addition to|on top of)\s+'
+        r'(?:the\s+)?' + fee + r'\b')
+    universal = re.compile('|'.join((
+        quantified + r'[^.!?;\n]{0,75}\b(?:pagam?|cobram?|tem|possuem|'
+        r'inclu(?:em|i)|envolvem|ha|existe|incide|includes?|pays?|has|have)\b'
+        r'[^.!?;\n]{0,35}\b' + fee + r'\b',
+        quantified + r'[^.!?;\n]{0,75}\b' + fee + r'\b'
+        r'\s+(?:se\s+)?(?:aplica(?:-se)?|incide|applies?)\b',
+        quantified + r'[^.!?;\n]{0,100}' + additive.pattern,
+        r'\b' + fee + r'\b[^.!?;\n]{0,50}\b(?:aplica(?:-se|da)?|'
+        r'applies?|cobrada|cobra|vale|entra|incide|soma|somada|is charged)\b'
+        r'[^.!?;\n]{0,45}' + quantified,
+        r'\b(?:ha|existe|incide)\s+(?:a\s+|uma\s+)?' + fee + r'\b'
+        r'[^.!?;\n]{0,25}\b(?:em|nas?|para|for|in|on)\s+' + quantified,
+        r'\b' + fee + r'\b\s+(?:em|nas?|para|for|in|on)\s+' + quantified,
+        r'\bz[\s-]?swap\b[^.!?;\n]{0,25}\b(?:sempre\s+)?cobra\s+'
+        r'(?:a\s+)?(?:sua\s+)?taxa\b[^.!?;\n]{0,35}'
+        r'\b(?:em|nas?|para)\s+' + quantified,
+        r'\bz[\s-]?swap\b[^.!?;\n]{0,25}\bsempre\s+cobra\s+'
+        r'(?:a\s+)?sua\s+taxa\s+(?:em|nas?)\s+' + target + r'\b',
+        r'\b' + fee + r'\b[^.!?;\n]{0,35}'
+        r'\b(?:sempre que houver|whenever there is)\s+(?:uma?\s+)?'
+        + target + r'\b',
+        r'\b' + target + r'\b[^.!?;\n]{0,30}\bsempre\s+'
+        r'(?:inclu(?:em|i)|cobram?|tem)\s+(?:a\s+|uma\s+)?' + fee + r'\b',
+        r'\bthere is always\s+(?:a\s+)?' + fee + r'\b'
+        r'[^.!?;\n]{0,25}\b(?:on|in|for)\s+' + target + r'\b',
+        r'\b(?:cobra|aplica|inclui)\s+(?:a\s+)?' + fee + r'\b'
+        r'[^.!?;\n]{0,40}' + quantified,
+        r'\bsempre\s+(?:ha|existe|incide)\s+(?:a\s+|uma\s+)?' + fee + r'\b'
+        r'[^.!?;\n]{0,35}\b(?:nas?|em|para|on|in|for)\s+' + target + r'\b',
+        r'\b(?:nas?|em)\s+(?:pontes?|bridges?)\b[^.!?;\n]{0,35}'
+        r'\bsempre ha duas taxas\b[^.!?;\n]{0,35}'
+        r'\bda rede e da z[\s-]?swap\b',
+    )))
+    conditional = re.compile('|'.join((
+        r'\b(?:se|quando) aplicavel\b',
+        r'\b(?:se|quando|caso)\s+(?:houver|existir|incidir|for cobrada|'
+        r'estiver ativa)\s+(?:uma?\s+)?' + fee + r'\b',
+        r'\bse\s+(?:a\s+)?rota\s+(?:cobrar|aplicar)\s+(?:a\s+)?'
+        + fee + r'\b',
+        r'\b' + fee + r'\b[^.!?;\n]{0,20}\bse houver\b',
+        r'\b' + fee + r'\b[^.!?;\n]{0,35}\bquando houver\b',
+        r'\b' + fee + r'\b[^.!?;\n]{0,30}'
+        r'\b(?:quando|se)\s+(?:ela\s+)?(?:for\s+)?'
+        r'(?:aplicavel|cobrada|incidir)\b',
+        r'\b(?:se|quando|caso)\s+(?:a\s+)?(?:cobranca|taxa da plataforma)\s+'
+        r'(?:for|estiver|seja)\s+(?:ativa|aplicavel)\b',
+        r'\b(?:onde|em que)\s+(?:a\s+)?(?:cobranca|taxa da plataforma)\s+'
+        r'(?:esta|esteja|for)\s+(?:ativa|aplicavel)\b',
+        r'\brotas?\s+em que\s+(?:a\s+)?cobranca\s+incide\b',
+        r'\brotas?\s+evm\s+suportadas?\b[^.!?;\n]{0,45}'
+        r'\b(?:mecanismo|cobranca)\s+(?:esta|esteja|for)\s+ativ[ao]\b',
+        r'\brotas?\s+evm\s+suportadas?\s+com\s+mecanismo\s+ativo\b',
+        r'\brotas?\s+elegiveis\b',
+        r'\b(?:na|em)\s+rota\s+evm\b[^.!?;\n]{0,45}'
+        r'\bmecanismo\s+(?:esta|estiver|for)?\s*ativo\b',
+        r'\b(?:na|em|pela)\s+rota\s+aplicavel\b',
+        r'\b(?:na|pela|via)\s+jupiter\b[^.!?;\n]{0,65}'
+        r'\b(?:usdc|sol)\b[^.!?;\n]{0,35}\b(?:swap|par|rota)\b',
+    )))
+
+    def denied(prefix: str) -> bool:
+        return (_reported_or_denied_prefix(prefix)
+                or bool(re.search(
+                    r'\b(?:nao e correto (?:dizer|afirmar) que|'
+                    r'nao (?:devemos|se deve|assuma) (?:assumir |presumir )?que|'
+                    r'it is incorrect to say that|it is false that)\b'
+                    r'[^.!?;\n]{0,90}$', prefix)))
+
+    previous_condition = False
+    for sentence in re.finditer(r'[^.!?;\n]+[.!?;\n]?', folded):
+        clause = sentence.group().strip()
+        if clause.endswith('?'):
+            previous_condition = False
+            continue
+        for match in universal.finditer(clause):
+            prefix = clause[max(0, match.start() - 120):match.start()]
+            suffix = clause[match.end():match.end() + 40]
+            if (denied(prefix)
+                    or re.search(r'\b(?:nao|nem|nunca)\s*$', prefix)
+                    or re.search(r'\b(?:nao|nem|nunca)\b', match.group())
+                    or conditional.search(match.group())
+                    or (re.search(r'\ba ideia de que\b', prefix)
+                        and re.match(r'\s+e\s+(?:fals[ao]|incorret[ao])\b', suffix))):
+                continue
+            return True
+        for match in additive.finditer(clause):
+            prefix = clause[max(0, match.start() - 120):match.start()]
+            if denied(prefix):
+                continue
+            local = clause[max(0, match.start() - 135):min(len(clause),
+                                                             match.end() + 100)]
+            if conditional.search(local) or previous_condition:
+                continue
+            return True
+        previous_condition = bool(re.fullmatch(
+            r'se houver\s+(?:a\s+|uma\s+)?' + fee + r'\s*;', clause))
+    return False
+
+
 def _snapshot_proof_is_preserved(answer: str) -> bool:
     """This answer path has reviewed snapshots, not a live product probe."""
     folded = _fold(answer)
@@ -799,6 +924,8 @@ def validate_public_response(text: str, *, official_context: str) -> ResponseChe
         return ResponseCheck(False, 'incomplete_plan_fee_matrix')
     if not _solana_fee_scope_is_preserved(text):
         return ResponseCheck(False, 'overbroad_solana_fee_scope')
+    if _overbroad_platform_fee_claim(text):
+        return ResponseCheck(False, 'overbroad_platform_fee')
     if not _snapshot_proof_is_preserved(text):
         return ResponseCheck(False, 'unverified_live_proof')
     if not _feature_status_is_preserved(text, official_context):
@@ -1046,6 +1173,10 @@ def public_fallback_for(reason: str, *, official_context: str = '', question: st
         return ('As condições de taxa na Solana dependem da rota e do provedor. '
                 'Não vou aplicar a condição de uma rota a todos os swaps; confira '
                 'os custos mostrados antes de confirmar.')
+    if reason == 'overbroad_platform_fee':
+        return ('Custos de rede, bridge ou terceiros podem variar conforme a rota, '
+                'inclusive quando a taxa da plataforma não incide. Confira os '
+                'custos apresentados antes de confirmar.')
     if reason == 'unverified_live_proof':
         return ('Posso explicar o estado documentado na base pública revisada, '
                 'mas não fiz uma verificação ao vivo da plataforma. Confira a '

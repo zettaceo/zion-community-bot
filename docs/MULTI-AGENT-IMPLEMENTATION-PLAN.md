@@ -1,10 +1,43 @@
 # Cognitive Architecture v2 — current execution checkpoint
 
-Date: 2026-10-26. Status: IN PROGRESS, not production accepted.
+Date: 2026-10-27. Status: IN PROGRESS, not production accepted.
 This section supersedes older current-state labels below; the prior mission's
 checklists remain historical evidence, not proof of v2 completion.
 
-## 2026-10-26 provider smoke decision
+## 2026-10-27 provider benchmark checkpoint
+
+- [x] Freeze candidate `c06f53b1f1cdd018deadebc2e25991ee44162459`
+  and refresh K3/Ministral official price snapshots on 2026-10-27. Exact-SHA
+  [ZION CI 40474911066](https://github.com/zettaceo/zion-community-bot/actions/runs/40474911066)
+  succeeded; 911/911 local tests, secret scan and project validation passed.
+- [x] Run the predeclared ten-case synthetic/PUBLIC smoke on private manifest
+  `20261027T083840602194Z-smoke-rerun-manifest.json`. Ministral stopped on
+  v2-001 `AUTOMATED_FAIL / unsupported_route_optimization`; nine cases were
+  NOT EXECUTED. K3 passed human review 10/10, mean 4.7811/5. The final K3
+  review is `20261027T083840602194Z-smoke-rerun-human-review-v2.jsonl`.
+- [!] Freeze the remaining 98 synthetic/PUBLIC-only cases without repeating
+  smoke in private manifest
+  `20261027T085139396155Z-full-continuation-manifest.json`. K3 v2-002
+  passed human review; v2-003 failed human review on a Bridge platform-fee
+  generalization accepted by the guard (factuality and calibration 3/5;
+  mean 4.33/5). The other 96 cases were NOT EXECUTED. Full 108-case quality
+  remains FAIL/incomplete, with no provider winner.
+- [x] Implement the material v2-003 fee-scope forward-fix; focused guard and
+  delivery regressions, 914/914 local tests, secret scan and validation passed
+  on 2026-10-27. Independent adversarial review supplied the negative and
+  conditional-positive examples now covered by tests.
+- [ ] Complete exact-SHA CI and a newly frozen provider round without
+  relabeling the c06f failure. All
+  four 12-turn conversations, controlled Telegram acceptance, security and
+  release gates remain open.
+
+Estimated charges in this round: Ministral smoke 438, K3 smoke 292,681,
+K3 v2-002 34,413 and K3 v2-003 29,409 micro-USD. Cumulative isolated ledger
+after v2-003: 2,341,975 micro-USD reserved/estimated, not an invoice or
+provider balance. Kimi remains inactive and production unchanged. The
+following 2026-10-26 checkpoint is historical.
+
+## Historical 2026-10-26 provider smoke decision
 
 The frozen ten-case synthetic/PUBLIC smoke at candidate
 `6774e8b21c4a512bc77c5eb83d62c40aa119ef46` returned automated

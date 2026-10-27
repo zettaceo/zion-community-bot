@@ -359,6 +359,33 @@ class AITests(unittest.TestCase):
         self.assertIn("response_guard", dump)
         self.assertTrue(ai.accounting_healthy)
 
+    def test_bridge_fee_generalization_is_withheld_at_delivery(self):
+        from zion.response_guard import public_fallback_for
+
+        (self.root / "knowledge" / "official.md").write_text(
+            "# Bridge\nA taxa da plataforma depende da rota; custos de rede e "
+            "de terceiros podem existir sem ela.\n", encoding="utf-8")
+        ai = AIService(replace(self.settings, ai_enabled=True), self.db,
+                       KnowledgeBase(self.settings.knowledge_dir))
+
+        class BridgeFeeClient:
+            configured = True
+
+            async def answer(self, **kwargs):
+                return AIAnswer(
+                    text="Custos de rede, bridge ou terceiros podem existir "
+                    "além da platform fee.", model="test", input_tokens=11,
+                    output_tokens=12, latency_ms=1)
+
+        ai.client = BridgeFeeClient()
+        result = asyncio.run(ai.answer(
+            chat_id=1, user_id=2, question="Como funciona uma bridge?"))
+        self.assertEqual(result.text, public_fallback_for('overbroad_platform_fee'))
+        self.assertEqual((result.input_tokens, result.output_tokens), (11, 12))
+        dump = "\n".join(self.db._conn.iterdump())
+        self.assertNotIn("além da platform fee", dump)
+        self.assertIn("overbroad_platform_fee", dump)
+
     def test_unsourced_comparison_and_partnership_claims_get_useful_safe_replies(self):
         from zion.response_guard import public_fallback_for, validate_public_response
         (self.root / "knowledge" / "official.md").write_text(

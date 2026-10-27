@@ -1,6 +1,7 @@
 # Cognitive v2 — provider benchmark protocol
 
-Status: PREDECLARED SMOKE FAILED ON BOTH MODELS, NOT CERTIFIED. This is a
+Status: K3 PASSED THE 2026-10-27 TEN-CASE SMOKE; ITS 98-CASE CONTINUATION
+FAILED AT v2-003. MINISTRAL FAILED SMOKE AT v2-001. NOT CERTIFIED. This is a
 generation-quality comparison, not evidence of correct Telegram routing,
 Guardian behavior, native tools, live
 community quality or permission to activate a provider. Read
@@ -117,7 +118,42 @@ generation, native tool path, runtime delivery and controlled Telegram tests
 have separate verdicts. No overall model winner is declared while any required
 dimension remains untested or failed.
 
-## Current checkpoint
+## Current checkpoint — 2026-10-27
+
+Candidate `c06f53b1f1cdd018deadebc2e25991ee44162459` passed exact-SHA
+[ZION CI 40474911066](https://github.com/zettaceo/zion-community-bot/actions/runs/40474911066)
+and 911/911 local tests, secret scan and project validation. The K3 and
+Ministral price snapshots were verified on 2026-10-27 before provider calls.
+The private frozen smoke manifest is
+`20261027T083840602194Z-smoke-rerun-manifest.json`; its final K3 human review
+is `20261027T083840602194Z-smoke-rerun-human-review-v2.jsonl`.
+
+The new smoke was attempted one case at a time, with review gating model
+advancement. Ministral v2-001 was `AUTOMATED_FAIL` because the guard detected
+`unsupported_route_optimization`; its other nine cases were **NOT EXECUTED**.
+Estimated charge: 438 micro-USD. K3 passed human review on all ten predeclared
+smoke cases (10/10), mean 4.7811/5; its estimated charge was 292,681
+micro-USD. This qualifies K3 to *attempt* the full synthetic benchmark on that
+frozen candidate; it is not full-model, multi-turn or Telegram acceptance.
+
+The separate private full-continuation manifest is
+`20261027T085139396155Z-full-continuation-manifest.json`. The 98 remaining
+synthetic cases, excluding the ten already reviewed in smoke, were checked
+offline for PUBLIC-only context. K3 v2-002 passed human review (estimated
+34,413 micro-USD). K3 v2-003 failed human review despite an allowed guard
+result: it suggested a universal platform fee for Bridge without the source's
+conditions. Its factuality and calibration were 3/5; mean 4.33/5 does not
+override those gates. Estimated charge: 29,409 micro-USD. The other 96 cases
+were **NOT EXECUTED**. Thus the 108-case benchmark remains **FAIL/incomplete**;
+there is no provider winner or release qualification. A material forward-fix
+for this fee-scope finding passed 914/914 local tests, secret scan and project
+validation on 2026-10-27; exact-SHA CI and a fresh provider retest remain
+PENDING. The failed answer is not relabeled PASS.
+The cumulative isolated ledger after v2-003 is 2,341,975 micro-USD
+reserved/estimated, not a provider invoice or account balance. Kimi remains
+inactive and production unchanged.
+
+## Historical checkpoint — 2026-10-26
 
 On 2026-10-26, the frozen ten-case smoke selection was generated once each
 with Ministral 8B and Kimi K3 at candidate
@@ -137,11 +173,12 @@ benchmark. The estimated costs for all generated attempts were 5,132 and
 266,221 micro-USD respectively; cumulative isolated ledger: 1,985,034
 micro-USD reserved or estimated spent, not an invoice or available balance.
 
-Material candidate fixes for the two observed claims passed 911/911 local
-tests, `SECRET SCAN: OK` and `ZION VALIDATION: OK` in
+At that earlier checkpoint, material candidate fixes for the two observed
+claims passed 911/911 local tests, `SECRET SCAN: OK` and
+`ZION VALIDATION: OK` in
 `/tmp/zion-v2-smoke-forward-fix-validation-3.log`. Exact-SHA CI and a newly
-frozen provider retest remain PENDING; local tests do not change either model's
-smoke FAIL. The earlier K3
+frozen provider retest were PENDING; local tests did not change either model's
+smoke FAIL at that time. The earlier K3
 debate still stopped at turn 1 with `missing_feature_status`; the other three
 12-turn scenarios and full comparable A/B have no PASS. A host-owned fallback
 does not change model quality. Keep Kimi inactive, PR #66 draft and production

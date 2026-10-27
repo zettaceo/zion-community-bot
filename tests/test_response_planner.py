@@ -87,6 +87,17 @@ class ResponsePlannerTests(unittest.TestCase):
         self.assertIn('rota mais eficiente por taxas e liquidez', system)
         self.assertNotIn('descreva buscar/comparar rotas disponíveis', system)
 
+    def test_bridge_prompt_conditions_platform_fee_before_comparing_costs(self):
+        messages = build_answer_messages(
+            question='Como funciona uma bridge e quais custos existem?',
+            context='A taxa depende da rota; rede e terceiros podem cobrar separadamente.',
+            agent_id='mimir',
+        )
+        system = messages[0]['content']
+        self.assertIn('não pressuponha que toda rota cobra platform fee', system)
+        self.assertIn('Custos de rede, bridge e terceiros podem existir mesmo', system)
+        self.assertIn("'além da platform fee' se condicionar explicitamente", system)
+
     def test_wallet_prompt_separates_connection_from_authentication(self):
         messages = build_answer_messages(
             question='n consigo conecta carteira',

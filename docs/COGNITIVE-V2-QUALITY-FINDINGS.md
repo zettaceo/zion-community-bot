@@ -502,10 +502,49 @@ All ten generated attempts cost an estimated 5,132 micro-USD for Ministral
 and 266,221 micro-USD for K3. The cumulative isolated ledger is 1,985,034
 micro-USD reserved or estimated spent. These are admission/evidence estimates,
 not an invoice or provider account balance. Both smoke verdicts are **FAIL**.
-Material forward-fixes for the two observed claims passed 911/911 local tests,
+At that earlier checkpoint, material forward-fixes for the two observed
+claims passed 911/911 local tests,
 `SECRET SCAN: OK` and `ZION VALIDATION: OK` in
 `/tmp/zion-v2-smoke-forward-fix-validation-3.log`. Their exact-SHA CI and a
-newly frozen provider retest remain pending; this does not erase either smoke
-FAIL. Neither full
+newly frozen provider retest were pending; this did not erase either smoke
+FAIL at that time. Neither full
 108-case benchmark nor all four 12-turn conversations nor controlled Telegram
 acceptance followed this smoke. Kimi remains inactive and production unchanged.
+
+## Frozen retest and full-continuation gate — 2026-10-27
+
+Candidate `c06f53b1f1cdd018deadebc2e25991ee44162459` passed exact-SHA
+[ZION CI 40474911066](https://github.com/zettaceo/zion-community-bot/actions/runs/40474911066),
+911/911 local tests, `SECRET SCAN: OK` and `ZION VALIDATION: OK`. K3 and
+Ministral prices were reverified on 2026-10-27. The private frozen smoke
+manifest is `20261027T083840602194Z-smoke-rerun-manifest.json`; final K3
+review is `20261027T083840602194Z-smoke-rerun-human-review-v2.jsonl`.
+
+The smoke used one attempt per case and stopped each model on its first failed
+gate. Ministral 8B's v2-001 was `AUTOMATED_FAIL` for
+`unsupported_route_optimization`; nine other smoke cases were **NOT
+EXECUTED**. Its estimated charge was 438 micro-USD. Kimi K3 passed independent
+human review on all ten smoke cases, with mean 4.7811/5 and estimated charge
+292,681 micro-USD. This supersedes the earlier *candidate's* smoke verdict,
+not its historical failure or other acceptance gates.
+
+The private continuation manifest
+`20261027T085139396155Z-full-continuation-manifest.json` froze the 98
+remaining cases without repeating smoke. All 98 were verified offline as
+synthetic/PUBLIC-only. K3 v2-002 passed human review, with estimated charge
+34,413 micro-USD. K3 v2-003 failed human review: an allowed output suggested
+that Bridge universally incurs a platform fee without the documented
+conditions. Factuality and calibration were 3/5, while its mean 4.33/5 does
+not override the individual gate. That attempt cost an estimated 29,409
+micro-USD. The other 96 cases were **NOT EXECUTED**. This is a factuality
+finding and a bounded guard coverage gap; it does not establish a different
+provider as a winner. The full 108-case result is **FAIL/incomplete**. The
+cumulative isolated ledger after v2-003 is 2,341,975 micro-USD
+reserved/estimated, not an invoice or account balance.
+
+A material forward-fix for v2-003 passed 914/914 local tests, `SECRET SCAN: OK`
+and `ZION VALIDATION: OK` on 2026-10-27. Exact-SHA CI and a fresh provider
+retest remain **PENDING** at this checkpoint.
+No raw answer or secret is reproduced here. The four 12-turn conversations,
+native delivery and controlled Telegram acceptance have no new PASS; Kimi
+remains inactive and production unchanged.
