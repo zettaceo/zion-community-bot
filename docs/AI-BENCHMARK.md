@@ -1,7 +1,8 @@
 # Cognitive v2 — provider benchmark protocol
 
-Status: K3 PASSED THE 2026-10-27 TEN-CASE SMOKE; ITS 98-CASE CONTINUATION
-FAILED AT v2-003. MINISTRAL FAILED SMOKE AT v2-001. NOT CERTIFIED. This is a
+Status: LATEST a494435 SMOKE FAILED AT MINISTRAL v2-001; K3 NOT EXECUTED.
+EARLIER c06f53b K3 SMOKE PASSED, BUT ITS 98-CASE CONTINUATION FAILED AT
+v2-003. NOT CERTIFIED. This is a
 generation-quality comparison, not evidence of correct Telegram routing,
 Guardian behavior, native tools, live
 community quality or permission to activate a provider. Read
@@ -118,7 +119,28 @@ generation, native tool path, runtime delivery and controlled Telegram tests
 have separate verdicts. No overall model winner is declared while any required
 dimension remains untested or failed.
 
-## Current checkpoint — 2026-10-27
+## Latest frozen smoke — 2026-10-27
+
+The fee-scope fix at `a4944356f7d1f10ff890393ca97bdd8077391e23` passed
+exact-SHA [ZION CI 40515511601](https://github.com/zettaceo/zion-community-bot/actions/runs/40515511601)
+and 914/914 local tests, secret scan and validation. A separate private smoke
+manifest, `20261027T135123615841Z-bridge-fee-smoke-manifest.json`, froze both
+models and the same ten synthetic/PUBLIC case IDs. Ministral v2-001 returned
+`REVIEW_REQUIRED / accepted`, but independent review marked **FAIL**: it
+asserted best-quote selection despite the canonical section only documenting
+source selection by networks and a returned route. The caveat about not
+comparing all sources did not resolve this contradiction. Its estimated charge
+was 462 micro-USD; the other nine Ministral cases and all ten K3 cases were
+**NOT EXECUTED**. Review metadata is private in
+`20261027T135123615841Z-bridge-fee-smoke-human-review.jsonl`.
+
+The isolated ledger after that single attempt is 2,342,437 micro-USD
+reserved/estimated, not an invoice. A bounded best-quote prompt/guard fix
+passed 914/914 local tests, secret scan and project validation; its exact-SHA
+CI and a new frozen provider retest are **PENDING**. No prior FAIL is relabeled
+PASS, and Kimi remains inactive. This is not Telegram or production acceptance.
+
+## Prior checkpoint — 2026-10-27
 
 Candidate `c06f53b1f1cdd018deadebc2e25991ee44162459` passed exact-SHA
 [ZION CI 40474911066](https://github.com/zettaceo/zion-community-bot/actions/runs/40474911066)

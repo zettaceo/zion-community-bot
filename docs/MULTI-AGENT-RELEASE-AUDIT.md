@@ -1,6 +1,28 @@
 # ZION Multi-Agent Command System - Release Audit
 
-## Cognitive v2 preproduction audit checkpoint — 2026-10-27
+## Cognitive v2 latest preproduction checkpoint — 2026-10-27
+
+**Verdict: NOT RELEASE CERTIFIED.** Fee-scope candidate
+`a4944356f7d1f10ff890393ca97bdd8077391e23` passed exact-SHA
+[ZION CI 40515511601](https://github.com/zettaceo/zion-community-bot/actions/runs/40515511601),
+914/914 local tests, secret scan and validation. A separate private synthetic/
+PUBLIC smoke manifest is `20261027T135123615841Z-bridge-fee-smoke-manifest.json`.
+Ministral v2-001 was automated `REVIEW_REQUIRED / accepted`, then independent
+review **FAILED** its unsupported best-quote assertion against the canonical
+“Swaps e pontes” section. Review metadata is private in
+`20261027T135123615841Z-bridge-fee-smoke-human-review.jsonl`; no raw answer is
+copied here. Estimated charge: 462 micro-USD. The other nine Ministral cases
+and all ten K3 cases were **NOT EXECUTED**. The isolated ledger now records
+2,342,437 micro-USD reserved/estimated, not an invoice.
+
+A bounded best-quote prompt/guard fix passed 914/914 local tests, secret scan
+and validation. Its exact-SHA CI and a fresh frozen provider retest remain
+**PENDING**. Security review found no active Kimi leak, but real user/lead
+data transfer and the Kimi account data-handling policy remain unapproved.
+Native/Telegram, 108-case and multi-turn acceptance remain open. PR #66 stays
+draft, Kimi inactive and production unchanged.
+
+## Prior cognitive v2 preproduction audit checkpoint — 2026-10-27
 
 **Verdict: NOT RELEASE CERTIFIED.** Draft PR #66 remains a preproduction
 candidate. At frozen SHA `c06f53b1f1cdd018deadebc2e25991ee44162459`,

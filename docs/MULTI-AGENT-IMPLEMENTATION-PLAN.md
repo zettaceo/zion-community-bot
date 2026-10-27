@@ -4,7 +4,27 @@ Date: 2026-10-27. Status: IN PROGRESS, not production accepted.
 This section supersedes older current-state labels below; the prior mission's
 checklists remain historical evidence, not proof of v2 completion.
 
-## 2026-10-27 provider benchmark checkpoint
+## 2026-10-27 latest smoke and forward-fix
+
+- [x] Freeze fee-scope candidate `a4944356f7d1f10ff890393ca97bdd8077391e23`.
+  Exact-SHA [ZION CI 40515511601](https://github.com/zettaceo/zion-community-bot/actions/runs/40515511601)
+  and 914/914 local tests, secret scan and project validation passed.
+- [!] Run one case on the frozen synthetic/PUBLIC smoke manifest
+  `20261027T135123615841Z-bridge-fee-smoke-manifest.json`. Ministral v2-001
+  was automated `REVIEW_REQUIRED / accepted`, then independent review **FAILED**
+  an unsupported best-quote assertion. Nine other Ministral cases and all K3
+  cases were NOT EXECUTED. This candidate did not pass smoke.
+- [x] Add a bounded best-quote prompt/guard forward-fix and delivery regression;
+  independent adversarial review found negation, provider-name punctuation and
+  sentence-carry bypasses, now covered by tests. Local validation passed
+  914/914 tests, secret scan and project validation.
+- [ ] Obtain exact-SHA CI and fresh frozen provider acceptance for the new fix.
+  Full 108-case, four 12-turn, controlled Telegram, data-handling/security and
+  release gates remain open. The isolated evaluation ledger after a494 v2-001
+  is 2,342,437 micro-USD reserved/estimated, not a provider invoice. Kimi
+  remains inactive and production unchanged.
+
+## Prior 2026-10-27 provider benchmark checkpoint
 
 - [x] Freeze candidate `c06f53b1f1cdd018deadebc2e25991ee44162459`
   and refresh K3/Ministral official price snapshots on 2026-10-27. Exact-SHA
@@ -26,8 +46,8 @@ checklists remain historical evidence, not proof of v2 completion.
   delivery regressions, 914/914 local tests, secret scan and validation passed
   on 2026-10-27. Independent adversarial review supplied the negative and
   conditional-positive examples now covered by tests.
-- [ ] Complete exact-SHA CI and a newly frozen provider round without
-  relabeling the c06f failure. All
+- [x] Complete exact-SHA CI for the fee-scope fix; the subsequent frozen
+  provider round failed as recorded above. All
   four 12-turn conversations, controlled Telegram acceptance, security and
   release gates remain open.
 

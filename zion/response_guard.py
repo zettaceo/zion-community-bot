@@ -130,7 +130,8 @@ def _mask_reported_quotes(folded: str) -> str:
 def _denied_claim_prefix(prefix: str) -> bool:
     return bool(re.search(r'\b(?:nao e verdade que|nao ha evidencias? de que|'
                           r'nao ha provas? de que|e falso que|'
-                          r'e incorreto afirmar que)\b[^.!?;\n]{0,55}$', prefix))
+                          r'e incorreto afirmar que|nao e correto afirmar que|'
+                          r'nao ha confirmacao de que)\b[^.!?;\n]{0,90}$', prefix))
 
 
 def _reported_or_denied_prefix(prefix: str) -> bool:
@@ -148,9 +149,15 @@ def _unsupported_route_optimization(answer: str) -> bool:
     route descriptions. User-quoted concerns remain non-authoritative.
     """
     folded = _mask_reported_quotes(_fold(answer))
+    # LI.FI is a provider name, not a sentence boundary. A model may put an
+    # unsupported best-quote claim after that name in the same sentence.
+    folded = re.sub(r'\bli(?:\s*\.\s*(?:\*\*)?|\s*\[\.\]\s*)fi\b',
+                    'li-fi', folded)
     actor = r'\b(?:z[\s-]?swap|a plataforma|o sistema|o motor|o agregador|ela|it|the platform)\b'
     claim = re.compile(
-        rf'(?:{actor}[^.!?;\n]{{0,55}}?|^)'
+        # Provider names and short explanations can separate the actor from
+        # "encontrar a melhor cotação". Keep the span bounded per clause.
+        rf'(?:{actor}[^.!?;\n]{{0,240}}?|^)'
         rf'(?P<verb>{_ROUTE_CHOOSER})[^.!?;\n]{{0,95}}?'
         rf'(?P<superlative>{_ROUTE_SUPERLATIVE})'
     )
@@ -160,22 +167,30 @@ def _unsupported_route_optimization(answer: str) -> bool:
         r'(?:escolhid[ao]|selecionad[ao]|encontrad[ao])\b'
         r'[^.!?;\n]{0,45}\b(?:pela|pelo)\s+z[\s-]?swap\b'
     )
+    anaphoric = re.compile(
+        rf'^\s*(?:entao|depois|em seguida|then)\s+'
+        rf'(?:{_ROUTE_CHOOSER})[^.!?;\n]{{0,95}}?{_ROUTE_SUPERLATIVE}')
+    previous_actor = False
     for sentence in re.finditer(r'[^.!?;\n]+[.!?;\n]?', folded):
         segment = sentence.group().strip()
         if segment.endswith('?'):
+            previous_actor = False
             continue  # A question about a capability is not an assertion.
+        actor_in_sentence = bool(re.search(actor, segment))
         for clause in re.split(r'\b(?:mas|porem|contudo|however|but)\b',
                                segment.rstrip('.!;\n')):
             clause = clause.strip(' ,:')
             if not clause:
                 continue
+            if previous_actor and anaphoric.search(clause):
+                return True
             for match in passive.finditer(clause):
                 if not _reported_or_denied_prefix(clause[:match.start()]):
                     return True
             for match in claim.finditer(clause):
                 prefix = clause[:match.start()]
                 between = clause[match.start():match.start('verb')]
-                if re.search(r'\b(?:nao|nunca|jamais|not|never)\b', between):
+                if re.search(r'\b(?:nao|nunca|jamais|not|never)\s*$', between):
                     continue
                 if _denied_claim_prefix(prefix) or re.search(
                     r'\b(?:se|caso|quando|if|perguntou se|pergunta se|quer saber se|'
@@ -185,6 +200,7 @@ def _unsupported_route_optimization(answer: str) -> bool:
                 ):
                     continue
                 return True
+        previous_actor = actor_in_sentence
     return False
 
 

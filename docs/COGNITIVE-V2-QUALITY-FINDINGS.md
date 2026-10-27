@@ -548,3 +548,25 @@ retest remain **PENDING** at this checkpoint.
 No raw answer or secret is reproduced here. The four 12-turn conversations,
 native delivery and controlled Telegram acceptance have no new PASS; Kimi
 remains inactive and production unchanged.
+
+## Fee-scope fix retest and best-quote finding — 2026-10-27
+
+Candidate `a4944356f7d1f10ff890393ca97bdd8077391e23` passed exact-SHA
+[ZION CI 40515511601](https://github.com/zettaceo/zion-community-bot/actions/runs/40515511601),
+914/914 local tests, secret scan and validation. The private new smoke manifest
+is `20261027T135123615841Z-bridge-fee-smoke-manifest.json`; only Ministral
+v2-001 was generated. Automated status was `REVIEW_REQUIRED / accepted`, but
+independent review recorded **FAIL** because the answer implied finding the
+best quote despite the PUBLIC “Swaps e pontes” section only documenting source
+selection by networks and the returned route. The answer's later all-source
+caveat did not repair the earlier assertion. Review metadata is private in
+`20261027T135123615841Z-bridge-fee-smoke-human-review.jsonl`. No raw answer
+or secret is copied here. Estimated charge: 462 micro-USD. Nine other
+Ministral smoke cases and all ten K3 smoke cases were **NOT EXECUTED**.
+
+The isolated ledger after this attempt is 2,342,437 micro-USD
+reserved/estimated, not an invoice. A new bounded best-quote prompt/guard
+fix passed 914/914 local tests, secret scan and validation; exact-SHA CI and a
+fresh provider retest remain **PENDING**. The a494 and c06f failures remain
+separate historical findings. No full-model, multi-turn, Telegram or production
+acceptance follows from the new local tests. Kimi remains inactive.

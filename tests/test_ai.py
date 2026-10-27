@@ -421,6 +421,9 @@ class AITests(unittest.TestCase):
         (self.root / "knowledge" / "official.md").write_text(
             "# Preço e rotas\nNão é possível garantir o melhor preço. "
             "Compare rotas disponíveis conforme as condições do momento.\n\n"
+            "# Swaps e pontes\nA plataforma seleciona a fonte de cotação "
+            "conforme as redes e mostra a rota retornada; não compara todas "
+            "as fontes em cada pedido.\n\n"
             "# Segurança e risco\nUsar qualquer plataforma envolve risco. "
             "Nenhuma plataforma ou transação é livre de risco.\n\n"
             "# Taxas Solana, Jupiter e LI.FI\nDesde 16 de outubro de 2026, "
@@ -448,6 +451,10 @@ class AITests(unittest.TestCase):
         cases = (
             ('Você garante o melhor preço?', 'Garantimos o melhor preço possível.',
              'best_price_guarantee'),
+            ('Como funciona os swaps?',
+             'A plataforma consulta provedores autorizados (como Jupiter ou '
+             'LI.FI) para encontrar a melhor cotação disponível naquele momento.',
+             'unsupported_route_optimization'),
             ('É seguro usar?', 'É seguro usar a Z-SWAP.', 'absolute_safety'),
             ('Existe risco?', 'Garantimos a segurança de todas as transações.',
              'safety_guarantee'),

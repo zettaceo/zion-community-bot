@@ -98,6 +98,19 @@ class ResponseGuardTests(unittest.TestCase):
         self.assertNotIn('[Contexto oficial: Swap]', context)
         for answer in (
             'A Z-SWAP analisa taxas e liquidez e escolhe automaticamente a melhor cotação para você.',
+            'A plataforma então **consulta provedores autorizados** (como Jupiter '
+            'ou LI.FI) para encontrar a melhor cotação disponível **naquele momento**, '
+            'considerando liquidez e taxas.',
+            'A plataforma não compara todas as fontes e escolhe a melhor rota.',
+            'A Z-SWAP não realiza bridge diretamente e encontra a melhor '
+            'cotação para o swap.',
+            'A plataforma consulta os provedores autorizados, inclusive os '
+            'que operam em várias redes, como Jupiter, LI.FI e outros '
+            'disponíveis naquele momento, para encontrar a melhor cotação.',
+            'A plataforma consulta Jupiter e LI.FI. Então encontra a melhor cotação.',
+            'A plataforma consulta Jupiter e LI. FI para encontrar a melhor cotação.',
+            'A plataforma consulta Jupiter e LI.**FI para encontrar a melhor cotação.',
+            'A plataforma consulta Jupiter e LI[.]FI para encontrar a melhor cotação.',
             'A plataforma seleciona a rota mais eficiente com base em taxas e liquidez.',
             'O sistema encontra o melhor preço para a sua troca.',
             'A Z-SWAP busca a rota com menor custo.',
@@ -132,6 +145,8 @@ class ResponseGuardTests(unittest.TestCase):
             'A plataforma mostra os custos da rota antes da confirmação.',
             'Não é verdade que a Z-SWAP escolhe a melhor rota.',
             'Não há evidências de que a plataforma escolhe a melhor rota.',
+            'Não é correto afirmar que a plataforma escolhe a melhor rota.',
+            'Não há confirmação de que a plataforma encontra a melhor cotação disponível.',
             "'A Z-SWAP escolhe a melhor rota' foi sua dúvida; "
             'a fonte pública não confirma isso.',
             'A melhor cotação é escolhida automaticamente pela Z-SWAP?',

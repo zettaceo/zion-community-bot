@@ -85,6 +85,7 @@ class ResponsePlannerTests(unittest.TestCase):
         self.assertIn('rota retornada é mostrada', system)
         self.assertIn('Não diga que a Z-SWAP compara todos os provedores', system)
         self.assertIn('rota mais eficiente por taxas e liquidez', system)
+        self.assertIn("'disponível naquele momento' não comprova", system)
         self.assertNotIn('descreva buscar/comparar rotas disponíveis', system)
 
     def test_bridge_prompt_conditions_platform_fee_before_comparing_costs(self):
