@@ -4,7 +4,33 @@ Date: 2026-10-27. Status: IN PROGRESS, not production accepted.
 This section supersedes older current-state labels below; the prior mission's
 checklists remain historical evidence, not proof of v2 completion.
 
-## 2026-10-27 latest smoke and forward-fix
+## 2026-10-27 current smoke and forward-fix checkpoint
+
+- [x] Freeze `0b67cbe6ca254f5d120fc872f4d8f3da89a92325` and verify
+  exact-SHA [ZION CI 40520733751](https://github.com/zettaceo/zion-community-bot/actions/runs/40520733751):
+  SUCCESS with 914 tests, secret scan and validation; local 914/914 also passed.
+- [!] Execute the first synthetic/PUBLIC v2-001 case once per model from private
+  manifest `20261027T142417435209Z-route-guard-smoke-manifest.json`.
+  Both automated results were `REVIEW_REQUIRED / accepted`, then factual
+  review marked Ministral and K3 **FAIL**. Ministral named a quote source not
+  present in its retrieved section and generalized wallet-signature
+  confirmation. K3 moved a bridge availability qualifier to swaps and made a
+  categorical future promise from a seed-phrase warning. Broader PUBLIC/CURRENT
+  corpus does discuss temporal swap availability; the K3 finding is about
+  retrieved grounding and wording, and its original FAIL remains recorded.
+  Nine other smoke IDs per model were NOT EXECUTED.
+- [x] Prepare a material fix: bounded three-section PUBLIC/CURRENT
+  companion retrieval for explanatory singular/plural swap questions, a prompt
+  that preserves the scope of retrieved facts, and a source-conditional output
+  guard. Focused tests passed 21/21 and 39/39; full local validation passed
+  922/922 with secret scan and project validation OK. Exact-SHA CI and a new
+  frozen smoke are still pending.
+- [ ] Human-accept both models' smoke before a comparable full benchmark; run
+  the remaining 108-case and four 12-turn acceptance stages as applicable.
+  Controlled Telegram, account data-handling/security and release approval
+  remain open. Kimi is inactive; production is unchanged by this work.
+
+## 2026-10-27 prior smoke and forward-fix
 
 - [x] Freeze fee-scope candidate `a4944356f7d1f10ff890393ca97bdd8077391e23`.
   Exact-SHA [ZION CI 40515511601](https://github.com/zettaceo/zion-community-bot/actions/runs/40515511601)
@@ -23,10 +49,11 @@ checklists remain historical evidence, not proof of v2 completion.
 - [x] Reproduce and cover false positives on user-selected routes/denials and
   false negatives on unsupported minimum-price claims. The narrow follow-up
   guard change passed 914/914 local tests, secret scan and validation.
-- [ ] Obtain exact-SHA CI and fresh frozen provider acceptance for the follow-up.
-  Full 108-case, four 12-turn, controlled Telegram, data-handling/security and
-  release gates remain open. The isolated evaluation ledger after a494 v2-001
-  is 2,342,437 micro-USD reserved/estimated, not a provider invoice. Kimi
+- [!] Exact-SHA CI later passed for this follow-up at 0b67cbe; the newly
+  frozen provider acceptance then failed as recorded above. Full 108-case,
+  four 12-turn, controlled Telegram, data-handling/security and release gates
+  remain open. The isolated evaluation ledger after a494 v2-001 was
+  2,342,437 micro-USD reserved/estimated, not a provider invoice. Kimi
   remains inactive and production unchanged.
 
 ## Prior 2026-10-27 provider benchmark checkpoint

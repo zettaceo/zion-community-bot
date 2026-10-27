@@ -11,6 +11,8 @@ from unittest.mock import patch
 import httpx
 
 from tests.helpers import make_settings
+from zion.knowledge import KnowledgeBase
+from zion.knowledge_tools import KnowledgeTools
 from zion.mistral import (
     MistralClient,
     MistralRateLimited,
@@ -77,6 +79,31 @@ class CapturingMistralClient(MistralClient):
 
 
 class MistralBoundaryTests(unittest.TestCase):
+    def test_short_swap_question_receives_source_scope_in_provider_prompt(self):
+        context = KnowledgeTools(KnowledgeBase(
+            Path(__file__).resolve().parents[1] / 'knowledge')).call(
+                'search_approved_knowledge', {'query': 'Como funciona os swaps?'},
+                agent_id='mimir').render()
+        self.assertIn('[Contexto oficial: Swaps e pontes]', context)
+        self.assertIn('[Contexto oficial: Agregadores de swap]', context)
+        self.assertIn('Jupiter', context)
+        self.assertNotIn('assinatura', context.casefold())
+        with tempfile.TemporaryDirectory() as tmp:
+            client = CapturingMistralClient(make_settings(Path(tmp)))
+            asyncio.run(client.answer(
+                question='Como funciona os swaps?', context=context,
+                agent_id='mimir'))
+        system = client.messages[0]['content']
+        payload = json.loads(client.messages[1]['content'].split('\n', 1)[1])
+        self.assertEqual(payload['official_context'], context)
+        self.assertIn('Um provedor nomeado, exemplo de rede ou mecanismo de confirmação', system)
+        self.assertIn('outra seção não recuperada', system)
+        self.assertIn('qualifica pontes', system)
+        self.assertIn('não estenda essa ressalva automaticamente aos swaps', system)
+        self.assertIn('nem que toda confirmação de swap exija assinatura', system)
+        self.assertIn('afirme esse mecanismo somente se a fonte recuperada', system)
+        self.assertIn('não a converta em promessa absoluta', system)
+
     def test_each_agent_receives_a_distinct_bounded_identity_prompt(self):
         expectations = {
             "zion": "orquestrador oficial",

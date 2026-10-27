@@ -70,6 +70,99 @@ class KnowledgeToolsTests(unittest.TestCase):
         self.assertEqual(recover_language('parceria cm vcs').canonical, 'parceria com voces')
         self.assertIn('https://example.test/cm', recover_language('https://example.test/cm funciona').canonical)
 
+    def test_swap_explanation_keeps_complete_public_routing_context(self):
+        expected = ['Swaps e pontes', 'Agregadores de swap', 'Swap']
+        for query in ('Como funciona os swaps?', 'Como funciona o swap?',
+                      'E os swaps como são executados?'):
+            with self.subTest(query=query):
+                result = self.tools.call('search_approved_knowledge',
+                    {'query': query}, agent_id=AgentId.MIMIR)
+                headings = [item.heading for item in result.evidence]
+                self.assertEqual(headings[:3], expected)
+                for heading in expected:
+                    self.assertEqual(headings.count(heading), 1)
+                rendered = result.render()
+                self.assertIn('Jupiter para a mesma rede', rendered)
+                self.assertIn('LI.FI para operações entre redes', rendered)
+                self.assertIn('Não compara todas as fontes em cada pedido', rendered)
+                self.assertIn('A disponibilidade e o preço de uma rota dependem', rendered)
+                self.assertIn('CoW Protocol é uma integração de ordens limitadas', rendered)
+                self.assertNotIn('[Contexto oficial: Roteamento DEX e bridge]', rendered)
+                self.assertLessEqual(len(rendered), 8000)
+
+    def test_swap_explanation_is_not_injected_into_plan_or_fee_questions(self):
+        identities = {('z-swap.md', 'Swaps e pontes'),
+                      ('z-swap.md', 'Agregadores de swap'),
+                      ('zswap-features.md', 'Swap')}
+        bundle = [chunk for chunk in self.knowledge.chunks
+                  if (chunk.source, chunk.heading) in identities]
+        generic = next(chunk for chunk in self.knowledge.chunks
+                       if chunk.heading == 'O que é a Z-SWAP?')
+        kb = SimpleNamespace(load_errors=[], chunks=bundle,
+            search=lambda *a, **kw: [generic])
+        for query in ('Como funciona a taxa de swap?',
+                      'Como funciona o plano Pro para swap?',
+                      'Qual é o preço do swap?'):
+            with self.subTest(query=query):
+                result = KnowledgeTools(kb).call('search_approved_knowledge',
+                    {'query': query}, agent_id=AgentId.MIMIR)
+                self.assertEqual([item.heading for item in result.evidence],
+                                 [generic.heading])
+
+    def test_swap_explanation_bundle_requires_every_public_current_authority(self):
+        identities = (('z-swap.md', 'Swaps e pontes'),
+                      ('z-swap.md', 'Agregadores de swap'),
+                      ('zswap-features.md', 'Swap'))
+        bundle = [next(chunk for chunk in self.knowledge.chunks
+                       if (chunk.source, chunk.heading) == identity)
+                  for identity in identities]
+        generic = next(chunk for chunk in self.knowledge.chunks
+                       if chunk.heading == 'O que é a Z-SWAP?')
+        controlled = next(chunk for chunk in self.knowledge.chunks
+                          if chunk.authority.classification is KnowledgeClassification.CONTROLLED)
+        for missing in range(len(bundle)):
+            for authority in (
+                replace(bundle[missing].authority,
+                    classification=KnowledgeClassification.CONTROLLED),
+                replace(bundle[missing].authority,
+                    status=KnowledgeSourceStatus.SUPERSEDED),
+                replace(bundle[missing].authority,
+                    allowed_agents=frozenset({AgentId.EIR})),
+            ):
+                with self.subTest(missing=missing, authority=authority):
+                    unavailable = list(bundle)
+                    unavailable[missing] = replace(bundle[missing], authority=authority)
+                    kb = SimpleNamespace(load_errors=[], chunks=unavailable,
+                        search=lambda *a, **kw: [generic, controlled])
+                    result = KnowledgeTools(kb).call('search_approved_knowledge',
+                        {'query': 'Como funciona os swaps?'}, agent_id=AgentId.MIMIR)
+                    self.assertEqual([item.heading for item in result.evidence],
+                                     [generic.heading])
+                    self.assertNotIn(controlled.text, result.render())
+
+    def test_swap_explanation_bundle_is_atomic_within_evidence_bound(self):
+        identities = (('z-swap.md', 'Swaps e pontes'),
+                      ('z-swap.md', 'Agregadores de swap'),
+                      ('zswap-features.md', 'Swap'))
+        bundle = [next(chunk for chunk in self.knowledge.chunks
+                       if (chunk.source, chunk.heading) == identity)
+                  for identity in identities]
+        generic = next(chunk for chunk in self.knowledge.chunks
+                       if chunk.heading == 'O que é a Z-SWAP?')
+        kb = SimpleNamespace(load_errors=[], chunks=bundle,
+            search=lambda *a, **kw: [replace(generic, text='x' * 7900)])
+        result = KnowledgeTools(kb).call('search_approved_knowledge',
+            {'query': 'Como funciona os swaps?'}, agent_id=AgentId.MIMIR)
+        self.assertEqual([item.heading for item in result.evidence],
+                         [chunk.heading for chunk in bundle])
+        self.assertLessEqual(len(result.render()), 8000)
+
+        kb.chunks = [bundle[0], bundle[1], replace(bundle[2], text='x' * 8000)]
+        kb.search = lambda *a, **kw: [generic]
+        result = KnowledgeTools(kb).call('search_approved_knowledge',
+            {'query': 'Como funciona os swaps?'}, agent_id=AgentId.MIMIR)
+        self.assertEqual([item.heading for item in result.evidence], [generic.heading])
+
     def test_product_comparison_carries_precise_feature_status(self):
         result = self.tools.call('search_approved_knowledge',
             {'query': _COMPARISON_QUERY}, agent_id=AgentId.ZION)

@@ -1,6 +1,6 @@
 # Cognitive v2 — provider benchmark protocol
 
-Status: LATEST a494435 SMOKE FAILED AT MINISTRAL v2-001; K3 NOT EXECUTED.
+Status: LATEST 0b67cbe SMOKE FAILED AT v2-001 FOR BOTH MINISTRAL AND K3.
 EARLIER c06f53b K3 SMOKE PASSED, BUT ITS 98-CASE CONTINUATION FAILED AT
 v2-003. NOT CERTIFIED. This is a
 generation-quality comparison, not evidence of correct Telegram routing,
@@ -119,7 +119,41 @@ generation, native tool path, runtime delivery and controlled Telegram tests
 have separate verdicts. No overall model winner is declared while any required
 dimension remains untested or failed.
 
-## Latest frozen smoke — 2026-10-27
+## Latest frozen smoke — 2026-10-27, candidate 0b67cbe
+
+Candidate `0b67cbe6ca254f5d120fc872f4d8f3da89a92325` passed 914/914
+local tests, `SECRET SCAN: OK`, `ZION VALIDATION: OK`, and exact-SHA
+[ZION CI 40520733751](https://github.com/zettaceo/zion-community-bot/actions/runs/40520733751)
+with the same 914-test total. The private
+`20261027T142417435209Z-route-guard-smoke-manifest.json` froze both models,
+the same ten synthetic/PUBLIC case IDs, source hashes and dated prices.
+Preflight checked all 20 model/case combinations without provider calls.
+
+Only v2-001 was generated once per model. Both outputs were automated
+`REVIEW_REQUIRED / accepted`; this is **not** human acceptance. Factual review
+marked **FAIL** for Ministral 8B: it named a quote source absent from the
+retrieved section and stated a categorical wallet-signature confirmation
+mechanism that section did not establish. Kimi K3 was initially marked
+**FAIL** for moving a current-availability qualifier from bridges to swaps
+and turning a normative seed-phrase warning into an unconditional future
+promise. Later corpus review located temporal swap availability elsewhere in
+PUBLIC/CURRENT material, so this is a retrieved-context scope and wording
+finding, not proof that the product claim is false. The original FAIL is
+preserved. Review metadata is private in
+`20261027T142417435209Z-route-guard-smoke-review.jsonl`; no response text is
+copied here. The other nine smoke IDs per model were **NOT EXECUTED**.
+
+The next candidate bundles three authorized PUBLIC/CURRENT swap
+sections for explanatory singular/plural questions, adds retrieved-context
+qualifiers to the prompt, and extends the deterministic guard for unsupported
+named quote sources, signature claims and absolute seed-request promises.
+Focused KnowledgeTools and response/prompt tests passed 21/21 and 39/39;
+full local validation passed **922/922**, `SECRET SCAN: OK`,
+`ZION VALIDATION: OK`. Exact-SHA CI and a newly frozen provider smoke are
+**PENDING**. Neither model qualifies for the full
+benchmark or production activation from this evidence. Kimi remains inactive.
+
+## Prior frozen smoke — 2026-10-27, candidate a494435
 
 The fee-scope fix at `a4944356f7d1f10ff890393ca97bdd8077391e23` passed
 exact-SHA [ZION CI 40515511601](https://github.com/zettaceo/zion-community-bot/actions/runs/40515511601)

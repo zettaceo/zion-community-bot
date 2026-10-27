@@ -448,6 +448,156 @@ def _asserted_exclusive_wallet_connection(answer: str) -> bool:
     return False
 
 
+def _asserted_universal_swap_signature(answer: str) -> bool:
+    """Reject only an explicit every-swap signature requirement."""
+    folded = _mask_reported_quotes(_fold(answer))
+    folded = re.sub(r'\b(?:mas|porem|contudo|however|but)\b', ';', folded)
+    subject = (r'\b(?:todos os swaps?|cada swap|qualquer swap|'
+               r'toda confirmacao (?:de|do) (?:um )?swap|'
+               r'a confirmacao de (?:todo|qualquer|cada) swap)\b')
+    assertion = re.compile(
+        subject + r'[^.!?;\n]{0,85}\b(?:exige(?:m)?|requer(?:em)?|'
+        r'precisa(?:m)?(?: de)?|usa(?:m)?|e feita|e confirmada|ocorre)\b'
+        r'[^.!?;\n]{0,45}\b(?:assinatura\w*|assinar)\b|'
+        + subject + r'[^.!?;\n]{0,60}\b(?:voce|o usuario)\s+assina\b|'
+        r'\bassinatura\w*\b[^.!?;\n]{0,45}\be obrigatoria\b'
+        r'[^.!?;\n]{0,45}' + subject)
+    for sentence in re.finditer(r'[^.!?;\n]+[.!?;\n]?', folded):
+        clause = sentence.group().strip()
+        if clause.endswith('?'):
+            continue
+        for match in assertion.finditer(clause):
+            if (_reported_or_denied_prefix(clause[:match.start()])
+                    or re.search(r'\b(?:nao|nem|nunca)\s*$', clause[:match.start()])
+                    or re.search(r'\b(?:nao|nem|nunca)\b', match.group())):
+                continue
+            return True
+    return False
+
+
+_QUOTE_SOURCE_NAMES = {
+    'jupiter': r'\bjupiter\b',
+    'li.fi': r'\blifi\b',
+    '0x': r'\b0x\b',
+    'cow protocol': r'\bcow protocol\b',
+}
+
+
+def _quote_source_claims(text: str) -> set[str]:
+    """Find positive, named swap-quote attributions; not mere brand mentions."""
+    folded = _mask_reported_quotes(_fold(text))
+    folded = re.sub(r'\bli\s*(?:\.\s*|\[\.\]\s*)fi\b', 'lifi', folded)
+    folded = re.sub(r'\b(?:mas|porem|contudo|however|but)\b', ';', folded)
+    found: set[str] = set()
+    for sentence in re.finditer(r'[^.!?;]+[.!?;]?', folded):
+        clause = ' '.join(sentence.group().split())
+        if clause.endswith('?'):
+            continue
+        for name, brand in _QUOTE_SOURCE_NAMES.items():
+            patterns = (
+                r'\b(?:fontes?|provedores?) de cotacao\b[^.!?;]{0,180}' + brand,
+                r'\bcotacao\b[^.!?;]{0,45}\b(?:vem|vir|fornecid\w*|'
+                r'retornad\w*|obtida|consultad\w*|recebid\w*)\b'
+                r'[^.!?;]{0,65}' + brand,
+                r'\bcotacao\s+(?:de|da|do|na|no|pela|pelo|via)\s+' + brand,
+                brand + r'[^.!?;]{0,90}\b(?:fontes?|provedores?) de cotacao\b',
+                brand + r'[^.!?;]{0,50}\b(?:atua como|funciona como|'
+                r'fornece|retorna|gera|oferece|pode fornecer)\b'
+                r'[^.!?;]{0,40}\bcotacao\b',
+            )
+            for pattern in patterns:
+                match = re.search(pattern, clause)
+                if match is None:
+                    continue
+                before = clause[:match.start()]
+                if (_reported_or_denied_prefix(before)
+                        or re.search(r'\b(?:voce|usuario) '
+                                     r'(?:mencionou|citou|perguntou|alegou)\b'
+                                     r'[^.!?;]{0,65}$', before)
+                        or re.search(r'\b(?:nao sei se|nao (?:confirmo|posso confirmar|'
+                                     r'cita|inclui|usa|conheco|lista|menciona|'
+                                     r'documenta|comprova|confirma))\b'
+                                     r'[^.!?;]{0,45}$', before)
+                        or re.search(r'\b(?:nao|nem|nunca)\b', match.group())
+                        or re.match(r'\s+nao (?:e|esta|foi|sera) '
+                                    r'(?:confirmad[ao]|uma? fonte|um provedor)\b',
+                                    clause[match.end():match.end() + 40])):
+                    continue
+                found.add(name)
+                break
+    return found
+
+
+def _unsupported_named_quote_source(answer: str, official_context: str) -> bool:
+    claimed = _quote_source_claims(answer)
+    if not claimed:
+        return False
+    # Only evidence inside explicit PUBLIC context sections authorizes a
+    # positive attribution. A plan-fee mention alone is not source evidence.
+    sections = re.split(r'(?m)^\[Contexto oficial: [^\]\n]+\]\s*$',
+                        official_context)
+    approved = set().union(*(_quote_source_claims(body) for body in sections[1:]))
+    return bool(claimed - approved)
+
+
+def _swap_confirmation_signature_claim(text: str, *, swap_section: bool) -> bool:
+    """A categorical signature mechanism, scoped to a swap answer or section."""
+    folded = _mask_reported_quotes(_fold(text))
+    folded = re.sub(r'\b(?:mas|porem|contudo|however|but)\b', ';', folded)
+    has_swap = bool(re.search(r'\b(?:swaps?|trocas?)\b', folded))
+    for sentence in re.finditer(r'[^.!?;\n]+[.!?;\n]?', folded):
+        clause = sentence.group().strip()
+        if clause.endswith('?') or re.search(r'\bautenticacao\b', clause):
+            continue
+        match = re.search(
+            r'\bconfirmacao\b[^.!?;\n]{0,65}\b(?:e feita|ocorre|se da|exige|'
+            r'requer)\b[^.!?;\n]{0,45}\bassinatura\w*\b[^.!?;\n]{0,35}'
+            r'\bcarteira\b|\b(?:swaps?|trocas?)\b[^.!?;\n]{0,65}'
+            r'\bconfirmacao\b[^.!?;\n]{0,65}\bassinatura\w*\b', clause)
+        if match is None or not (swap_section or has_swap):
+            continue
+        if (_reported_or_denied_prefix(clause[:match.start()])
+                or re.search(r'\b(?:nao sei se|nao (?:confirmo|posso confirmar))\b'
+                             r'[^.!?;\n]{0,45}$', clause[:match.start()])
+                or re.search(r'\b(?:nao|nem|nunca)\b', match.group())):
+            continue
+        return True
+    return False
+
+
+def _unsupported_swap_confirmation_signature(answer: str, official_context: str) -> bool:
+    parts = re.split(r'(?m)^\[Contexto oficial: ([^\]\n]+)\]\s*$',
+                     official_context)
+    swap_section = any(re.search(r'\b(?:swaps?|trocas?)\b', _fold(heading))
+                       for heading in parts[1::2])
+    if not _swap_confirmation_signature_claim(answer, swap_section=swap_section):
+        return False
+    return not any(_swap_confirmation_signature_claim(
+        body, swap_section=bool(re.search(r'\b(?:swaps?|trocas?)\b', _fold(heading))))
+        for heading, body in zip(parts[1::2], parts[2::2]))
+
+
+def _absolute_seed_request_promise(text: str) -> bool:
+    """A future guarantee is stronger than the documented security rule."""
+    folded = _mask_reported_quotes(_fold(text))
+    pattern = re.compile(
+        r'\b(?:a z[\s-]?swap|a plataforma)\s+(?:nunca|jamais)\s+'
+        r'(?:(?:vai|ira)\s+)?(?:pedir|pedira|solicitar|solicitara)\b'
+        r'[^.!?;\n]{0,70}\b(?:seed phrase|frase semente|chave privada)\b')
+    for sentence in re.finditer(r'[^.!?;\n]+[.!?;\n]?', folded):
+        clause = sentence.group().strip()
+        if clause.endswith('?'):
+            continue
+        for match in pattern.finditer(clause):
+            before = clause[:match.start()]
+            if (_reported_or_denied_prefix(before)
+                    or re.search(r'\bnao (?:posso|podemos) (?:garantir|prometer) que\b'
+                                 r'[^.!?;\n]{0,45}$', before)):
+                continue
+            return True
+    return False
+
+
 def _unapproved_wallet_example(answer: str, official_context: str) -> bool:
     """Reject only observed unsourced wallet examples, not neutral questions."""
     folded = _mask_reported_quotes(_fold(answer))
@@ -1014,9 +1164,19 @@ def validate_public_response(text: str, *, official_context: str) -> ResponseChe
         return ResponseCheck(False, 'unsupported_free_swap')
     if _unsupported_route_optimization(text):
         return ResponseCheck(False, 'unsupported_route_optimization')
+    if _unsupported_named_quote_source(text, official_context):
+        return ResponseCheck(False, 'unsupported_named_quote_source')
     if (_asserted_exclusive_wallet_connection(text)
             and not _asserted_exclusive_wallet_connection(official_context)):
         return ResponseCheck(False, 'unsupported_wallet_connection_signature')
+    if (_asserted_universal_swap_signature(text)
+            and not _asserted_universal_swap_signature(official_context)):
+        return ResponseCheck(False, 'unsupported_universal_swap_signature')
+    if _unsupported_swap_confirmation_signature(text, official_context):
+        return ResponseCheck(False, 'unsupported_swap_confirmation_signature')
+    if (_absolute_seed_request_promise(text)
+            and not _absolute_seed_request_promise(official_context)):
+        return ResponseCheck(False, 'unsupported_absolute_seed_promise')
     if _unapproved_wallet_example(text, official_context):
         return ResponseCheck(False, 'unapproved_wallet_example')
     # Reviewed regressions for invented competitor comparisons. Entity presence
@@ -1260,6 +1420,11 @@ def _public_swap_route_reply(official_context: str) -> str | None:
 
 def public_fallback_for(reason: str, *, official_context: str = '', question: str = '') -> str:
     """Host-owned public reply for a few known quality failures."""
+    if reason in {'unsupported_universal_swap_signature',
+                  'unsupported_swap_confirmation_signature',
+                  'unsupported_absolute_seed_promise'}:
+        return ('Confira os detalhes da operação antes de confirmar. '
+                'Não compartilhe seed phrase ou chave privada.')
     if reason in {'unsupported_wallet_connection_signature',
                   'unapproved_wallet_example'}:
         if re.search(r'\b(?:conecta\w*|conexao|carteira\w*|wallet\w*)\b',
@@ -1268,7 +1433,8 @@ def public_fallback_for(reason: str, *, official_context: str = '', question: st
                     'e rede você usa e qual mensagem de erro aparece. Não compartilhe '
                     'seed phrase, chave privada ou senha da carteira.')
         return PUBLIC_FALLBACK
-    if reason in {'best_price_guarantee', 'unsupported_route_optimization'}:
+    if reason in {'best_price_guarantee', 'unsupported_route_optimization',
+                  'unsupported_named_quote_source'}:
         reply = _public_swap_route_reply(official_context)
         if reply is not None:
             return reply

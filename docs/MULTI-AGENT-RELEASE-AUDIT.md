@@ -1,6 +1,37 @@
 # ZION Multi-Agent Command System - Release Audit
 
-## Cognitive v2 latest preproduction checkpoint — 2026-10-27
+## Cognitive v2 latest preproduction checkpoint — 2026-10-27, 0b67cbe
+
+**Verdict: NOT RELEASE CERTIFIED.** Candidate
+`0b67cbe6ca254f5d120fc872f4d8f3da89a92325` passed exact-SHA
+[ZION CI 40520733751](https://github.com/zettaceo/zion-community-bot/actions/runs/40520733751),
+914/914 local tests, `SECRET SCAN: OK` and `ZION VALIDATION: OK`. The private
+synthetic/PUBLIC manifest
+`20261027T142417435209Z-route-guard-smoke-manifest.json` froze ten IDs for
+each model, with source hashes, price snapshot and preflight. Only v2-001 was
+generated once per model. Both automated results were
+`REVIEW_REQUIRED / accepted`, but factual review marked **FAIL** for both.
+Ministral named a quote source outside the retrieved section and generalized
+a signature confirmation mechanism. K3 moved a bridge availability qualifier
+to swaps and converted a normative seed-phrase warning into a categorical
+future promise. A later PUBLIC/CURRENT corpus check found temporal swap
+availability elsewhere; this narrows the K3 finding to retrieved grounding
+and wording without erasing its initial FAIL. The remaining nine IDs per
+model were **NOT EXECUTED**. Review metadata is private in
+`20261027T142417435209Z-route-guard-smoke-review.jsonl`; no answer text or
+secret is copied here.
+
+The next candidate adds a bounded three-section PUBLIC/CURRENT swap
+retrieval bundle, prompt scoping and source-conditional output checks for the
+observed claims. Focused tests passed 21/21 and 39/39; full local validation
+passed 922/922, secret scan and project validation OK. Exact-SHA CI and new
+provider acceptance are **PENDING**. Draft PR #66
+remains preproduction. The 108-case benchmark, four 12-turn conversations,
+native/Telegram acceptance, account data-handling approval and separate
+release authorization remain open. Kimi is inactive; this work did not
+change production.
+
+## Prior cognitive v2 preproduction checkpoint — 2026-10-27, a494435
 
 **Verdict: NOT RELEASE CERTIFIED.** Fee-scope candidate
 `a4944356f7d1f10ff890393ca97bdd8077391e23` passed exact-SHA
@@ -21,8 +52,9 @@ secret scan, validation and exact-SHA
 [ZION CI 40516764932](https://github.com/zettaceo/zion-community-bot/actions/runs/40516764932).
 Independent red-team found false positives on user-selected routes/denials and
 false negatives on unsupported minimum-price claims. A narrow follow-up
-guard change passed 914/914 local tests, secret scan and validation; its
-exact-SHA CI and fresh frozen provider retest remain **PENDING**. Security
+guard change passed 914/914 local tests, secret scan and validation. Its
+exact-SHA CI and frozen provider retest later completed as recorded above;
+the provider retest **FAILED**. Security
 review found no active Kimi leak, but real user/lead data transfer and the
 Kimi account data-handling policy remain unapproved.
 Native/Telegram, 108-case and multi-turn acceptance remain open. PR #66 stays

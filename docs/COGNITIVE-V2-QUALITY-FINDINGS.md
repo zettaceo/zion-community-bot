@@ -576,3 +576,40 @@ passed 914/914 local tests, secret scan and validation; exact-SHA CI and a
 fresh provider retest are **PENDING**.
 The a494 and c06f failures remain separate historical findings. No full-model,
 multi-turn, Telegram or production acceptance follows. Kimi remains inactive.
+
+## 0b67cbe frozen smoke and retrieved-grounding findings — 2026-10-27
+
+Candidate `0b67cbe6ca254f5d120fc872f4d8f3da89a92325` passed 914/914
+local tests, `SECRET SCAN: OK`, `ZION VALIDATION: OK` and exact-SHA
+[ZION CI 40520733751](https://github.com/zettaceo/zion-community-bot/actions/runs/40520733751)
+with 914 tests. The private manifest
+`20261027T142417435209Z-route-guard-smoke-manifest.json` froze both models,
+the same ten synthetic/PUBLIC case IDs and dated source/price identities.
+Preflight accepted all 20 model/case combinations without making a provider
+request. Only v2-001 was then generated once per model.
+
+| Model | Automated result | Initial factual review | Finding |
+| --- | --- | --- | --- |
+| Ministral 8B | `REVIEW_REQUIRED / accepted` | **FAIL** | Named quote-source example absent from the retrieved “Swaps e pontes” section; categorical wallet-signature confirmation mechanism not established by that section. |
+| Kimi K3 | `REVIEW_REQUIRED / accepted` | **FAIL** | Applied the source's bridge availability qualifier to swaps and changed a normative seed-phrase warning into an unconditional future promise. |
+
+The later independent corpus check found temporal swap availability in other
+PUBLIC/CURRENT sections. Thus the K3 temporal concern is specifically a
+retrieval/context-scoping issue, not a demonstrated contradiction of the
+public product corpus. The unconditional seed-phrase phrasing remains an
+overstatement. The original review FAIL is retained; no PASS is inferred
+from this nuance. Private review metadata is in
+`20261027T142417435209Z-route-guard-smoke-review.jsonl`. No raw model answer
+or secret is reproduced here. The other nine smoke cases per model were
+**NOT EXECUTED**, so neither model advanced to the full benchmark.
+
+The next candidate adds an atomic, bounded bundle of three
+PUBLIC/CURRENT swap sections for explanatory singular/plural questions,
+prompts that require claims to follow retrieved source scope, and deterministic
+source-conditional checks for unsupported named quote sources, signature
+mechanisms and absolute seed-request promises. Focused tests passed 21/21
+for KnowledgeTools and 39/39 for response/prompt boundaries. Full local
+validation passed **922/922**, secret scan and validation OK. Exact-SHA CI
+and a newly frozen provider smoke are **PENDING**;
+this is not a model-quality PASS. Kimi remains inactive and no production
+change follows from this evidence.

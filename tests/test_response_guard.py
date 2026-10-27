@@ -95,7 +95,7 @@ class ResponseGuardTests(unittest.TestCase):
                 'search_approved_knowledge', {'query': 'Como funciona os swaps?'},
                 agent_id='mimir').render()
         self.assertIn('[Contexto oficial: Swaps e pontes]', context)
-        self.assertNotIn('[Contexto oficial: Swap]', context)
+        self.assertIn('[Contexto oficial: Swap]', context)
         for answer in (
             'A Z-SWAP analisa taxas e liquidez e escolhe automaticamente a melhor cotação para você.',
             'A plataforma então **consulta provedores autorizados** (como Jupiter '
@@ -237,6 +237,169 @@ class ResponseGuardTests(unittest.TestCase):
                     self.assertNotIn('seleciona a fonte de cotação', fallback)
                     self.assertTrue(validate_public_response(
                         fallback, official_context=weak).allowed)
+
+    def test_every_swap_signature_claim_requires_explicit_public_support(self):
+        context = KnowledgeTools(KnowledgeBase(
+            Path(__file__).resolve().parents[1] / 'knowledge')).call(
+                'search_approved_knowledge', {'query': 'Como funciona os swaps?'},
+                agent_id='mimir').render()
+        self.assertIn('[Contexto oficial: Swaps e pontes]', context)
+        self.assertNotIn('assinatura', context.casefold())
+        for answer in (
+            'Todos os swaps exigem assinatura na carteira do usuário.',
+            'Toda confirmação de swap é feita por assinatura na carteira.',
+            'A confirmação de qualquer swap exige assinatura na carteira.',
+            'Para cada swap, o usuário assina na própria carteira.',
+            'Uma assinatura na carteira é obrigatória para cada swap.',
+        ):
+            with self.subTest(answer=answer):
+                self.assertEqual(validate_public_response(
+                    answer, official_context=context).reason,
+                    'unsupported_universal_swap_signature')
+        for answer in (
+            'Nem todos os swaps exigem assinatura na carteira.',
+            'Não é verdade que todos os swaps exigem assinatura na carteira.',
+            'Todos os swaps exigem assinatura na carteira?',
+            'Você perguntou: "Todos os swaps exigem assinatura na carteira?" '
+            'A base não confirma isso.',
+            'A autenticação por assinatura é diferente da confirmação de um swap.',
+            'Confira a operação antes de confirmar. Não compartilhe seed phrase '
+            'ou chave privada.',
+            'A Z-SWAP nunca deve pedir seed phrase ou chave privada.',
+            'A rota de bridge depende da disponibilidade no momento da consulta.',
+        ):
+            with self.subTest(answer=answer):
+                self.assertTrue(validate_public_response(
+                    answer, official_context=context).allowed)
+        supported = ('[Contexto oficial: Confirmação de swaps]\n'
+                     'Todos os swaps exigem assinatura na carteira do usuário.')
+        self.assertTrue(validate_public_response(
+            'Todos os swaps exigem assinatura na carteira do usuário.',
+            official_context=supported).allowed)
+        fallback = public_fallback_for('unsupported_universal_swap_signature',
+                                       official_context=context)
+        self.assertTrue(validate_public_response(
+            fallback, official_context=context).allowed)
+
+    def test_named_quote_source_and_swap_confirmation_need_retrieved_evidence(self):
+        retrieved = KnowledgeTools(KnowledgeBase(
+            Path(__file__).resolve().parents[1] / 'knowledge')).call(
+                'search_approved_knowledge', {'query': 'Como funciona os swaps?'},
+                agent_id='mimir').render()
+        self.assertIn('[Contexto oficial: Agregadores de swap]', retrieved)
+        self.assertIn('Jupiter', retrieved)
+        context = ('[Contexto oficial: Swaps e pontes]\n'
+                   'A Z-SWAP seleciona a fonte conforme as redes e mostra '
+                   'a rota retornada. Antes de confirmar, confira os custos.')
+        self.assertNotIn('Jupiter', context)
+        self.assertNotIn('assinatura', context.casefold())
+        for answer in (
+            'Se você trocar tokens na Solana, a cotação pode vir de um '
+            'provedor como a Jupiter.',
+            'A cotação vem de Jupiter na Solana.',
+            'LI.FI é fonte de cotação entre redes.',
+            'A cotação é fornecida pela 0x para redes EVM.',
+            'CoW Protocol é fonte de cotação para swaps.',
+        ):
+            with self.subTest(answer=answer):
+                self.assertEqual(validate_public_response(
+                    answer, official_context=context).reason,
+                    'unsupported_named_quote_source')
+        for answer in (
+            'A confirmação é feita por assinatura na carteira.',
+            'No swap, a confirmação é feita por assinatura na carteira.',
+        ):
+            with self.subTest(answer=answer):
+                self.assertEqual(validate_public_response(
+                    answer, official_context=context).reason,
+                    'unsupported_swap_confirmation_signature')
+        for answer in (
+            'A cotação pode vir de um provedor como a Jupiter?',
+            'A cotação não vem da Jupiter.',
+            'A cotação de Jupiter não é confirmada.',
+            'Jupiter não é fonte de cotação.',
+            'O usuário perguntou se a cotação viria de Jupiter.',
+            'Você mencionou Jupiter como fonte de cotação; a base não confirma isso.',
+            'A documentação não lista Jupiter como fonte de cotação.',
+            'Não há confirmação de que a cotação venha da Jupiter.',
+            'A confirmação não é feita por assinatura na carteira.',
+            'Não posso confirmar que a confirmação é feita por assinatura na carteira.',
+            'A confirmação é feita por assinatura na carteira?',
+            'Confira se é necessário assinar antes de confirmar o swap.',
+            'Na autenticação, a confirmação é feita por assinatura na carteira.',
+            'Nunca compartilhe seed phrase ou chave privada.',
+        ):
+            with self.subTest(answer=answer):
+                self.assertTrue(validate_public_response(
+                    answer, official_context=context).allowed)
+        quote_source = ('[Contexto oficial: Swap]\n'
+                        'As fontes de cotação são 0x para a mesma rede EVM, '
+                        'Jupiter para a mesma rede Solana e LI.FI para '
+                        'operações entre redes. CoW Protocol não é fonte de '
+                        'cotação do fluxo de Swap.')
+        for answer in (
+            'A cotação pode vir de um provedor como a Jupiter.',
+            'LI.FI é fonte de cotação entre redes.',
+            'A cotação é fornecida pela 0x para redes EVM.',
+        ):
+            with self.subTest(answer=answer):
+                self.assertTrue(validate_public_response(
+                    answer, official_context=quote_source).allowed)
+        self.assertEqual(validate_public_response(
+            'CoW Protocol é fonte de cotação para swaps.',
+            official_context=quote_source).reason, 'unsupported_named_quote_source')
+        fee_only = ('[Contexto oficial: Taxas Solana, Jupiter e LI.FI]\n'
+                    'Na Jupiter, a cobrança varia conforme o par.')
+        self.assertTrue(validate_public_response(
+            'Na Jupiter, a taxa varia e a cotação pode mudar.',
+            official_context=fee_only).allowed)
+        self.assertEqual(validate_public_response(
+            'A cotação vem da Jupiter.', official_context=fee_only).reason,
+            'unsupported_named_quote_source')
+        signature_source = ('[Contexto oficial: Confirmação de swaps]\n'
+                            'No swap, a confirmação é feita por assinatura na carteira.')
+        self.assertTrue(validate_public_response(
+            'A confirmação é feita por assinatura na carteira.',
+            official_context=signature_source).allowed)
+        for reason in ('unsupported_named_quote_source',
+                       'unsupported_swap_confirmation_signature'):
+            with self.subTest(reason=reason):
+                fallback = public_fallback_for(reason, official_context=context)
+                self.assertTrue(validate_public_response(
+                    fallback, official_context=context).allowed)
+
+    def test_normative_seed_rule_is_not_an_absolute_future_promise(self):
+        normative = ('[Contexto oficial: Swaps e pontes]\n'
+                     'A Z-SWAP nunca deve pedir seed phrase ou chave privada '
+                     'para concluir uma operação.')
+        for answer in (
+            'A Z-SWAP nunca vai pedir sua seed phrase ou chave privada.',
+            'A Z-SWAP jamais pedirá sua chave privada.',
+            'A plataforma nunca irá solicitar sua seed phrase.',
+        ):
+            with self.subTest(answer=answer):
+                self.assertEqual(validate_public_response(
+                    answer, official_context=normative).reason,
+                    'unsupported_absolute_seed_promise')
+        for answer in (
+            'A Z-SWAP nunca deve pedir seed phrase ou chave privada.',
+            'Não compartilhe sua seed phrase ou chave privada.',
+            'A Z-SWAP nunca vai pedir sua seed phrase?',
+            'Não posso garantir que a Z-SWAP nunca vai pedir sua seed phrase.',
+            'O usuário perguntou: "A Z-SWAP nunca vai pedir minha seed phrase?"',
+        ):
+            with self.subTest(answer=answer):
+                self.assertTrue(validate_public_response(
+                    answer, official_context=normative).allowed)
+        explicit_future = ('[Contexto oficial: Política pública]\n'
+                           'A Z-SWAP nunca vai pedir sua seed phrase.')
+        self.assertTrue(validate_public_response(
+            'A Z-SWAP nunca vai pedir sua seed phrase.',
+            official_context=explicit_future).allowed)
+        fallback = public_fallback_for('unsupported_absolute_seed_promise',
+                                       official_context=normative)
+        self.assertTrue(validate_public_response(
+            fallback, official_context=normative).allowed)
 
     def test_wallet_connection_is_not_equated_with_authentication_signature(self):
         context = KnowledgeTools(KnowledgeBase(

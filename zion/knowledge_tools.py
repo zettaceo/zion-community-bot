@@ -32,6 +32,36 @@ _COMPARISON_STATUS_SECTIONS = (
     ('zswap-apn.md', 'Produto antes de promessa'),
     ('zswap-status.md', 'Beta'),
 )
+_SWAP_EXPLANATION_SECTIONS = (
+    ('z-swap.md', 'Swaps e pontes'),
+    ('z-swap.md', 'Agregadores de swap'),
+    ('zswap-features.md', 'Swap'),
+)
+
+
+def _swap_explanation_companions(query: str, corpus, agent: AgentId):
+    """Keep a short swap explanation with its public routing qualifications.
+
+    Singular/plural tokenization otherwise retrieves different fragments. The
+    three reviewed sections form one bounded unit; missing authority omits it.
+    """
+    folded = _normalize(query)
+    if (not re.search(r'\bswaps?\b', folded)
+            or not re.search(r'\b(?:como|funcion\w*|explic\w*|execut\w*|'
+                             r'roteamento)\b', folded)
+            or re.search(r'\b(?:plano\w*|tier\w*|taxa\w*|fee\w*|'
+                         r'preco\w*|custo\w*)\b', folded)):
+        return ()
+    selected = {}
+    for chunk in corpus:
+        identity = (chunk.source, chunk.heading)
+        if (identity in _SWAP_EXPLANATION_SECTIONS
+                and chunk.authority.classification is KnowledgeClassification.PUBLIC
+                and chunk.authority.allows(agent)):
+            selected[identity] = chunk
+    if len(selected) != len(_SWAP_EXPLANATION_SECTIONS):
+        return ()
+    return tuple(selected[identity] for identity in _SWAP_EXPLANATION_SECTIONS)
 
 
 def _comparison_status_companions(query: str, corpus, agent: AgentId):
@@ -243,6 +273,7 @@ class KnowledgeTools:
             chunks, fee_bundle = _complete_fee_plan_siblings(
                 chunks, getattr(self._knowledge, 'chunks', ()), agent)
         status_bundle = ()
+        swap_bundle = ()
         if operation == 'search_approved_knowledge':
             status_bundle = _comparison_status_companions(
                 query, getattr(self._knowledge, 'chunks', ()), agent)
@@ -250,14 +281,22 @@ class KnowledgeTools:
                 status_keys = {(chunk.source, chunk.heading) for chunk in status_bundle}
                 chunks = list(status_bundle) + [chunk for chunk in chunks
                                                 if (chunk.source, chunk.heading) not in status_keys]
+            swap_bundle = _swap_explanation_companions(
+                query, getattr(self._knowledge, 'chunks', ()), agent)
+            if swap_bundle:
+                swap_keys = {(chunk.source, chunk.heading) for chunk in swap_bundle}
+                chunks = list(swap_bundle) + [chunk for chunk in chunks
+                                              if (chunk.source, chunk.heading) not in swap_keys]
         evidence = []
         remaining = 8000
         def chunk_size(chunk):
             return len(chunk.heading) + len(chunk.text) + 24
         fee_ids = {id(chunk) for chunk in fee_bundle}
         status_ids = {id(chunk) for chunk in status_bundle}
+        swap_ids = {id(chunk) for chunk in swap_bundle}
         fee_size = sum(chunk_size(chunk) for chunk in fee_bundle)
         status_size = sum(chunk_size(chunk) for chunk in status_bundle)
+        swap_size = sum(chunk_size(chunk) for chunk in swap_bundle)
         if fee_size > remaining:
             # A whole authoritative matrix is unavailable within the output
             # bound. Do not supply a misleading subset of its four sections.
@@ -270,8 +309,14 @@ class KnowledgeTools:
             chunks = [chunk for chunk in chunks if id(chunk) not in status_ids]
             status_ids.clear()
             status_size = 0
-        bundle_ids = fee_ids | status_ids
-        reserved = fee_size + status_size
+        if fee_size + status_size + swap_size > remaining:
+            # Do not publish a partial swap explanation or displace the
+            # existing atomic fee/status bundles when they cannot coexist.
+            chunks = [chunk for chunk in chunks if id(chunk) not in swap_ids]
+            swap_ids.clear()
+            swap_size = 0
+        bundle_ids = fee_ids | status_ids | swap_ids
+        reserved = fee_size + status_size + swap_size
         for chunk in chunks:
             # Defense in depth: do not trust a future retrieval implementation
             # to enforce both source status and audience classification.
