@@ -565,8 +565,14 @@ or secret is copied here. Estimated charge: 462 micro-USD. Nine other
 Ministral smoke cases and all ten K3 smoke cases were **NOT EXECUTED**.
 
 The isolated ledger after this attempt is 2,342,437 micro-USD
-reserved/estimated, not an invoice. A new bounded best-quote prompt/guard
-fix passed 914/914 local tests, secret scan and validation; exact-SHA CI and a
-fresh provider retest remain **PENDING**. The a494 and c06f failures remain
-separate historical findings. No full-model, multi-turn, Telegram or production
-acceptance follows from the new local tests. Kimi remains inactive.
+reserved/estimated, not an invoice. The first bounded best-quote prompt/guard
+fix at `79c2dcc735e95603939413e4fea60483b4c60999` passed 914/914 local
+tests, secret scan, validation and exact-SHA
+[ZION CI 40516764932](https://github.com/zettaceo/zion-community-bot/actions/runs/40516764932).
+Independent red-team then reproduced both overblocking of user-selected
+routes/denials and underblocking of unsupported minimum-price claims with
+PUBLIC context. A narrow follow-up guard change covers these examples and
+passed 914/914 local tests, secret scan and validation; exact-SHA CI and a
+fresh provider retest are **PENDING**.
+The a494 and c06f failures remain separate historical findings. No full-model,
+multi-turn, Telegram or production acceptance follows. Kimi remains inactive.

@@ -102,12 +102,31 @@ class ResponseGuardTests(unittest.TestCase):
             'ou LI.FI) para encontrar a melhor cotação disponível **naquele momento**, '
             'considerando liquidez e taxas.',
             'A plataforma não compara todas as fontes e escolhe a melhor rota.',
+            'A plataforma não compara todas as fontes e escolhe a melhor '
+            'cotação disponível naquele momento.',
             'A Z-SWAP não realiza bridge diretamente e encontra a melhor '
             'cotação para o swap.',
             'A plataforma consulta os provedores autorizados, inclusive os '
             'que operam em várias redes, como Jupiter, LI.FI e outros '
             'disponíveis naquele momento, para encontrar a melhor cotação.',
             'A plataforma consulta Jupiter e LI.FI. Então encontra a melhor cotação.',
+            'A plataforma não promete encontrar a melhor rota, mas encontra '
+            'a melhor cotação.',
+            'A plataforma fornece dados para você avaliar as opções e '
+            'encontra a melhor cotação.',
+            'A plataforma mostra custos para você comparar e seleciona '
+            'a melhor rota.',
+            'A plataforma mostra como escolher, e depois ela encontra '
+            'a melhor rota.',
+            'A Z-SWAP encaminha você para a rota com o menor preço.',
+            'A Z-SWAP decide a rota ótima para cada troca.',
+            'A plataforma sempre acha a cotação mais vantajosa.',
+            'O motor encontra o caminho mais barato para seu swap.',
+            'A Z-SWAP entrega o preço mínimo disponível.',
+            'A plataforma encontra a melhor rota que você escolheu.',
+            'A plataforma escolhe a melhor rota que você selecionou.',
+            'A plataforma mostra a melhor rota que você escolheu e '
+            'encontra a melhor cotação.',
             'A plataforma consulta Jupiter e LI. FI para encontrar a melhor cotação.',
             'A plataforma consulta Jupiter e LI.**FI para encontrar a melhor cotação.',
             'A plataforma consulta Jupiter e LI[.]FI para encontrar a melhor cotação.',
@@ -133,11 +152,53 @@ class ResponseGuardTests(unittest.TestCase):
                     'unsupported_route_optimization')
         for answer in (
             'A Z-SWAP seleciona a fonte de cotação conforme as redes e mostra a rota retornada.',
+            'A plataforma mostra as rotas disponíveis para você escolher '
+            'a melhor rota para seu caso.',
+            'A plataforma fornece os custos para você escolher a melhor '
+            'rota conforme suas preferências.',
+            'A plataforma recomenda que você compare a melhor cotação '
+            'com outros provedores antes de confirmar.',
+            'A Z-SWAP permite ao usuário selecionar a melhor rota para '
+            'sua estratégia entre as opções disponíveis.',
+            'A plataforma destaca os custos, e cabe a você escolher a melhor rota.',
+            'A plataforma mostra como escolher a melhor rota por conta própria.',
+            'A plataforma explica como encontrar a melhor cotação entre '
+            'as rotas disponíveis.',
             'A tela compara rotas disponíveis antes da execução; confira os custos.',
             'Você perguntou se a Z-SWAP escolhe a melhor rota automaticamente; '
             'a base pública não confirma isso.',
             'A Z-SWAP escolhe a melhor rota automaticamente? A base pública não confirma isso.',
             'A Z-SWAP não escolhe automaticamente a melhor rota por taxas e liquidez.',
+            'A plataforma não promete encontrar a melhor rota.',
+            'A plataforma não pode escolher a melhor rota em todos os casos.',
+            'A plataforma não consegue encontrar a melhor cotação entre '
+            'todos os provedores.',
+            'A plataforma não afirma que escolhe a melhor rota.',
+            'A plataforma não tem como encontrar a melhor cotação em todos os casos.',
+            'A plataforma não pode garantir que encontra a melhor cotação.',
+            'A plataforma nunca disse que escolhe a melhor rota.',
+            'A plataforma seleciona a fonte conforme as redes, não a melhor rota.',
+            'A plataforma mostra critérios para encontrar a melhor cotação '
+            'por sua conta.',
+            'A plataforma recomenda comparar as opções e escolher a melhor '
+            'rota para seu caso.',
+            'A plataforma mostra o custo da rota antes de confirmar.',
+            'A plataforma mostra custos e deixa claro que o menor preço '
+            'não é garantido.',
+            'O motor encontra uma rota com custos exibidos, sem garantia '
+            'de preço mínimo.',
+            'A plataforma mostra apenas o custo da rota, sem prometer '
+            'o menor preço.',
+            'A Z-SWAP mostra custos externos; não garante preço mínimo.',
+            'O preço mínimo não é garantido.',
+            'A Z-SWAP mostra a rota que você selecionou; avalie se ela '
+            'é a melhor para você.',
+            'A plataforma mostra a melhor rota que você escolheu.',
+            'A plataforma apresenta a melhor rota que você selecionou.',
+            'O material público não comprova que a plataforma escolhe a melhor rota.',
+            'O material público não permite afirmar que a plataforma '
+            'escolhe a melhor rota.',
+            'Escolher a melhor rota depende da avaliação do usuário.',
             'Não posso afirmar que a Z-SWAP escolhe automaticamente a melhor cotação.',
             '"A Z-SWAP escolhe a melhor rota" é a sua dúvida; a fonte pública não confirma isso.',
             'Você pode comparar os custos da rota antes de confirmar.',

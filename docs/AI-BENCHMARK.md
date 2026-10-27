@@ -135,10 +135,17 @@ was 462 micro-USD; the other nine Ministral cases and all ten K3 cases were
 `20261027T135123615841Z-bridge-fee-smoke-human-review.jsonl`.
 
 The isolated ledger after that single attempt is 2,342,437 micro-USD
-reserved/estimated, not an invoice. A bounded best-quote prompt/guard fix
-passed 914/914 local tests, secret scan and project validation; its exact-SHA
-CI and a new frozen provider retest are **PENDING**. No prior FAIL is relabeled
-PASS, and Kimi remains inactive. This is not Telegram or production acceptance.
+reserved/estimated, not an invoice. The first bounded best-quote prompt/guard
+fix at `79c2dcc735e95603939413e4fea60483b4c60999` passed 914/914 local
+tests, secret scan and project validation, plus exact-SHA
+[ZION CI 40516764932](https://github.com/zettaceo/zion-community-bot/actions/runs/40516764932).
+Independent adversarial review then found false positives for user-selected
+routes and denials, and false negatives for unsupported minimum-price claims.
+A narrow follow-up guard change covers those reproduced cases and passed
+914/914 local tests, secret scan and validation; exact-SHA CI and a new frozen
+provider retest are **PENDING**.
+No prior FAIL is relabeled PASS, and Kimi remains inactive. This is not
+Telegram or production acceptance.
 
 ## Prior checkpoint — 2026-10-27
 

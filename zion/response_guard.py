@@ -94,14 +94,17 @@ _ROUTE_SUPERLATIVE = (
     r'mais barat[ao]|mais economic[ao]) (?:rota|cotacao|preco|taxa)\b|'
     r'\b(?:rota|cotacao) (?:mais eficiente|mais vantajos[ao]|'
     r'otim[ao]|mais barat[ao]|mais economic[ao]|'
-    r'(?:de|com) menor (?:custo|preco|taxa))\b|'
+    r'(?:de|com) (?:o )?menor (?:custo|preco|taxa))\b|'
+    r'\bcaminho (?:mais barato|de menor custo)\b|'
     r'\b(?:best quote|best route|most efficient route|'
     r'lowest-cost route|lowest cost route|cheapest route)\b|'
-    r'\b(?:menor (?:preco|taxa)|(?:preco|taxa) mais baix[ao])\b'
+    r'\b(?:menor (?:preco|taxa)|preco minimo|'
+    r'(?:preco|taxa) mais baix[ao])\b'
 )
 _ROUTE_CHOOSER = (
     r'\b(?:escolhe|seleciona|encontra|identifica|define|determina|'
     r'recomenda|indica|calcula|otimiza|busca|apresenta|mostra|entrega|fornece|'
+    r'encaminha|decide|acha|'
     r'oferece|escolher|selecionar|encontrar|identificar|otimizar|'
     r'chooses|selects|finds|picks|optimizes)\b'
 )
@@ -131,7 +134,9 @@ def _denied_claim_prefix(prefix: str) -> bool:
     return bool(re.search(r'\b(?:nao e verdade que|nao ha evidencias? de que|'
                           r'nao ha provas? de que|e falso que|'
                           r'e incorreto afirmar que|nao e correto afirmar que|'
-                          r'nao ha confirmacao de que)\b[^.!?;\n]{0,90}$', prefix))
+                          r'nao ha confirmacao de que|'
+                          r'nao (?:comprova|diz|permite afirmar|posso dizer) que)'
+                          r'\b[^.!?;\n]{0,90}$', prefix))
 
 
 def _reported_or_denied_prefix(prefix: str) -> bool:
@@ -169,7 +174,24 @@ def _unsupported_route_optimization(answer: str) -> bool:
     )
     anaphoric = re.compile(
         rf'^\s*(?:entao|depois|em seguida|then)\s+'
-        rf'(?:{_ROUTE_CHOOSER})[^.!?;\n]{{0,95}}?{_ROUTE_SUPERLATIVE}')
+        rf'(?:{_ROUTE_CHOOSER})[^.!?;\n]{{0,95}}?'
+        rf'(?:{_ROUTE_SUPERLATIVE})')
+    infinitive_verbs = {'escolher', 'selecionar', 'encontrar',
+                        'identificar', 'otimizar'}
+
+    def later_platform_choice(fragment: str, after_infinitive: bool) -> bool:
+        """A later platform action is not excused by earlier user guidance."""
+        for later in re.finditer(_ROUTE_CHOOSER, fragment):
+            if later.group() in infinitive_verbs:
+                continue
+            preceding = fragment[:later.start()]
+            if (re.search(rf'{actor}\s+$', preceding)
+                    or (after_infinitive and re.search(
+                        r'\be\s+(?:(?:depois|em seguida)\s+)?$',
+                        preceding))):
+                return True
+        return False
+
     previous_actor = False
     for sentence in re.finditer(r'[^.!?;\n]+[.!?;\n]?', folded):
         segment = sentence.group().strip()
@@ -190,7 +212,96 @@ def _unsupported_route_optimization(answer: str) -> bool:
             for match in claim.finditer(clause):
                 prefix = clause[:match.start()]
                 between = clause[match.start():match.start('verb')]
-                if re.search(r'\b(?:nao|nunca|jamais|not|never)\s*$', between):
+                before_superlative = clause[match.start():match.start('superlative')]
+                # A bare infinitive is advice about choosing, not an assertion
+                # that the platform chooses a globally best route.
+                if (match.start('verb') == match.start()
+                        and match.group('verb') in infinitive_verbs):
+                    continue
+                # Keep the scope of negation local to the choosing verb or its
+                # complement. Earlier "não compara ... e escolhe a melhor"
+                # remains a positive best-route assertion.
+                if re.search(
+                    r'\b(?:nao|nunca|jamais|not|never)\s+'
+                    r'(?:(?:pode|consegue|promete|afirma|deve|disse)\s+'
+                    r'(?:que\s+)?|tem\s+como\s+|'
+                    r'pode\s+garantir\s+que\s+|'
+                    r'e\s+capaz\s+de\s+(?:garantir\s+que\s+)?)?$',
+                    between,
+                ):
+                    continue
+                if re.search(r'\b(?:nao|nunca|jamais|not|never)\s+'
+                             r'(?:(?:a|o|as|os)\s+)?$',
+                             clause[match.end('verb'):match.start('superlative')]):
+                    continue
+                if re.search(r'\b(?:sem garantia de|sem prometer (?:o |a )?)\s*$',
+                             clause[match.end('verb'):match.start('superlative')]):
+                    continue
+                if re.match(r'\s+nao\s+(?:e|sera|pode ser)\s+'
+                            r'(?:garantid[ao]|prometid[ao])\b',
+                            clause[match.end('superlative'):]):
+                    continue
+                # Displaying a route already selected by the user does not
+                # assert that the platform chose it. A later independent
+                # platform claim in the same clause still needs the gate.
+                attribution_tail = clause[match.end('superlative'):]
+                user_selected = re.match(
+                    r'\s+que\s+(?:voce|o usuario)\s+'
+                    r'(?:escolheu|selecionou)\b', attribution_tail,
+                )
+                if match.group('verb') in {'mostra', 'apresenta'} and user_selected:
+                    remainder = attribution_tail[user_selected.end():]
+                    later_best_claim = re.search(
+                        rf'\be\s+(?:{actor}\s+)?(?:{_ROUTE_CHOOSER})'
+                        rf'[^.!?;\n]{{0,95}}?(?:{_ROUTE_SUPERLATIVE})',
+                        remainder,
+                    )
+                    if not later_best_claim:
+                        continue
+                # The user may compare or choose among returned routes. Those
+                # verbs do not become platform optimization merely because the
+                # platform is mentioned earlier in the same clause.
+                user_choice = re.search(
+                    r'\b(?:voce|usuario|cliente)\s+'
+                    r'(?:(?:pode|deve|consegue)\s+)?'
+                    r'(?P<user_verb>escolh\w*|selecion\w*|encontr\w*|compar\w*)\b',
+                    before_superlative,
+                )
+                if user_choice:
+                    user_verb = user_choice['user_verb']
+                    after_infinitive = (user_verb.endswith(('ar', 'er', 'ir'))
+                                        or user_verb in {'compare', 'escolha',
+                                                         'selecione', 'encontre'})
+                    if not later_platform_choice(
+                            before_superlative[user_choice.end():],
+                            after_infinitive):
+                        continue
+                instruction = re.search(
+                    r'\b(?:mostra|explica|ensina)\b[^.!?;\n]{0,50}'
+                    r'\bcomo\s+(?:escolher|encontrar|selecionar)\b',
+                    before_superlative,
+                )
+                if instruction and not later_platform_choice(
+                        before_superlative[instruction.end():], True):
+                    continue
+                own_account_instruction = re.search(
+                    r'\b(?:mostra|explica|ensina)\b[^.!?;\n]{0,50}'
+                    r'\bpara\s+(?:escolher|encontrar|selecionar)\b',
+                    before_superlative,
+                )
+                if (own_account_instruction
+                        and re.search(r'\bpor (?:sua conta|conta propria)\b',
+                                      clause[match.end('superlative'):])
+                        and not later_platform_choice(
+                            before_superlative[own_account_instruction.end():],
+                            True)):
+                    continue
+                recommendation = re.search(
+                    r'\brecomenda\s+(?:comparar|avaliar|consultar|revisar|'
+                    r'escolher)\b', before_superlative,
+                )
+                if recommendation and not later_platform_choice(
+                        before_superlative[recommendation.end():], True):
                     continue
                 if _denied_claim_prefix(prefix) or re.search(
                     r'\b(?:se|caso|quando|if|perguntou se|pergunta se|quer saber se|'

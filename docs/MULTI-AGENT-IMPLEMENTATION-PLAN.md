@@ -16,9 +16,14 @@ checklists remain historical evidence, not proof of v2 completion.
   cases were NOT EXECUTED. This candidate did not pass smoke.
 - [x] Add a bounded best-quote prompt/guard forward-fix and delivery regression;
   independent adversarial review found negation, provider-name punctuation and
-  sentence-carry bypasses, now covered by tests. Local validation passed
-  914/914 tests, secret scan and project validation.
-- [ ] Obtain exact-SHA CI and fresh frozen provider acceptance for the new fix.
+  sentence-carry bypasses, now covered by tests. Candidate
+  `79c2dcc735e95603939413e4fea60483b4c60999` passed 914/914 local
+  tests, secret scan, project validation and exact-SHA
+  [ZION CI 40516764932](https://github.com/zettaceo/zion-community-bot/actions/runs/40516764932).
+- [x] Reproduce and cover false positives on user-selected routes/denials and
+  false negatives on unsupported minimum-price claims. The narrow follow-up
+  guard change passed 914/914 local tests, secret scan and validation.
+- [ ] Obtain exact-SHA CI and fresh frozen provider acceptance for the follow-up.
   Full 108-case, four 12-turn, controlled Telegram, data-handling/security and
   release gates remain open. The isolated evaluation ledger after a494 v2-001
   is 2,342,437 micro-USD reserved/estimated, not a provider invoice. Kimi

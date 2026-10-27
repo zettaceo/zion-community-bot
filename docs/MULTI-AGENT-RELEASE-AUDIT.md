@@ -15,10 +15,16 @@ copied here. Estimated charge: 462 micro-USD. The other nine Ministral cases
 and all ten K3 cases were **NOT EXECUTED**. The isolated ledger now records
 2,342,437 micro-USD reserved/estimated, not an invoice.
 
-A bounded best-quote prompt/guard fix passed 914/914 local tests, secret scan
-and validation. Its exact-SHA CI and a fresh frozen provider retest remain
-**PENDING**. Security review found no active Kimi leak, but real user/lead
-data transfer and the Kimi account data-handling policy remain unapproved.
+A bounded best-quote prompt/guard fix at
+`79c2dcc735e95603939413e4fea60483b4c60999` passed 914/914 local tests,
+secret scan, validation and exact-SHA
+[ZION CI 40516764932](https://github.com/zettaceo/zion-community-bot/actions/runs/40516764932).
+Independent red-team found false positives on user-selected routes/denials and
+false negatives on unsupported minimum-price claims. A narrow follow-up
+guard change passed 914/914 local tests, secret scan and validation; its
+exact-SHA CI and fresh frozen provider retest remain **PENDING**. Security
+review found no active Kimi leak, but real user/lead data transfer and the
+Kimi account data-handling policy remain unapproved.
 Native/Telegram, 108-case and multi-turn acceptance remain open. PR #66 stays
 draft, Kimi inactive and production unchanged.
 
