@@ -79,6 +79,33 @@ class CapturingMistralClient(MistralClient):
 
 
 class MistralBoundaryTests(unittest.TestCase):
+    def test_price_and_maturity_objection_carries_public_status_boundaries(self):
+        question = (
+            'Concerteza deve ter plataformas mais baratas, que oferecem '
+            'a mesma coisa que a zswap e já consolidadas no mercado'
+        )
+        context = KnowledgeTools(KnowledgeBase(
+            Path(__file__).resolve().parents[1] / 'knowledge')).call(
+                'search_approved_knowledge', {'query': question},
+                agent_id='zion').render()
+        self.assertIn('Portfolio e Orders estão parcialmente disponíveis', context)
+        self.assertIn('Terminal Pro está marcado como beta', context)
+        self.assertIn('Os quatro níveis', context)
+        self.assertIn('assinatura recorrente e o mint dos Access Pass', context)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            client = CapturingMistralClient(make_settings(Path(tmp)))
+            asyncio.run(client.answer(
+                question=question, context=context, agent_id='zion'))
+        system = client.messages[0]['content']
+        payload = json.loads(client.messages[1]['content'].split('\n', 1)[1])
+        self.assertEqual(payload['official_context'], context)
+        self.assertIn('todos os componentes estão plenamente disponíveis', system)
+        self.assertIn('preserve junto deles os estados parciais ou beta', system)
+        self.assertIn('Um plano Free documentado não comprova', system)
+        self.assertIn('preserve seu estado futuro', system)
+        self.assertIn('Economia de tempo ou ferramentas também exige', system)
+
     def test_short_swap_question_receives_source_scope_in_provider_prompt(self):
         context = KnowledgeTools(KnowledgeBase(
             Path(__file__).resolve().parents[1] / 'knowledge')).call(

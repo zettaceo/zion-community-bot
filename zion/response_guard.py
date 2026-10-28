@@ -1128,10 +1128,238 @@ def _source_feature_statuses(context: str) -> set[str]:
     return statuses
 
 
+def _feature_references(folded: str, feature: str) -> list[re.Match[str]]:
+    """Recognize public feature descriptions without treating generic verbs as features."""
+    patterns = {
+        'terminal pro': (r'\bterminal pro\b',),
+        'orders': (
+            r'\borders\b',
+            r'\bplanejamento (?:de |das? |dos? )?ordens\b',
+            r'\bplanejar (?:as? |suas? )?ordens\b',
+            r'\bgatilhos (?:de |das? |dos? )?ordens\b',
+        ),
+        'portfolio': (
+            r'\bportfolio\b',
+            r'\bacompanhamento (?:da |de |dos? )?(?:carteira|ativos)\b',
+            r'\bacompanhar (?:a |os? )?(?:carteira|ativos)\b',
+        ),
+    }
+    mentions = [match for pattern in patterns[feature]
+                for match in re.finditer(pattern, folded)]
+    if feature == 'portfolio':
+        # The bare noun is a Portfolio capability only in a product-feature
+        # enumeration. "Acompanhe os custos" is not a Portfolio claim.
+        for match in re.finditer(r'\bacompanhamento\b', folded):
+            clause_start = max(folded.rfind(char, 0, match.start())
+                               for char in '.!?;\n') + 1
+            end = re.search(r'[.!?;\n]', folded[match.end():])
+            clause_end = match.end() + end.start() if end else len(folded)
+            clause = folded[clause_start:clause_end]
+            if (re.search(r'\b(?:z[\s-]?swap|plataforma|produto|experiencia)\b', clause)
+                    and len(re.findall(r'\b(?:analise|simulacao|ordens|swap|execucao|'
+                                       r'workbench|laboratorio)\b', clause)) >= 2):
+                mentions.append(match)
+    return mentions
+
+
+def _source_paid_access_is_future(context: str) -> bool:
+    """Recognize the reviewed plan-access state, not a generic 'future' mention."""
+    sections = re.split(r'(?m)^\[contexto oficial: ([^\]\n]+)\][ \t]*$',
+                        _fold(context))
+    return any(
+        'planos' in heading
+        and re.search(r'\bassinatura\b[^.!?;\n]{0,110}\bmint\b'
+                      r'[^.!?;\n]{0,85}\b(?:futur\w*|planejad\w*)\b', body)
+        and re.search(r'\b(?:nao\s+(?:devem ser apresentados como compra ja aberta|'
+                      r'estao disponiveis para compra)|compra\s+nao\s+esta\s+aberta)\b', body)
+        for heading, body in zip(sections[1::2], sections[2::2])
+    )
+
+
+def _source_plan_access_is_open(context: str, scope: str) -> bool:
+    """Accept a current-access claim only with a direct PUBLIC plan predicate."""
+    sections = re.split(r'(?m)^\[contexto oficial: ([^\]\n]+)\][ \t]*$',
+                        _fold(context))
+    targets = {
+        'free': r'(?:plano|nivel|versao)\s+(?:free|gratuit[oa])',
+        'hird': r'(?:assinatura\s+)?hird',
+        'access pass': r'access pass',
+        'pro': r'plano\s+pro',
+        'trader': r'plano\s+trader',
+        'pilot': r'plano\s+pilot',
+    }
+    target = targets.get(scope)
+    if target is None:
+        return False
+    for heading, body in zip(sections[1::2], sections[2::2]):
+        if 'planos' not in heading:
+            continue
+        predicate = (rf'\b{target}\b\s+(?:ja\s+)?(?:esta|e)\s+'
+                     r'(?:abert[oa]|disponivel|liberad[oa]|a venda)\s+'
+                     r'(?:agora|atualmente|hoje|para todos)\b')
+        if re.search(predicate, body):
+            return True
+    return False
+
+
+def _plan_scope(fragment: str) -> str:
+    for name in ('access pass', 'hird', 'trader', 'pilot', 'pro'):
+        if re.search(r'\b' + re.escape(name) + r'\b', fragment):
+            return name
+    return 'free'
+
+
+def _plan_access_status_is_preserved(answer: str, context: str) -> bool:
+    """A listed tier does not prove that someone can subscribe or try it now."""
+    folded = _mask_reported_quotes(_fold(answer))
+    # Positive access needs affirmative current evidence. The reviewed plan
+    # section lists tiers but does not establish that a visitor can use or buy
+    # one today; absence of that section must not make a promise acceptable.
+    current_access = (
+        r'\b(?:voce|usuarios?)\s+(?:ja\s+)?pode(?:m)?\s+'
+        r'(?:usar|acessar|testar|experimentar)\s+(?:o\s+|a\s+)?'
+        r'(?:(?:plano|nivel|versao|acesso)\s+)?'
+        r'(?:free|gratuit[oa])\b',
+        r'\b(?:voce|usuarios?)\s+(?:ja\s+)?consegue(?:m)?\s+'
+        r'(?:usar|acessar|testar|experimentar)\s+(?:o\s+|a\s+)?'
+        r'(?:(?:plano|nivel|versao|acesso)\s+)?'
+        r'(?:free|gratuit[oa])\b',
+        r'\b(?:acesso\s+ao\s+)?(?:(?:plano|nivel|versao)\s+)?'
+        r'(?:free|gratuit[oa])\s+(?:ja\s+)?(?:esta|e|ficou)\s+'
+        r'(?:abert[oa]|disponivel|liberad[oa]|ativ[oa])\b',
+        r'\b(?:plano\s+(?:pro|trader|pilot)|acesso\s+pago|'
+        r'assinatura\s+do\s+plano\s+(?:pro|trader|pilot)|'
+        r'mint\s+do\s+access pass)\s+(?:ja\s+)?(?:esta|e|ficou)\s+'
+        r'(?:abert[oa]|disponivel|liberad[oa]|ativ[oa])\b',
+        r'\b(?:o\s+|a\s+)?(?:access pass|hird|assinatura hird)\s+'
+        r'(?:ja\s+)?(?:esta|e|ficou)\s+'
+        r'(?:abert[oa]|disponivel|liberad[oa]|ativ[oa])\b',
+        r'\b(?:access pass|hird|plano\s+(?:pro|trader|pilot))\s+'
+        r'(?:ja\s+)?esta\s+a\s+venda\b',
+        r'\bhird\s+(?:ja\s+)?pode\s+ser\s+assinada\b',
+        r'\b(?:voce|usuarios?)\s+(?:ja\s+)?pode(?:m)?\s+'
+        r'(?:comprar|contratar|assinar)\s+(?:o\s+|a\s+)?'
+        r'(?:access pass|hird|(?:plano\s+)?(?:pro|trader|pilot))\b',
+        r'\be possivel\s+(?:testar|usar|acessar|experimentar)\s+'
+        r'(?:(?:o|a)\s+)?(?:(?:plano|nivel|versao)\s+)?'
+        r'(?:free|gratuit[oa])\b',
+        r'\baccess pass\s+(?:ja\s+)?pode\s+ser\s+'
+        r'(?:comprado|adquirido|mintado)\b',
+        r'\b(?:pro|trader|pilot)\s+(?:ja\s+)?esta\s+disponivel\s+'
+        r'para\s+assinatura\b',
+    )
+    invitation = (
+        r'\b(?:teste|experimente|acesse|use)\s+(?!se\b)'
+        r'(?:(?:o|a|um|uma)\s+)?(?:(?:nivel|plano|versao)\s+)?'
+        r'(?:free|gratuit[oa]|gratis)\b',
+        r'\bcomece\s+(?:pelo\s+|com\s+o\s+)?'
+        r'(?:(?:nivel|plano|versao)\s+)?(?:free|gratuit[oa]|gratis)\b',
+        r'\bcomece\s+gratuitamente\s+(?:agora|hoje)\b',
+        r'\b(?:assine|contrate|compre|faca o mint|minte)\b'
+        r'[^.!?;\n]{0,45}\b(?:hird|access pass|assinatura|'
+        r'plano (?:pro|trader|pilot)|pago)\b',
+    )
+    for pattern in current_access + invitation:
+        for match in re.finditer(pattern, folded):
+            clause_start = max(folded.rfind(char, 0, match.start())
+                               for char in '.!?;\n') + 1
+            prefix = re.split(r'\b(?:mas|porem|contudo|however|but)\b',
+                              folded[clause_start:match.start()])[-1]
+            if re.search(r'\b(?:nao e verdade que|nao (?:posso|podemos|devo|devemos)'
+                         r' recomendar que|nao recomendo que|nao|nunca|nem)\b'
+                         r'[^.!?;\n]{0,45}$', prefix):
+                continue
+            if re.search(r'\b(?:se houver acesso|se (?:ja )?tiver acesso|'
+                         r'se (?:o|a) [^.!?;\n]{0,35}(?:disponivel|liberad[oa])|'
+                         r'quando [^.!?;\n]{0,35}(?:disponivel|liberad[oa])|'
+                         r'teste se)\b[^.!?;\n]{0,65}$', prefix):
+                continue
+            question_end = re.search(r'[.!?;\n]', folded[match.end():])
+            if question_end and folded[match.end() + question_end.start()] == '?':
+                followup = folded[match.end() + question_end.start() + 1:]
+                if not re.match(r'\s*(?:sim|isso|correto)\b'
+                                r'[^.!?;\n]{0,30}\b(?:pode|esta|e)\b', followup):
+                    continue
+            if _source_plan_access_is_open(context, _plan_scope(match.group())):
+                continue
+            return False
+    return True
+
+
+def _partial_status_attached(folded: str, feature: str,
+                             mentions: list[re.Match[str]]) -> bool:
+    """Do not borrow Portfolio's qualifier for an unrelated Orders claim."""
+    other = (r'\b(?:portfolio|acompanhamento'
+             r'(?: (?:da |de |dos? )?(?:carteira|ativos))?)\b'
+             if feature == 'orders' else
+             r'\b(?:orders|planejamento (?:de |das? |dos? )?ordens)\b')
+    for mention in mentions:
+        clause_start = max(folded.rfind(char, 0, mention.start())
+                           for char in '.!?;\n') + 1
+        prefix = folded[clause_start:mention.start()]
+        if re.fullmatch(r'\s*(?:(?:no|em)\s+(?:estado|fase)\s+'
+                        r'(?:parcial|partial)|parcialmente\s+disponivel)'
+                        r'\s*,?\s*(?:o|a|os|as)?\s*', prefix):
+            return True
+        end = re.search(r'[.!?;\n]', folded[mention.end():])
+        clause_end = mention.end() + end.start() if end else len(folded)
+        remainder = folded[mention.end():min(clause_end, mention.end() + 100)]
+        for status in re.finditer(r'\b(?:parcial\w*|partial\w*)\b', remainder):
+            between = remainder[:status.start()]
+            if re.search(r'\b(?:nao|nem|nunca)\b[^.!?;\n]{0,20}$', between):
+                continue
+            other_mentions = list(re.finditer(other, between))
+            if other_mentions:
+                if len(other_mentions) != 1:
+                    continue
+                other_mention = other_mentions[0]
+                # "Portfolio e Orders estão parcialmente" is a shared state;
+                # "Orders oferece X, Portfolio está parcialmente" is not.
+                if (not re.fullmatch(r'\s*(?:e|,)\s*(?:o |a )?',
+                                     between[:other_mention.start()])
+                        or not re.fullmatch(r'\s*(?:estao|sao|ficam)?\s*',
+                                            between[other_mention.end():])):
+                    continue
+            elif not re.fullmatch(
+                r'\s*(?:tambem\s+)?(?:(?:esta|estao|e|sao|segue|seguem|'
+                r'permanece|permanecem|fica|ficam|em estado|:)\s*)?'
+                r'(?:(?:em estado|como)\s*)?', between):
+                continue
+            return True
+    return False
+
+
+def _partial_feature_is_promoted(folded: str,
+                                 mentions: list[re.Match[str]]) -> bool:
+    """A later explicit full-release claim cannot borrow an earlier caveat."""
+    next_feature = (r'\b(?:orders|portfolio|terminal pro|'
+                    r'planejamento (?:de |das? |dos? )?ordens|'
+                    r'acompanhamento(?: (?:da |de |dos? )?(?:carteira|ativos))?)\b')
+    full = (r'\b(?:totalmente|plenamente|completamente|integralmente)\s+'
+            r'(?:disponive(?:l|is)|operaciona(?:l|is)|lancad[oa]s?)\b'
+            r'|\b(?:esta|estao|e|sao|ficou|ficaram)\s+complet[oa]s?\b'
+            r'|^\s+complet[oa]s?\b|\bsem restricoes\b'
+            r'|\b(?:ja\s+)?permite\s+todas\s+as\s+'
+            r'(?:funcoes|funcionalidades)\b'
+            r'|\b(?:ja\s+)?permite\s+tudo\b')
+    for mention in mentions:
+        end = re.search(r'[.!?;\n]', folded[mention.end():])
+        clause_end = mention.end() + end.start() if end else len(folded)
+        tail = folded[mention.end():min(clause_end, mention.end() + 100)]
+        next_match = re.search(next_feature, tail)
+        if next_match:
+            tail = tail[:next_match.start()]
+        for claim in re.finditer(full, tail):
+            if not re.search(r'\b(?:nao|nunca|nem)\b[^.!?;\n]{0,22}$',
+                             tail[:claim.start()]):
+                return True
+    return False
+
+
 def _feature_status_is_preserved(answer: str, context: str) -> bool:
     """Carry explicit beta/partial status when approved evidence supplies it."""
     source_statuses = _source_feature_statuses(context)
-    folded = _fold(answer)
+    folded = _mask_reported_quotes(_fold(answer))
     statuses = (
         ('terminal pro', r'\bbeta\b'),
         ('portfolio', r'\b(?:parcial\w*|partial\w*)\b'),
@@ -1140,7 +1368,8 @@ def _feature_status_is_preserved(answer: str, context: str) -> bool:
     for feature, required in statuses:
         if feature not in source_statuses:
             continue
-        if not re.search(r'\b' + feature + r'\b', folded):
+        mentions = _feature_references(folded, feature)
+        if not mentions:
             continue
         if feature == 'terminal pro' and re.search(
             r'\bterminal pro\b.{0,55}\b(?:nao (?:esta |segue |permanece )?(?:mais )?(?:em )?'
@@ -1152,9 +1381,13 @@ def _feature_status_is_preserved(answer: str, context: str) -> bool:
             r'\b' + feature + r'\b.{0,55}\bnao (?:esta |segue )?(?:so |apenas )?'
             r'(?:parcial\w*|partial\w*)\b', folded):
             return False
-        mentions = list(re.finditer(r'\b' + feature + r'\b', folded))
-        if not any(re.search(required, folded[max(0, match.start() - 35):match.end() + 100])
-                   for match in mentions):
+        if feature in {'portfolio', 'orders'}:
+            if _partial_feature_is_promoted(folded, mentions):
+                return False
+            if not _partial_status_attached(folded, feature, mentions):
+                return False
+        elif not any(re.search(required, folded[max(0, match.start() - 35):match.end() + 100])
+                     for match in mentions):
             return False
     return True
 
@@ -1306,6 +1539,8 @@ def validate_public_response(text: str, *, official_context: str) -> ResponseChe
         return ResponseCheck(False, 'unverified_live_proof')
     if not _feature_status_is_preserved(text, official_context):
         return ResponseCheck(False, 'missing_feature_status')
+    if not _plan_access_status_is_preserved(text, official_context):
+        return ResponseCheck(False, 'unverified_plan_access')
     for brand in ('uniswap', 'pancakeswap', '1inch', 'raydium', 'bisq'):
         pattern = r'\b' + re.escape(brand) + r'\b'
         if re.search(pattern, folded) and not re.search(pattern, approved):
@@ -1436,6 +1671,8 @@ def _public_feature_status_reply(official_context: str) -> str | None:
         states.append('Portfolio está parcialmente disponível')
     if 'orders' in source_statuses:
         states.append('Orders está parcialmente disponível')
+    if _source_paid_access_is_future(official_context):
+        states.append('a assinatura mensal e o mint do Access Pass ainda são futuros')
     if not states:
         return None
     reply = ('Na base pública revisada, ' + '; '.join(states) + '. '
@@ -1515,7 +1752,10 @@ def _public_broad_comparison_reply(question: str, official_context: str) -> str 
              'a Z-SWAP reúne análise, simulação, '
              'planejamento de ordens, swap e acompanhamento numa mesma experiência. '
              'O Terminal Pro está em beta, e Portfolio e Orders estão parcialmente '
-             'disponíveis. Não tenho uma comparação oficial equivalente de preços '
+             'disponíveis. '
+             + ('A assinatura mensal e o mint do Access Pass ainda são futuros. '
+                if _source_paid_access_is_future(official_context) else '')
+             + 'Não tenho uma comparação oficial equivalente de preços '
              'e recursos com outras plataformas para afirmar que a Z-SWAP seja '
              'mais barata, equivalente ou superior.')
     if validate_public_response(reply, official_context=official_context).allowed:
@@ -1604,7 +1844,7 @@ def public_fallback_for(reason: str, *, official_context: str = '', question: st
         return ('Posso explicar o estado documentado na base pública revisada, '
                 'mas não fiz uma verificação ao vivo da plataforma. Confira a '
                 'disponibilidade na interface para o seu caso.')
-    if reason == 'missing_feature_status':
+    if reason in {'missing_feature_status', 'unverified_plan_access'}:
         reply = _public_broad_comparison_reply(question, official_context)
         if reply is not None:
             return reply

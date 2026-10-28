@@ -1,8 +1,10 @@
 # Cognitive v2 — provider benchmark protocol
 
-Status: LATEST 80633ce K3 SMOKE FAILED HUMAN REVIEW AT v2-041;
-MINISTRAL NOT RETESTED IN THAT ROUND. The later calls made before the
-retrospective correction do not qualify the smoke.
+Status: LATEST badec8e K3 SMOKE FAILED HUMAN REVIEW AT v2-101;
+MINISTRAL NOT RETESTED IN THAT ROUND. The first eight K3 cases passed human
+review in order; v2-103 was not executed.
+The earlier 80633ce K3 smoke failed at v2-041, and later calls before its
+retrospective correction did not qualify that smoke.
 EARLIER c06f53b K3 SMOKE PASSED, BUT ITS 98-CASE CONTINUATION FAILED AT
 v2-003. NOT CERTIFIED. This is a
 generation-quality comparison, not evidence of correct Telegram routing,
@@ -121,7 +123,31 @@ generation, native tool path, runtime delivery and controlled Telegram tests
 have separate verdicts. No overall model winner is declared while any required
 dimension remains untested or failed.
 
-## Latest frozen smoke — 2026-10-28, candidate 80633ce
+## Latest frozen smoke — 2026-10-28, candidate badec8e
+
+Candidate `badec8ee0ef066da8dd5bab582a85d59ef05164d` passed local 923/923
+and exact-SHA [ZION CI 40661172474](https://github.com/zettaceo/zion-community-bot/actions/runs/40661172474)
+with secret scan and project validation. The private frozen manifest
+`20261028T090459739318Z-wallet-notice-smoke-manifest.json` passed all 20
+synthetic/PUBLIC source and cost preflights. K3 cases v2-001, 021, 041, 051,
+061, 065, 091 and 094 passed independent human review in declared order.
+v2-091 had a mild naturalness warning for documentary wording.
+
+The automated guard accepted v2-101, but human review marked **FAIL**: its
+price/maturity answer referred to order planning and portfolio-like tracking
+without the relevant PUBLIC partial availability qualifiers. The existing
+guard checked literal English feature names and missed Portuguese paraphrases.
+The sequence stopped, so v2-103 was **NOT EXECUTED**. No Ministral result was
+established in this round. Private review metadata is in
+`20261028T090459739318Z-wallet-notice-smoke-review.jsonl`; raw answers are not
+copied to the repository. The isolated ledger after v2-101 is 3,257,164
+micro-USD reserved/estimated, not an invoice. A bounded prompt/guard
+forward-fix rejects the failed private answer and yields a source-bounded
+PUBLIC fallback. Focused tests passed 99/99; full local validation passed
+926/926, secret scan and project validation. Exact-SHA CI and a new frozen
+provider round remain required before any smoke PASS.
+
+## Prior frozen smoke — 2026-10-28, candidate 80633ce
 
 Candidate `80633cebe33163de1b177ce40c23301cc645becf` passed exact-SHA
 [ZION CI 40658239837](https://github.com/zettaceo/zion-community-bot/actions/runs/40658239837)

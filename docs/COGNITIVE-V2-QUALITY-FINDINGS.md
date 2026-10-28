@@ -1,6 +1,30 @@
 # Cognitive v2 — live synthetic quality findings
 
-## Latest 80633ce comparison-status smoke — 2026-10-28
+## Latest badec8e wallet/notice smoke — 2026-10-28
+
+Candidate `badec8ee0ef066da8dd5bab582a85d59ef05164d` passed local 923/923
+and exact-SHA [ZION CI 40661172474](https://github.com/zettaceo/zion-community-bot/actions/runs/40661172474)
+with secret scan and validation. The private synthetic/PUBLIC manifest
+`20261028T090459739318Z-wallet-notice-smoke-manifest.json` passed 20/20
+source/cost preflights. K3's first eight cases passed independent human review
+in declared order; the network response was complete with mild documentary
+tone. v2-101 then **FAILED human review** despite `guard=accepted`: its
+price/maturity answer omitted relevant partial-availability qualifiers after
+referring to order planning and portfolio-like tracking. The sequence stopped
+before v2-103, which is **NOT EXECUTED**. Ministral was not retested.
+
+Private review metadata is in
+`20261028T090459739318Z-wallet-notice-smoke-review.jsonl`. No raw answer is
+copied to the repository. Isolated ledger: 3,257,164 micro-USD
+reserved/estimated, not an invoice or provider balance. A bounded prompt/guard
+forward-fix rejects the failed private answer, and its PUBLIC fallback passes
+the guard. Focused tests passed 99/99; full local validation passed 926/926,
+secret scan and project validation. Exact-SHA CI and a new frozen provider
+round remain pending; no model passes smoke, full benchmark or Telegram
+acceptance yet.
+Kimi is inactive and production unchanged.
+
+## Prior 80633ce comparison-status smoke — 2026-10-28
 
 Candidate `80633cebe33163de1b177ce40c23301cc645becf` passed exact-SHA
 [ZION CI 40658239837](https://github.com/zettaceo/zion-community-bot/actions/runs/40658239837)

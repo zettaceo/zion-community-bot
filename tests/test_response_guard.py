@@ -18,8 +18,15 @@ class ResponseGuardTests(unittest.TestCase):
         self.assertIn('reúne análise, simulação, planejamento de ordens', reply)
         self.assertIn('Terminal Pro está em beta', reply)
         self.assertIn('Portfolio e Orders estão parcialmente disponíveis', reply)
+        self.assertIn('assinatura mensal e o mint do Access Pass ainda são futuros', reply)
         self.assertIn('Não tenho uma comparação oficial', reply)
         self.assertTrue(validate_public_response(reply, official_context=context).allowed)
+        without_plan_status = context.replace(
+            '[Contexto oficial: Planos da Z-SWAP]',
+            '[Contexto oficial: Seção não relacionada]')
+        self.assertNotIn('assinatura mensal', public_fallback_for(
+            'missing_feature_status', question=question,
+            official_context=without_plan_status))
         without_positioning = context.replace(
             '[Contexto oficial: Z-SWAP — Posicionamento institucional público]',
             '[Contexto oficial: Seção não relacionada]')
@@ -1199,6 +1206,141 @@ class ResponseGuardTests(unittest.TestCase):
         self.assertTrue(validate_public_response(source_reply, official_context=context).allowed)
         self.assertNotIn('Portfolio', public_fallback_for(
             'missing_feature_status', official_context='Terminal Pro está em beta.'))
+
+    def test_product_capability_aliases_carry_their_own_partial_status(self):
+        context = ('[Contexto oficial: Beta]\nTerminal Pro está marcado como beta.\n'
+                   '[Contexto oficial: Produto antes de promessa]\n'
+                   'Portfolio e Orders estão parcialmente disponíveis.')
+        unqualified = (
+            'A Z-SWAP reúne análise, simulação, planejamento de ordens, swap e acompanhamento.',
+            'A plataforma oferece planejamento de ordens.',
+            'A plataforma reúne análise, simulação e acompanhamento.',
+            'A plataforma permite acompanhar a carteira.',
+            'Orders oferece gatilhos, e Portfolio está parcialmente disponível.',
+            'Portfolio agrega saldos, e Orders está parcialmente disponível.',
+            'O planejamento de ordens é completo; Portfolio está parcialmente disponível.',
+            'Orders está totalmente disponível. Orders está parcialmente disponível.',
+            'Orders está parcialmente disponível. Mas a Z-SWAP oferece '
+            'planejamento de ordens completo.',
+            'O planejamento de ordens está completo, mas a simulação está '
+            'parcialmente disponível.',
+            'Orders permite tudo, embora a simulação esteja parcialmente disponível.',
+            'Orders está parcialmente disponível. O planejamento de ordens já '
+            'permite todas as funções.',
+            'Orders está parcialmente disponível, mas permite tudo.',
+        )
+        for answer in unqualified:
+            with self.subTest(answer=answer):
+                self.assertEqual(validate_public_response(
+                    answer, official_context=context).reason, 'missing_feature_status')
+        qualified = (
+            'O planejamento de ordens está parcialmente disponível; '
+            'o acompanhamento da carteira também está parcialmente disponível.',
+            'Planejamento de ordens e acompanhamento da carteira estão parcialmente disponíveis.',
+            'Portfolio e Orders estão parcialmente disponíveis.',
+            'No estado parcial, o planejamento de ordens permite criar gatilhos.',
+        )
+        for answer in qualified:
+            with self.subTest(answer=answer):
+                self.assertTrue(validate_public_response(
+                    answer, official_context=context).allowed)
+        unrelated = (
+            'Compare e acompanhe os custos de cada swap.',
+            'Não prometo acompanhamento de resultados financeiros.',
+            "O usuário citou 'planejamento de ordens'.",
+            'Ele perguntou: "A Z-SWAP reúne análise, simulação e acompanhamento?"',
+        )
+        for answer in unrelated:
+            with self.subTest(answer=answer):
+                self.assertTrue(validate_public_response(
+                    answer, official_context=context).allowed)
+        self.assertTrue(validate_public_response(
+            'A plataforma oferece planejamento de ordens.',
+            official_context='[Contexto oficial: Orders]\nSem estado oficial publicado.').allowed)
+
+    def test_plan_access_invitation_does_not_treat_a_tier_as_open_access(self):
+        question = ('Concerteza deve ter plataformas mais baratas, que oferecem '
+                    'a mesma coisa que a zswap e já consolidadas no mercado')
+        context = KnowledgeTools(KnowledgeBase(
+            Path(__file__).resolve().parents[1] / 'knowledge')).call(
+                'search_approved_knowledge', {'query': question}, agent_id='zion').render()
+        self.assertIn('[Contexto oficial: Planos da Z-SWAP]', context)
+        for answer in (
+            'Teste o nível gratuito da Z-SWAP antes de qualquer pagamento.',
+            'Experimente o plano Free antes de pagar.',
+            'Assine a Hird hoje.',
+            'Compre o Access Pass agora.',
+            'Você pode usar o plano Free agora.',
+            'Você já consegue acessar o Free.',
+            'O acesso ao plano Free está aberto agora.',
+            'Você pode testar a versão gratuita agora.',
+            'O plano Free está liberado para todos.',
+            'Comece gratuitamente hoje.',
+            'Você já pode comprar o Access Pass.',
+            'O Access Pass está disponível para mint.',
+            'O Access Pass já está à venda.',
+            'A assinatura Hird está aberta para todos.',
+            'A Hird já pode ser assinada.',
+            'Você pode contratar o Pro agora.',
+            'É possível testar o plano Free agora.',
+            'O Access Pass pode ser comprado agora.',
+            'Pro já está disponível para assinatura.',
+            'Não há taxa, mas você pode usar o plano Free agora.',
+            'Você pode usar o plano Free agora? Sim, pode.',
+        ):
+            with self.subTest(answer=answer):
+                self.assertEqual(validate_public_response(
+                    answer, official_context=context).reason, 'unverified_plan_access')
+        for answer in (
+            'O plano Free consta na matriz; a assinatura e o mint ainda são futuros.',
+            'Se já tiver acesso, teste o plano gratuito.',
+            'Se houver acesso, teste o plano Free.',
+            'Quando estiver disponível, assine a Hird.',
+            'Teste se o plano Free está disponível para a sua conta antes de pagar.',
+            'Não posso recomendar que use o plano Free antes de a disponibilidade '
+            'ser confirmada.',
+            'Não é verdade que a Hird está aberta.',
+            'O usuário disse: "Teste o nível gratuito antes de pagar." '
+            'Não confirmei esse acesso.',
+        ):
+            with self.subTest(answer=answer):
+                self.assertTrue(validate_public_response(
+                    answer, official_context=context).allowed)
+        fallback = public_fallback_for('unverified_plan_access',
+            question=question, official_context=context)
+        self.assertIn('Terminal Pro está em beta', fallback)
+        self.assertIn('Portfolio e Orders estão parcialmente disponíveis', fallback)
+        self.assertIn('assinatura mensal e o mint do Access Pass ainda são futuros', fallback)
+        self.assertTrue(validate_public_response(fallback,
+            official_context=context).allowed)
+        no_plan = context.replace('[Contexto oficial: Planos da Z-SWAP]',
+                                  '[Contexto oficial: Seção não relacionada]')
+        self.assertEqual(validate_public_response('Teste o plano Free agora.',
+            official_context=no_plan).reason, 'unverified_plan_access')
+        changed_wording = context.replace(
+            'ainda aparecem como futuros; no momento não devem ser apresentados '
+            'como compra já aberta',
+            'seguem futuros; não estão disponíveis para compra atualmente').replace(
+            'Planos da Z-SWAP', 'Matriz de planos da Z-SWAP')
+        self.assertEqual(validate_public_response('Teste o plano Free agora.',
+            official_context=changed_wording).reason, 'unverified_plan_access')
+        self.assertIn('assinatura mensal e o mint do Access Pass ainda são futuros',
+            public_fallback_for('missing_feature_status', question=question,
+                                official_context=changed_wording))
+        for answer in ('Teste o plano Free agora.',
+                       'Você pode usar o plano Free agora.'):
+            self.assertEqual(validate_public_response(answer,
+                official_context='').reason, 'unverified_plan_access')
+        source_open = ('[Contexto oficial: Planos da Z-SWAP]\n'
+                       'O plano Free está disponível agora.')
+        self.assertTrue(validate_public_response(
+            'Você pode usar o plano Free agora.',
+            official_context=source_open).allowed)
+        self.assertEqual(validate_public_response(
+            'Você pode usar o plano Free agora.',
+            official_context='[Contexto oficial: Planos da Z-SWAP]\n'
+                             'O plano Free estará disponível em breve.').reason,
+            'unverified_plan_access')
 
     def test_terminal_beta_does_not_become_broad_public_production(self):
         knowledge = KnowledgeBase(Path(__file__).resolve().parents[1] / 'knowledge')

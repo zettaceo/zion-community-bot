@@ -1,6 +1,32 @@
 # ZION Multi-Agent Command System - Release Audit
 
-## Cognitive v2 latest preproduction checkpoint — 2026-10-28, 80633ce
+## Cognitive v2 latest preproduction checkpoint — 2026-10-28, badec8e
+
+**Verdict: NOT RELEASE CERTIFIED.** Candidate
+`badec8ee0ef066da8dd5bab582a85d59ef05164d` passed local 923/923 and
+exact-SHA [ZION CI 40661172474](https://github.com/zettaceo/zion-community-bot/actions/runs/40661172474)
+with secret scan and project validation. Private frozen synthetic/PUBLIC
+manifest `20261028T090459739318Z-wallet-notice-smoke-manifest.json` passed
+20/20 source/cost preflights. K3's first eight smoke cases passed human review
+in order. The network answer was complete, with a mild documentary-tone
+warning. v2-101 was the first human **FAIL**: in a price/maturity objection,
+the answer referred to order planning and portfolio-like tracking without
+partial-availability qualifiers; the output guard accepted Portuguese
+paraphrases. v2-103 was **NOT EXECUTED**. Ministral was not retested.
+
+Private review metadata is in
+`20261028T090459739318Z-wallet-notice-smoke-review.jsonl`; raw answers are
+not copied here. The isolated ledger after v2-101 totals 3,257,164 micro-USD
+reserved/estimated, not an invoice or account balance. A bounded prompt/guard
+forward-fix rejects the failed private answer and passes a PUBLIC fallback;
+focused tests passed 99/99 and full local validation passed 926/926, secret
+scan and project validation. Exact-SHA CI and a new frozen provider round are
+pending. The full benchmark, four 12-turn conversations, native and
+Telegram acceptance, account data-handling/security, and release approval
+remain open. Draft PR #66 stays preproduction, Kimi inactive and production
+unchanged.
+
+## Cognitive v2 prior preproduction checkpoint — 2026-10-28, 80633ce
 
 **Verdict: NOT RELEASE CERTIFIED.** Candidate
 `80633cebe33163de1b177ce40c23301cc645becf` passed exact-SHA
