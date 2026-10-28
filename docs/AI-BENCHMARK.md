@@ -1,8 +1,8 @@
 # Cognitive v2 — provider benchmark protocol
 
-Status: LATEST badec8e K3 SMOKE FAILED HUMAN REVIEW AT v2-101;
-MINISTRAL NOT RETESTED IN THAT ROUND. The first eight K3 cases passed human
-review in order; v2-103 was not executed.
+Status: LATEST bc7218b K3 SMOKE FAILED HUMAN REVIEW AT v2-094;
+MINISTRAL NOT RETESTED IN THAT ROUND. The first seven K3 cases passed human
+review in order; v2-101 and v2-103 were not executed.
 The earlier 80633ce K3 smoke failed at v2-041, and later calls before its
 retrospective correction did not qualify that smoke.
 EARLIER c06f53b K3 SMOKE PASSED, BUT ITS 98-CASE CONTINUATION FAILED AT
@@ -123,7 +123,32 @@ generation, native tool path, runtime delivery and controlled Telegram tests
 have separate verdicts. No overall model winner is declared while any required
 dimension remains untested or failed.
 
-## Latest frozen smoke — 2026-10-28, candidate badec8e
+## Latest frozen smoke — 2026-10-28, candidate bc7218b
+
+Candidate `bc7218bbe9d4b0b04f67ee467eff4f4c3a804047` passed local 926/926
+and exact-SHA [ZION CI 40703279757](https://github.com/zettaceo/zion-community-bot/actions/runs/40703279757)
+with secret scan and project validation. Private frozen manifest
+`20261028T141131043314Z-plan-status-smoke-manifest.json` passed all 20
+synthetic/PUBLIC source and cost preflights. K3 cases v2-001, 021, 041, 051,
+061, 065 and 091 passed independent human review in declared order. v2-091
+listed all eight active networks and the ZETTA Chain qualifier.
+
+The automated guard accepted v2-094, and human review marked **FAIL**. The
+answer preserved all six launch statuses but made an unsupported categorical
+promise that each status would be updated as public information advances. The
+source describes a conditional knowledge-review process, not a guaranteed
+future update for every status. The sequence stopped; v2-101 and v2-103 were
+**NOT EXECUTED**. No Ministral result was established in this round. Private
+review metadata is in
+`20261028T141131043314Z-plan-status-smoke-review.jsonl`; raw answers are not
+copied to the repository. The isolated ledger after v2-094 is 3,537,237
+micro-USD reserved/estimated, not an invoice. This round remains **FAIL**.
+A narrow prompt/guard forward-fix rejects the historical private answer and
+returns a source-bounded six-status PUBLIC fallback. Full local validation
+passed 928/928, secret scan and project validation. Exact-SHA CI and a new
+frozen provider round remain required before any smoke PASS.
+
+## Prior frozen smoke — 2026-10-28, candidate badec8e
 
 Candidate `badec8ee0ef066da8dd5bab582a85d59ef05164d` passed local 923/923
 and exact-SHA [ZION CI 40661172474](https://github.com/zettaceo/zion-community-bot/actions/runs/40661172474)
@@ -144,8 +169,8 @@ copied to the repository. The isolated ledger after v2-101 is 3,257,164
 micro-USD reserved/estimated, not an invoice. A bounded prompt/guard
 forward-fix rejects the failed private answer and yields a source-bounded
 PUBLIC fallback. Focused tests passed 99/99; full local validation passed
-926/926, secret scan and project validation. Exact-SHA CI and a new frozen
-provider round remain required before any smoke PASS.
+926/926, secret scan and project validation. Exact-SHA CI subsequently passed
+for `bc7218b`, but its separately frozen provider round failed at v2-094.
 
 ## Prior frozen smoke — 2026-10-28, candidate 80633ce
 

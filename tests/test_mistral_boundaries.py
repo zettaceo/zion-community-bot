@@ -135,6 +135,27 @@ class MistralBoundaryTests(unittest.TestCase):
         self.assertIn('Não diga que conexão e autenticação acontecem por assinatura', system)
         self.assertIn('Não prometa avisar o grupo ou notificar usuários', system)
 
+    def test_launch_status_prompt_does_not_turn_review_into_future_promise(self):
+        question = 'Buy, OTC, P2P, NFT, Launchpad e Governance já estão funcionando?'
+        context = KnowledgeTools(KnowledgeBase(
+            Path(__file__).resolve().parents[1] / 'knowledge')).call(
+                'search_approved_knowledge', {'query': question},
+                agent_id='zion').render()
+        self.assertIn('Buy/on-ramp: soon', context)
+        self.assertIn('Launchpad: pre-launch', context)
+        self.assertNotIn('será atualizado', context)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            client = CapturingMistralClient(make_settings(Path(tmp)))
+            asyncio.run(client.answer(
+                question=question, context=context, agent_id='zion'))
+        system = client.messages[0]['content']
+        payload = json.loads(client.messages[1]['content'].split('\n', 1)[1])
+        self.assertEqual(payload['official_context'], context)
+        self.assertIn('não prometa que cada status de lançamento será atualizado', system)
+        self.assertIn('Uma regra de revisão da base de conhecimento não é compromisso', system)
+        self.assertIn('sem prever se ou quando eles mudarão', system)
+
     def test_each_agent_receives_a_distinct_bounded_identity_prompt(self):
         expectations = {
             "zion": "orquestrador oficial",

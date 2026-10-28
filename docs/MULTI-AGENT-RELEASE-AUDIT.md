@@ -1,6 +1,31 @@
 # ZION Multi-Agent Command System - Release Audit
 
-## Cognitive v2 latest preproduction checkpoint — 2026-10-28, badec8e
+## Cognitive v2 latest preproduction checkpoint — 2026-10-28, bc7218b
+
+**Verdict: NOT RELEASE CERTIFIED.** Candidate
+`bc7218bbe9d4b0b04f67ee467eff4f4c3a804047` passed local 926/926 and
+exact-SHA [ZION CI 40703279757](https://github.com/zettaceo/zion-community-bot/actions/runs/40703279757)
+with secret scan and validation. Private frozen synthetic/PUBLIC manifest
+`20261028T141131043314Z-plan-status-smoke-manifest.json` passed 20/20
+source/cost preflights. K3's first seven smoke cases passed independent human
+review. The networks response contained all eight active networks and ZETTA
+Chain's coming-soon qualifier. v2-094 was the first human **FAIL**: six launch
+statuses were correct, but the answer promised future updates to each status
+without an official commitment; the guard accepted it. v2-101 and v2-103 were
+**NOT EXECUTED**. Ministral was not retested.
+
+Private review metadata is in
+`20261028T141131043314Z-plan-status-smoke-review.jsonl`; raw answers are
+not copied here. The isolated ledger after v2-094 totals 3,537,237 micro-USD
+reserved/estimated, not an invoice or account balance. The narrow prompt/guard
+forward-fix rejects the historical private answer and yields a six-status
+PUBLIC fallback; full local validation passed 928/928, secret scan and project
+validation. New exact-SHA CI and a fresh provider round remain required. The
+full benchmark, four 12-turn conversations, native and Telegram acceptance, account
+data-handling/security, and release approval remain open. Draft PR #66 stays
+preproduction, Kimi inactive and production unchanged.
+
+## Cognitive v2 prior preproduction checkpoint — 2026-10-28, badec8e
 
 **Verdict: NOT RELEASE CERTIFIED.** Candidate
 `badec8ee0ef066da8dd5bab582a85d59ef05164d` passed local 923/923 and
@@ -20,8 +45,8 @@ not copied here. The isolated ledger after v2-101 totals 3,257,164 micro-USD
 reserved/estimated, not an invoice or account balance. A bounded prompt/guard
 forward-fix rejects the failed private answer and passes a PUBLIC fallback;
 focused tests passed 99/99 and full local validation passed 926/926, secret
-scan and project validation. Exact-SHA CI and a new frozen provider round are
-pending. The full benchmark, four 12-turn conversations, native and
+scan and project validation. Exact-SHA CI subsequently passed for `bc7218b`,
+but its provider smoke failed at v2-094. The full benchmark, four 12-turn conversations, native and
 Telegram acceptance, account data-handling/security, and release approval
 remain open. Draft PR #66 stays preproduction, Kimi inactive and production
 unchanged.

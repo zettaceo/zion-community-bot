@@ -682,6 +682,49 @@ def _future_community_notice_promise(text: str) -> bool:
     return False
 
 
+def _future_launch_status_update_promise(text: str) -> bool:
+    """A review procedure does not promise future updates to each launch status."""
+    folded = _mask_reported_quotes(_fold(text))
+    folded = re.sub(r'\b(?:mas|porem|contudo|however|but)\b', ';', folded)
+    status = (r'(?:status|estados? de (?:lancamento|cada recurso)|'
+              r'fases? de lancamento)')
+    passive = re.compile(
+        rf'\b{status}\b[^.!?;\n]{{0,90}}\b'
+        r'(?:sera|serao|vai ser|vao ser)\s+'
+        r'(?:atualizad[oa]s?|revisad[oa]s?)\b')
+    active = re.compile(
+        r'\b(?:(?:a z[\s-]?swap|a equipe|o time)\s+'
+        r'(?:(?:vai|ira)\s+(?:atualizar|revisar)|'
+        r'(?:atualizara|revisara))|'
+        r'atualizaremos|revisaremos|vamos (?:atualizar|revisar))\s+'
+        r'(?:(?:o|os|cada|esses?|estas?)\s+)?'
+        rf'{status}\b')
+    for sentence in re.finditer(r'[^.!?;\n]+[.!?;\n]?', folded):
+        clause = sentence.group().strip()
+        if clause.endswith('?'):
+            continue
+        for match in (*passive.finditer(clause), *active.finditer(clause)):
+            before = clause[:match.start()]
+            matched = match.group()
+            if (_reported_or_denied_prefix(before)
+                    or re.search(r'\bnao (?:ha|existe) (?:garantia|promessa) de que\b'
+                                 r'[^.!?;\n]{0,50}$', before)
+                    or re.search(r'\bnao (?:(?:posso|podemos) (?:prometer|garantir)|'
+                                 r'prometo|afirmo) que\b[^.!?;\n]{0,50}$', before)
+                    or re.search(r'\b(?:nao|nem|nunca|jamais)\s*$', before)
+                    or re.search(r'\b(?:nao|nem|nunca|jamais)\s+'
+                                 r'(?:sera|serao|vai ser|vao ser)\b', matched)
+                    or (re.search(r'\bse a equipe atualizar o conhecimento\s*,\s*'
+                                  r'(?:(?:o|os|cada|esses?|estas?)\s+)?$',
+                                  before)
+                        and re.search(r'\bser(?:a|ao)\s+revisad[oa]s?\b', matched)
+                        and not re.match(r'\s+e\s+atualizad[oa]s?\b',
+                                         clause[match.end():]))):
+                continue
+            return True
+    return False
+
+
 def _unapproved_wallet_example(answer: str, official_context: str) -> bool:
     """Reject only observed unsourced wallet examples, not neutral questions."""
     folded = _mask_reported_quotes(_fold(answer))
@@ -1499,6 +1542,9 @@ def validate_public_response(text: str, *, official_context: str) -> ResponseChe
     if (_future_community_notice_promise(text)
             and not _future_community_notice_promise(official_context)):
         return ResponseCheck(False, 'unsupported_future_community_notice')
+    if (_future_launch_status_update_promise(text)
+            and not _future_launch_status_update_promise(official_context)):
+        return ResponseCheck(False, 'unsupported_future_status_update')
     if _unapproved_wallet_example(text, official_context):
         return ResponseCheck(False, 'unapproved_wallet_example')
     # Reviewed regressions for invented competitor comparisons. Entity presence
@@ -1787,7 +1833,8 @@ def _public_swap_route_reply(official_context: str) -> str | None:
 
 def public_fallback_for(reason: str, *, official_context: str = '', question: str = '') -> str:
     """Host-owned public reply for a few known quality failures."""
-    if reason == 'unsupported_future_community_notice':
+    if reason in {'unsupported_future_community_notice',
+                  'unsupported_future_status_update'}:
         reply = _public_launch_status_reply(question, official_context)
         return reply if reply is not None else PUBLIC_FALLBACK
     if reason in {'unsupported_universal_swap_signature',

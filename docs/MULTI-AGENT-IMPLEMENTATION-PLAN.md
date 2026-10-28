@@ -4,7 +4,36 @@ Date: 2026-10-28. Status: IN PROGRESS, not production accepted.
 This section supersedes older current-state labels below; the prior mission's
 checklists remain historical evidence, not proof of v2 completion.
 
-## 2026-10-28 badec8e synthetic/PUBLIC smoke — stopped at v2-101
+## 2026-10-28 bc7218b synthetic/PUBLIC smoke — stopped at v2-094
+
+- [x] Exact-SHA [ZION CI 40703279757](https://github.com/zettaceo/zion-community-bot/actions/runs/40703279757)
+  for `bc7218bbe9d4b0b04f67ee467eff4f4c3a804047` succeeded: 926 tests,
+  secret scan and validation. Private frozen manifest
+  `20261028T141131043314Z-plan-status-smoke-manifest.json` passed 20/20
+  synthetic/PUBLIC source and cost preflights.
+- [!] K3's first seven cases (v2-001, 021, 041, 051, 061, 065, 091) passed
+  human review in order. v2-094 was the first **FAIL**: the six status values
+  were correct, but the generated answer promised that each status would be
+  updated as public information advances without an official commitment. The
+  deterministic guard accepted it. Stop-on-first-failure applied; v2-101 and
+  v2-103 are **NOT EXECUTED**. No Ministral result was established.
+- [~] Private review metadata is in
+  `20261028T141131043314Z-plan-status-smoke-review.jsonl`; raw answers stay
+  private. The isolated ledger after v2-094 is 3,537,237 micro-USD
+  reserved/estimated, not an invoice or provider balance. This FAIL cannot be
+  converted into a PASS by a subsequent code change.
+- [x] Narrow prompt/guard forward-fix rejects the historical v2-094 private
+  answer, preserving safe questions, reported quotes and conditional review
+  language. The source-bounded PUBLIC fallback carries all six statuses and
+  passes the guard. Independent bounded adversarial replay passed 8/8,
+  including three initially missed wording variants and two safe controls.
+  Full local validation passed 928/928, secret scan and project validation.
+- [ ] Exact-SHA CI and a newly frozen provider round remain required. Full
+  108-case, four 12-turn, controlled Telegram, account data-handling/security
+  and release gates remain open. Draft PR #66
+  stays preproduction; Kimi inactive and production unchanged.
+
+## 2026-10-28 prior badec8e synthetic/PUBLIC smoke — stopped at v2-101
 
 - [x] Exact-SHA [ZION CI 40661172474](https://github.com/zettaceo/zion-community-bot/actions/runs/40661172474)
   for `badec8ee0ef066da8dd5bab582a85d59ef05164d` succeeded: 923 tests,
@@ -27,7 +56,7 @@ checklists remain historical evidence, not proof of v2 completion.
   passes. Independent adversarial replay passed the final bounded claims and
   safe negative/conditional controls. Focused tests passed 99/99; full local
   validation passed 926/926, secret scan and project validation. Exact-SHA CI
-  and a new frozen provider round remain pending.
+  subsequently passed for `bc7218b`, but its provider smoke failed at v2-094.
 - [~] Private review metadata is in
   `20261028T090459739318Z-wallet-notice-smoke-review.jsonl`; raw answers stay
   private. The isolated ledger after v2-101 is 3,257,164 micro-USD

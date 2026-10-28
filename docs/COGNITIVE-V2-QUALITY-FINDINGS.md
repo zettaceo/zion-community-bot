@@ -1,6 +1,31 @@
 # Cognitive v2 — live synthetic quality findings
 
-## Latest badec8e wallet/notice smoke — 2026-10-28
+## Latest bc7218b plan/status smoke — 2026-10-28
+
+Candidate `bc7218bbe9d4b0b04f67ee467eff4f4c3a804047` passed local 926/926
+and exact-SHA [ZION CI 40703279757](https://github.com/zettaceo/zion-community-bot/actions/runs/40703279757)
+with secret scan and validation. The private synthetic/PUBLIC manifest
+`20261028T141131043314Z-plan-status-smoke-manifest.json` passed 20/20
+source/cost preflights. K3's first seven cases passed independent human review
+in declared order. The networks answer named all eight active networks plus
+ZETTA Chain coming soon.
+
+v2-094 then **FAILED human review** despite `guard=accepted`: all six launch
+statuses were correct, but the answer promised future updates to each status
+without an explicit official commitment. The source only describes what the
+team should do *when* knowledge is updated. The sequence stopped before
+v2-101 and v2-103, which are **NOT EXECUTED**. Ministral was not retested.
+Private review metadata is in
+`20261028T141131043314Z-plan-status-smoke-review.jsonl`; no raw answer is
+copied to the repository. Isolated ledger: 3,537,237 micro-USD
+reserved/estimated, not an invoice or provider balance. This candidate did
+not pass smoke, full benchmark or Telegram acceptance. A narrow prompt/guard
+forward-fix rejects the historical private answer and returns a source-bounded
+six-status PUBLIC fallback. Full local validation passed 928/928, secret scan
+and project validation; exact-SHA CI and a new provider round remain pending.
+Kimi remains inactive and production unchanged.
+
+## Prior badec8e wallet/notice smoke — 2026-10-28
 
 Candidate `badec8ee0ef066da8dd5bab582a85d59ef05164d` passed local 923/923
 and exact-SHA [ZION CI 40661172474](https://github.com/zettaceo/zion-community-bot/actions/runs/40661172474)
@@ -19,9 +44,9 @@ copied to the repository. Isolated ledger: 3,257,164 micro-USD
 reserved/estimated, not an invoice or provider balance. A bounded prompt/guard
 forward-fix rejects the failed private answer, and its PUBLIC fallback passes
 the guard. Focused tests passed 99/99; full local validation passed 926/926,
-secret scan and project validation. Exact-SHA CI and a new frozen provider
-round remain pending; no model passes smoke, full benchmark or Telegram
-acceptance yet.
+secret scan and project validation. Exact-SHA CI subsequently passed for
+`bc7218b`, but its separately frozen provider round failed at v2-094; no model
+passes smoke, full benchmark or Telegram acceptance yet.
 Kimi is inactive and production unchanged.
 
 ## Prior 80633ce comparison-status smoke — 2026-10-28

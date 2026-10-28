@@ -580,6 +580,69 @@ class ResponseGuardTests(unittest.TestCase):
             'Assim que houver anúncio oficial, avisamos aqui na comunidade.',
             official_context=approved_promise).allowed)
 
+    def test_future_launch_status_update_requires_explicit_public_source(self):
+        question = 'Buy, OTC, P2P, NFT, Launchpad e Governance já estão funcionando?'
+        context = KnowledgeTools(KnowledgeBase(
+            Path(__file__).resolve().parents[1] / 'knowledge')).call(
+            'search_approved_knowledge', {'query': question}, agent_id='zion').render()
+        self.assertIn('[Contexto oficial: Soon ou pre-launch]', context)
+        # The source describes how to review a new snapshot if knowledge is
+        # updated; it does not promise that every status will be updated.
+        for answer in (
+            'Conforme as informações públicas avançarem, o status de cada um será atualizado.',
+            'Os status serão atualizados conforme surgirem novidades.',
+            'O status de lançamento de cada recurso vai ser revisado.',
+            'Vamos atualizar os status quando houver novidades.',
+            'A equipe atualizará cada status após o lançamento.',
+            'A Z-SWAP atualizará os status quando houver novidades.',
+            'A equipe vai atualizar o status de cada recurso quando houver notícias.',
+            'Os estados de cada recurso serão atualizados quando houver novidades.',
+            'Se houver novidades, os status serão atualizados.',
+            'Se a equipe atualizar o conhecimento, os status serão revisados e atualizados.',
+            'Não prometo atualizações hoje, mas cada status será atualizado.',
+        ):
+            with self.subTest(answer=answer):
+                self.assertEqual(validate_public_response(
+                    answer, official_context=context).reason,
+                    'unsupported_future_status_update')
+        review_procedure = (
+            '[Contexto oficial: Revisão do conhecimento]\n'
+            'Quando a equipe atualizar o conhecimento, ela deve registrar um novo '
+            'snapshot de origem e revisar fatos que podem ficar obsoletos, inclusive '
+            'status de lançamento.')
+        self.assertEqual(validate_public_response(
+            'Conforme as informações públicas avançarem, o status de cada um será atualizado.',
+            official_context=context + '\n' + review_procedure).reason,
+            'unsupported_future_status_update')
+        for answer in (
+            'Se a equipe atualizar o conhecimento, deverá registrar um novo snapshot '
+            'e revisar os status de lançamento.',
+            'O status de cada recurso poderá mudar se houver confirmação pública.',
+            'Não há garantia de que o status de cada um será atualizado.',
+            'Não posso afirmar que o status de cada um será atualizado.',
+            'Os status não serão atualizados automaticamente.',
+            'Se a equipe atualizar o conhecimento, os status serão revisados.',
+            'Você disse “o status de cada um será atualizado”. Essa frase não está confirmada.',
+            'O status de cada um será atualizado?',
+        ):
+            with self.subTest(answer=answer):
+                self.assertTrue(validate_public_response(
+                    answer, official_context=context).allowed)
+        approved = ('[Contexto oficial: Soon ou pre-launch]\n'
+                    'Os status serão atualizados quando houver novos anúncios.')
+        self.assertTrue(validate_public_response(
+            'Os status serão atualizados quando houver novos anúncios.',
+            official_context=approved).allowed)
+        fallback = public_fallback_for('unsupported_future_status_update',
+                                       official_context=context, question=question)
+        self.assertIn('Buy/on-ramp, OTC, P2P e NFT geral estão como soon', fallback)
+        self.assertIn('Launchpad e Governance estão como pre-launch', fallback)
+        self.assertNotIn('atualizad', fallback)
+        self.assertTrue(validate_public_response(fallback, official_context=context).allowed)
+        self.assertNotEqual(public_fallback_for('unsupported_future_status_update',
+                                               official_context='', question=question),
+                            fallback)
+
     def test_wallet_brand_examples_require_retrieved_public_evidence(self):
         context = KnowledgeTools(KnowledgeBase(
             Path(__file__).resolve().parents[1] / 'knowledge')).call(
