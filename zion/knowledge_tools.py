@@ -73,9 +73,15 @@ def _comparison_status_companions(query: str, corpus, agent: AgentId):
     folded = _normalize(query)
     # Terminal Pro is a feature, not a request to compare the Pro plan tier.
     tier_query = re.sub(r'\bterminal pro\b', 'terminal', folded)
+    comparison = (
+        re.search(r'\b(?:outras?\s+plataformas?|concorrent\w*|'
+                  r'compar\w*|vantag\w*|diferenc\w*|oferece que)\b', folded)
+        or re.search(r'\bplataformas\b[^.!?;\n]{0,45}'
+                     r'\b(?:mais barat[ao]s?|mesma coisa|consolidad[ao]s?)\b',
+                     folded)
+    )
     if (_mentioned_tiers(tier_query) or not re.search(r'\bz[\s-]*swap\b', folded)
-            or not re.search(r'\b(?:outras?\s+plataformas?|concorrent\w*|'
-                             r'compar\w*|vantag\w*|diferenc\w*|oferece que)\b', folded)):
+            or not comparison):
         return ()
     selected = {}
     for chunk in corpus:

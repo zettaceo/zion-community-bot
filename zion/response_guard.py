@@ -1366,9 +1366,14 @@ def _public_feature_status_reply(official_context: str) -> str | None:
 def is_broad_product_comparison(question: str) -> bool:
     """Identify a broad product comparison without plan or feature narrowing."""
     query = _fold(question)
+    comparison = re.search(r'\b(?:outras? plataformas?|concorrent\w*)\b', query)
+    cost_or_parity = re.search(
+        r'\bplataformas\b[^.!?;\n]{0,45}'
+        r'\b(?:mais barat[ao]s?|mesma coisa|consolidad[ao]s?)\b', query)
     return not (not re.search(r'\bz[\s-]*swap\b', query)
-            or not re.search(r'\b(?:outras? plataformas?|concorrent\w*)\b', query)
-            or not re.search(r'\b(?:diferenc\w*|compar\w*|vantag\w*|oferec\w*)\b', query)
+            or not (comparison or cost_or_parity)
+            or not (cost_or_parity or re.search(
+                r'\b(?:diferenc\w*|compar\w*|vantag\w*|oferec\w*)\b', query))
             or re.search(r'\b(?:terminal pro|portfolio|orders|planos?|free|pro|trader|pilot)\b', query))
 
 
@@ -1393,11 +1398,13 @@ def _public_broad_comparison_reply(question: str, official_context: str) -> str 
             ))
             or not {'terminal pro', 'portfolio', 'orders'} <= _source_feature_statuses(official_context)):
         return None
-    reply = ('Na base pública revisada, a Z-SWAP reúne análise, simulação, '
+    reply = ('Faz sentido comparar custos e maturidade. Na base pública revisada, '
+             'a Z-SWAP reúne análise, simulação, '
              'planejamento de ordens, swap e acompanhamento numa mesma experiência. '
              'O Terminal Pro está em beta, e Portfolio e Orders estão parcialmente '
-             'disponíveis. Não tenho uma comparação oficial equivalente com outras '
-             'plataformas para afirmar que essa combinação seja exclusiva ou superior.')
+             'disponíveis. Não tenho uma comparação oficial equivalente de preços '
+             'e recursos com outras plataformas para afirmar que a Z-SWAP seja '
+             'mais barata, equivalente ou superior.')
     if validate_public_response(reply, official_context=official_context).allowed:
         return reply
     return None

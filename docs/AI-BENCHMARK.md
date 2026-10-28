@@ -1,6 +1,6 @@
 # Cognitive v2 — provider benchmark protocol
 
-Status: LATEST f678720 SMOKE FAILED AT v2-001 FOR BOTH MINISTRAL AND K3.
+Status: LATEST 11c26ff K3 SMOKE FAILED AT v2-101; MINISTRAL NOT RETESTED.
 EARLIER c06f53b K3 SMOKE PASSED, BUT ITS 98-CASE CONTINUATION FAILED AT
 v2-003. NOT CERTIFIED. This is a
 generation-quality comparison, not evidence of correct Telegram routing,
@@ -119,7 +119,40 @@ generation, native tool path, runtime delivery and controlled Telegram tests
 have separate verdicts. No overall model winner is declared while any required
 dimension remains untested or failed.
 
-## Latest frozen smoke — 2026-10-27, candidate f678720
+## Latest frozen smoke — 2026-10-27, candidate 11c26ff
+
+Candidate `11c26ffd328b76d27f51842c4f546657ad26d23f` passed 922/922
+local tests, secret scan, project validation and exact-SHA
+[ZION CI 40580235294](https://github.com/zettaceo/zion-community-bot/actions/runs/40580235294)
+with 922 tests. Private manifest
+`20261027T204156685098Z-passive-seed-smoke-manifest.json` froze the same ten
+synthetic/PUBLIC cases and both model identities. All 20 source/cost preflights
+passed; Ministral was not called because this fix did not address its earlier
+`unsupported_route_optimization` failure.
+
+K3 received one call per case in predeclared order. Human review marked the
+first eight cases **PASS** (technical swap, noisy networks, support, partnership,
+confidentiality, prompt injection, full networks, and launch status).
+At v2-101 the output guard returned
+`AUTOMATED_FAIL / missing_feature_status`; the model text was withheld and
+received no content score. v2-103 was **NOT EXECUTED**. This is a failed smoke,
+not an eight-of-ten pass. The isolated ledger was 2,694,820 micro-USD
+reserved/estimated after the stop, not an invoice.
+
+Read-only diagnosis found that this exact comparative objection did not trigger
+the existing pair of PUBLIC/CURRENT status companions; the retrieved context
+contained `Produto antes de promessa` but not `Beta`. The current
+candidate extends the comparison retrieval trigger and the matching delivery
+classifier/fallback. Focused KnowledgeTools and AIService tests passed 22/22:
+the exact objection now receives both status sections and a source-bounded
+reply that acknowledges costs/maturity, while exact-tier and generic-price
+questions do not force the status bundle.
+Full local validation passed 922/922 tests, secret scan and project validation
+on 2026-10-28. Exact-SHA CI and fresh provider acceptance are **PENDING**.
+The previous guard failure remains in private
+`20261027T204156685098Z-passive-seed-smoke-review.jsonl`.
+
+## Prior frozen smoke — 2026-10-27, candidate f678720
 
 Candidate `f6787207ec45de6f52edd846962cb7f37f3acd9f` passed 922/922
 local tests, secret scan and project validation, plus exact-SHA

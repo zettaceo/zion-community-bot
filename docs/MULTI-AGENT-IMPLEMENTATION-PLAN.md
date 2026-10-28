@@ -4,7 +4,25 @@ Date: 2026-10-27. Status: IN PROGRESS, not production accepted.
 This section supersedes older current-state labels below; the prior mission's
 checklists remain historical evidence, not proof of v2 completion.
 
-## 2026-10-27 current f678720 smoke and forward-fix checkpoint
+## 2026-10-27 current 11c26ff smoke and comparison-status checkpoint
+
+- [x] Verify exact-SHA [ZION CI 40580235294](https://github.com/zettaceo/zion-community-bot/actions/runs/40580235294)
+  for `11c26ffd328b76d27f51842c4f546657ad26d23f`: 922 tests, secret scan,
+  validation. Frozen synthetic/PUBLIC preflight passed 20/20.
+- [!] K3 passed human review for the first eight smoke IDs. v2-101 then failed
+  `missing_feature_status` with text withheld, and v2-103 was NOT EXECUTED.
+  Ministral was not retested because the passive-seed fix did not target its
+  previous best-route failure. No model passed the entire smoke.
+- [~] Extend the existing PUBLIC/CURRENT comparison-status companion and
+  delivery classifier/fallback to the exact v2-101 phrasing. Focused
+  KnowledgeTools and AIService tests passed 22/22, including exact-tier and
+  generic-price negative controls and a source-bounded concern-aware fallback.
+  Local validation passed 922/922 tests, secret scan and project validation
+  on 2026-10-28. Exact-SHA CI and fresh provider acceptance are pending.
+- [ ] Full 108-case, four 12-turn, controlled Telegram, data-handling/security
+  and release gates remain open. Kimi stays inactive; production unchanged.
+
+## 2026-10-27 prior f678720 smoke and forward-fix checkpoint
 
 - [x] Freeze `f6787207ec45de6f52edd846962cb7f37f3acd9f` and verify exact-SHA
   [ZION CI 40579482818](https://github.com/zettaceo/zion-community-bot/actions/runs/40579482818):

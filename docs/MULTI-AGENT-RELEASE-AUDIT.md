@@ -1,6 +1,30 @@
 # ZION Multi-Agent Command System - Release Audit
 
-## Cognitive v2 latest preproduction checkpoint — 2026-10-27, f678720
+## Cognitive v2 latest preproduction checkpoint — 2026-10-27, 11c26ff
+
+**Verdict: NOT RELEASE CERTIFIED.** Candidate
+`11c26ffd328b76d27f51842c4f546657ad26d23f` passed exact-SHA
+[ZION CI 40580235294](https://github.com/zettaceo/zion-community-bot/actions/runs/40580235294),
+922/922 local tests, secret scan and validation. Its frozen synthetic/PUBLIC
+source/cost preflight passed 20/20. K3's first eight smoke cases passed human
+review, but v2-101 failed `missing_feature_status` with generated text withheld;
+v2-103 was **NOT EXECUTED**. Ministral was not retested because this candidate
+did not materially address its prior best-route failure. Neither model earned
+smoke PASS. Private review metadata is in
+`20261027T204156685098Z-passive-seed-smoke-review.jsonl`.
+
+The exact v2-101 objection did not trigger the existing PUBLIC/CURRENT
+comparison-status pair, omitting the separate Terminal Pro beta source. A
+narrow trigger and delivery-classifier fix now retrieves that pair and gives
+a source-bounded, concern-aware fallback for the real phrasing. Focused
+KnowledgeTools and AIService tests passed 22/22, including exact-tier and
+generic-price negatives. Local validation passed 922/922 tests, secret scan and
+project validation on 2026-10-28. Exact-SHA CI and new provider acceptance are
+**PENDING**. The full benchmark, multi-turn, native/Telegram,
+account data-handling and release-approval gates remain open. Kimi is inactive
+and production was not changed by this work.
+
+## Prior cognitive v2 preproduction checkpoint — 2026-10-27, f678720
 
 **Verdict: NOT RELEASE CERTIFIED.** Candidate
 `f6787207ec45de6f52edd846962cb7f37f3acd9f` passed exact-SHA

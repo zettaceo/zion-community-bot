@@ -637,3 +637,32 @@ toward advice to the user. Focused response/prompt tests passed 39/39; full
 local validation passed 922/922, secret scan and validation OK. Exact-SHA CI
 and new provider acceptance remain **PENDING**. This
 does not establish model quality, Telegram acceptance or production readiness.
+
+## 11c26ff K3 smoke stopped on comparison status — 2026-10-27
+
+Candidate `11c26ffd328b76d27f51842c4f546657ad26d23f` passed exact-SHA
+[ZION CI 40580235294](https://github.com/zettaceo/zion-community-bot/actions/runs/40580235294),
+922/922 local tests, secret scan and project validation. Private frozen manifest
+`20261027T204156685098Z-passive-seed-smoke-manifest.json` passed 20/20
+source/cost preflights. Ministral was **NOT EXECUTED** in this round because
+its prior best-route failure was not targeted by the passive-seed fix.
+
+K3 v2-001, 021, 041, 051, 061, 065, 091 and 094 were each generated once
+and received human **PASS**. v2-101 stopped at
+`AUTOMATED_FAIL / missing_feature_status`; its text was withheld, so no human
+content score was assigned. v2-103 was **NOT EXECUTED**. The eight reviewed
+passes do not make the ten-case smoke pass. Private review metadata is in
+`20261027T204156685098Z-passive-seed-smoke-review.jsonl`; no raw answer is
+copied here.
+
+The exact v2-101 wording, about other platforms being cheaper and offering the
+same thing, failed to trigger the existing comparison-status companion. It
+retrieved a partial-status source but omitted the separate Terminal Pro beta
+source. A narrow trigger extension now retrieves the complete
+PUBLIC/CURRENT pair for that phrasing, and the delivery classifier/fallback
+recognizes the same concern without inventing relative prices. Focused
+KnowledgeTools and AIService tests passed 22/22, including exact-plan and
+generic-price negative controls.
+Full local validation passed 922/922 tests, secret scan and project validation
+on 2026-10-28. Exact-SHA CI and provider retest remain **PENDING**. No model
+winner, full-model acceptance or production promotion follows.

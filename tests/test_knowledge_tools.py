@@ -8,7 +8,8 @@ from zion.agents import AgentId
 from zion.knowledge import KnowledgeBase, KnowledgeClassification, KnowledgeSourceStatus
 from zion.knowledge_tools import KnowledgeTools, KnowledgeToolError, TOOL_NAMES
 from zion.language_recovery import recover_language
-from zion.response_guard import public_fallback_for, validate_public_response
+from zion.response_guard import (is_broad_product_comparison,
+                                 public_fallback_for, validate_public_response)
 
 
 _COMPARISON_QUERY = ('Qual a diferença da Z-SWAP para outras plataformas?\n'
@@ -189,6 +190,24 @@ class KnowledgeToolsTests(unittest.TestCase):
         self.assertIn('Orders está parcialmente disponível', status_reply)
         self.assertTrue(validate_public_response(
             status_reply, official_context=natural_comparison.render()).allowed)
+        exact_objection = ('Concerteza deve ter plataformas mais baratas, que '
+                           'oferecem a mesma coisa que a zswap e já '
+                           'consolidadas no mercado')
+        objection = self.tools.call('search_approved_knowledge',
+            {'query': exact_objection}, agent_id=AgentId.ZION)
+        self.assertIn('Produto antes de promessa',
+                      [item.heading for item in objection.evidence])
+        self.assertIn('Beta', [item.heading for item in objection.evidence])
+        self.assertLessEqual(len(objection.render()), 8000)
+        self.assertTrue(is_broad_product_comparison(exact_objection))
+        fallback = public_fallback_for('missing_feature_status',
+            official_context=objection.render(), question=exact_objection)
+        self.assertIn('comparar custos e maturidade', fallback)
+        self.assertIn('não tenho uma comparação oficial equivalente de preços', fallback.lower())
+        self.assertIn('Terminal Pro está em beta', fallback)
+        self.assertIn('Portfolio e Orders estão parcialmente disponíveis', fallback)
+        self.assertTrue(validate_public_response(
+            fallback, official_context=objection.render()).allowed)
 
     def test_failed_k3_fee_turn_can_use_complete_public_fallback(self):
         query = 'Uniswap faz isso.\nBinance também.\nVocês cobram mais?'
@@ -236,6 +255,14 @@ class KnowledgeToolsTests(unittest.TestCase):
             search=lambda *a, **kw: [generic])
         result = KnowledgeTools(kb).call('search_approved_knowledge',
             {'query': 'Qual a diferença do plano Pro para o Pilot da Z-SWAP?'},
+            agent_id=AgentId.ZION)
+        self.assertEqual([item.heading for item in result.evidence], [generic.heading])
+        result = KnowledgeTools(kb).call('search_approved_knowledge',
+            {'query': 'O plano Pro da Z-SWAP é mais barato que outras plataformas?'},
+            agent_id=AgentId.ZION)
+        self.assertEqual([item.heading for item in result.evidence], [generic.heading])
+        result = KnowledgeTools(kb).call('search_approved_knowledge',
+            {'query': 'A plataforma Z-SWAP é mais barata?'},
             agent_id=AgentId.ZION)
         self.assertEqual([item.heading for item in result.evidence], [generic.heading])
 

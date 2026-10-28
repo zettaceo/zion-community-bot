@@ -72,6 +72,15 @@ class AITests(unittest.TestCase):
         self.assertIn('Terminal Pro está em beta', answer.text)
         self.assertIn('Portfolio e Orders estão parcialmente disponíveis', answer.text)
         self.assertNotIn('outras plataformas já', answer.text)
+        objection = ('Concerteza deve ter plataformas mais baratas, que '
+                     'oferecem a mesma coisa que a zswap e já '
+                     'consolidadas no mercado')
+        answer = asyncio.run(ai.answer(chat_id=1, user_id=2, question=objection))
+        self.assertIn('[Contexto oficial: Produto antes de promessa]', ai.client.context)
+        self.assertIn('[Contexto oficial: Beta]', ai.client.context)
+        self.assertIn('comparar custos e maturidade', answer.text)
+        self.assertIn('comparação oficial equivalente de preços', answer.text)
+        self.assertIn('Terminal Pro está em beta', answer.text)
         fee_answer = asyncio.run(ai.answer(
             chat_id=1, user_id=2, question='Vocês cobram mais?',
             context_query='Qual a diferença da Z-SWAP para outras plataformas?\n'
