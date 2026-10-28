@@ -1,10 +1,37 @@
 # Cognitive Architecture v2 — current execution checkpoint
 
-Date: 2026-10-27. Status: IN PROGRESS, not production accepted.
+Date: 2026-10-28. Status: IN PROGRESS, not production accepted.
 This section supersedes older current-state labels below; the prior mission's
 checklists remain historical evidence, not proof of v2 completion.
 
-## 2026-10-27 current 11c26ff smoke and comparison-status checkpoint
+## 2026-10-28 current 80633ce smoke and source-grounding checkpoint
+
+- [x] Verify exact-SHA [ZION CI 40658239837](https://github.com/zettaceo/zion-community-bot/actions/runs/40658239837)
+  for `80633cebe33163de1b177ce40c23301cc645becf`: 922 tests, secret scan
+  and project validation. Private frozen synthetic/PUBLIC manifest
+  `20261028T083844656088Z-comparison-status-smoke-manifest.json` passed
+  20/20 source/cost preflights.
+- [!] K3 v2-001 and v2-021 passed human review. v2-041 is the **first human
+  FAIL** for an unsupported wallet-connection-by-signature claim. The initial
+  PASS review was corrected in a private append-only event. v2-051, 061, 065,
+  091 and 094 were called before that correction; they remain evidence/cost
+  **outside the qualifying stop-on-first-failure smoke sequence**. v2-094 also
+  promised community notification without a source. v2-101 and v2-103 were
+  NOT EXECUTED. No Ministral result was established in this round. Review
+  metadata is private in
+  `20261028T083844656088Z-comparison-status-smoke-review.jsonl`; no raw
+  answer is in the repository.
+- [x] An isolated guard/prompt forward-fix blocks the two unsupported claims
+  and bounded paraphrases while preserving denial/quotation controls. 40
+  focused tests and 923/923 local tests, secret scan and validation pass.
+- [~] Isolated ledger: 2,952,594 micro-USD reserved/estimated, not an invoice
+  or provider balance. Exact-SHA CI and a fresh frozen provider retest are
+  **PENDING**. Do not relabel earlier failures or out-of-sequence calls PASS.
+- [ ] Full 108-case, four 12-turn, controlled Telegram, data-handling/security
+  and release gates remain open. Draft PR #66 remains preproduction; Kimi
+  inactive and production unchanged.
+
+## 2026-10-27 prior 11c26ff smoke and comparison-status checkpoint
 
 - [x] Verify exact-SHA [ZION CI 40580235294](https://github.com/zettaceo/zion-community-bot/actions/runs/40580235294)
   for `11c26ffd328b76d27f51842c4f546657ad26d23f`: 922 tests, secret scan,

@@ -1,6 +1,33 @@
 # ZION Multi-Agent Command System - Release Audit
 
-## Cognitive v2 latest preproduction checkpoint — 2026-10-27, 11c26ff
+## Cognitive v2 latest preproduction checkpoint — 2026-10-28, 80633ce
+
+**Verdict: NOT RELEASE CERTIFIED.** Candidate
+`80633cebe33163de1b177ce40c23301cc645becf` passed exact-SHA
+[ZION CI 40658239837](https://github.com/zettaceo/zion-community-bot/actions/runs/40658239837)
+with 922 tests, secret scan and validation. Private frozen synthetic/PUBLIC
+manifest `20261028T083844656088Z-comparison-status-smoke-manifest.json`
+passed 20/20 source/cost preflights. K3 v2-001 and v2-021 passed human
+review; v2-041 was the **first human FAIL** for asserting a connection by
+signature without an approved source. Its initial PASS review was
+corrected in a private append-only event.
+
+K3 v2-051, 061, 065, 091 and 094 were called before the retrospective
+correction. Their evidence and cost remain recorded, but they are **outside
+the qualifying stop-on-first-failure smoke sequence**. v2-094 also promised
+community notification without a source. v2-101 and v2-103 were **NOT
+EXECUTED**; no Ministral result was established in this round. Private review
+metadata is in `20261028T083844656088Z-comparison-status-smoke-review.jsonl`;
+raw answers are not copied here. The isolated ledger totals 2,952,594
+micro-USD reserved/estimated, not a provider invoice.
+
+An isolated guard/prompt forward-fix passes 40 focused tests and 923/923 local
+tests, secret scan and validation. Exact-SHA CI and provider retest remain
+**PENDING**; no previous model FAIL is erased. The full 108-case, four 12-turn, native/Telegram,
+account data-handling/security and release-approval gates remain open. Draft
+PR #66 remains preproduction, Kimi inactive and production unchanged.
+
+## Prior cognitive v2 preproduction checkpoint — 2026-10-27, 11c26ff
 
 **Verdict: NOT RELEASE CERTIFIED.** Candidate
 `11c26ffd328b76d27f51842c4f546657ad26d23f` passed exact-SHA

@@ -105,6 +105,8 @@ class MistralBoundaryTests(unittest.TestCase):
         self.assertIn('não a converta em promessa absoluta', system)
         self.assertIn('Nunca compartilhe sua seed phrase ou chave privada', system)
         self.assertIn('jamais será pedido no futuro', system)
+        self.assertIn('Não diga que conexão e autenticação acontecem por assinatura', system)
+        self.assertIn('Não prometa avisar o grupo ou notificar usuários', system)
 
     def test_each_agent_receives_a_distinct_bounded_identity_prompt(self):
         expectations = {

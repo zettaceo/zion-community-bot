@@ -420,6 +420,22 @@ class ResponseGuardTests(unittest.TestCase):
         self.assertIn('SIWE', context)
         for answer in (
             'A conexão acontece só com assinatura dentro da sua própria carteira.',
+            'Na Z-SWAP, a conexão e autenticação acontecem por assinatura '
+            'na sua própria carteira.',
+            'A conexão da carteira e a autenticação são realizadas mediante '
+            'assinatura de mensagem.',
+            'A carteira se conecta e se autentica com uma assinatura.',
+            'A conexão da carteira e a autenticação são feitas via assinatura.',
+            'A conexão da carteira e a autenticação dependem da assinatura.',
+            'A conexão e a autenticação dependem de uma assinatura.',
+            'Você conecta e autentica a carteira assinando uma mensagem.',
+            'Para conectar e autenticar a carteira, assine uma mensagem.',
+            'A conexão com a carteira e a autenticação são realizadas via assinatura.',
+            'A carteira se conecta e é autenticada com assinatura.',
+            'A conexão é feita por assinatura e a autenticação também.',
+            'A conexão com carteira acontece por assinatura.',
+            'A conexão e a autenticação são concluídas assinando uma mensagem.',
+            'A conexão da carteira ocorre por assinatura, assim como a autenticação.',
             'Para conectar sua carteira, basta assinar uma mensagem.',
             'Sua carteira se conecta somente por assinatura.',
             'Só com assinatura é possível conectar a carteira.',
@@ -439,6 +455,9 @@ class ResponseGuardTests(unittest.TestCase):
                     'unsupported_wallet_connection_signature')
         for answer in (
             'Para autenticar carteiras EVM, a base documenta SIWE.',
+            'Conexão e autenticação não acontecem necessariamente por assinatura.',
+            'Não posso afirmar que conexão e autenticação acontecem por assinatura.',
+            'Não temos evidência de que a conexão e a autenticação são feitas via assinatura.',
             'Na Solana, a autenticação usa assinatura de mensagem.',
             'Conecte sua carteira e, para autenticar, assine uma mensagem.',
             'Não posso confirmar que toda conexão ocorre só por assinatura.',
@@ -474,6 +493,85 @@ class ResponseGuardTests(unittest.TestCase):
             'A conexão só acontece com assinatura.',
             official_context=negative_connection_source).reason,
             'unsupported_wallet_connection_signature')
+
+    def test_future_community_notice_requires_explicit_public_source(self):
+        question = 'Buy, OTC, P2P, NFT, Launchpad e Governance já estão funcionando?'
+        context = KnowledgeTools(KnowledgeBase(
+            Path(__file__).resolve().parents[1] / 'knowledge')).call(
+            'search_approved_knowledge', {'query': question}, agent_id='zion').render()
+        self.assertIn('[Contexto oficial: Soon ou pre-launch]', context)
+        for answer in (
+            'Assim que houver anúncio oficial de lançamento de cada um, '
+            'avisamos aqui na comunidade.',
+            'Avisaremos aqui quando houver anúncio oficial.',
+            'Quando lançar, vamos avisar no grupo.',
+            'Quando o recurso estiver pronto, avisaremos aqui no grupo.',
+            'Quando houver novidade, avisaremos aqui na comunidade.',
+            'Quando lançar, você será avisado por nós no grupo.',
+            'Quando houver anúncio, eu aviso aqui no grupo.',
+            'Quando lançar, vocês serão avisados aqui.',
+            'Assim que lançar, enviaremos um aviso no grupo.',
+            'Quando houver novidades, a comunidade será informada aqui.',
+            'Quando estiver pronto, você receberá uma notificação.',
+            'Quando estiver disponível, avisaremos aqui no grupo.',
+            'Após o lançamento, avisaremos aqui no grupo.',
+            'Quando houver anúncio, a equipe avisará aqui no grupo.',
+            'Quando sair, avisamos aqui no grupo.',
+            'Quando o recurso chegar, vamos notificar a comunidade.',
+            'Quando a plataforma for liberada, avisaremos aqui.',
+        ):
+            with self.subTest(answer=answer):
+                self.assertEqual(validate_public_response(
+                    answer, official_context=context).reason,
+                    'unsupported_future_community_notice')
+        for answer in (
+            'Se houver anúncio oficial, confira os canais oficiais.',
+            'Não posso prometer que avisaremos aqui quando houver anúncio.',
+            'Avisaremos aqui quando houver anúncio oficial?',
+            'Quando anunciar o lançamento, jamais vamos avisar no grupo.',
+            'Não prometo que, quando lançar, vamos avisar no grupo.',
+            'Não há garantia de que, quando lançar, avisaremos no grupo.',
+            'Não há promessa de que avisaremos aqui quando lançar.',
+            'Não afirmo que, quando lançar, avisaremos aqui.',
+            'Não sei se, quando for lançado, avisaremos aqui no grupo.',
+            'Não posso confirmar se, quando lançar, avisaremos aqui no grupo.',
+        ):
+            with self.subTest(answer=answer):
+                self.assertTrue(validate_public_response(
+                    answer, official_context=context).allowed)
+        fallback = public_fallback_for('unsupported_future_community_notice',
+                                       official_context=context, question=question)
+        self.assertIn('Buy/on-ramp, OTC, P2P e NFT geral estão como soon', fallback)
+        self.assertIn('Launchpad e Governance estão como pre-launch', fallback)
+        self.assertNotIn('avisamos', fallback)
+        self.assertTrue(validate_public_response(
+            fallback, official_context=context).allowed)
+        self.assertEqual(public_fallback_for(
+            'unsupported_future_community_notice', official_context=context,
+            question='Quais são as APIs públicas?'),
+            'Não tenho informação oficial suficiente para confirmar essa resposta. '
+            'Posso explicar o funcionamento público e suas limitações com base no que está confirmado.')
+        self.assertEqual(public_fallback_for(
+            'unsupported_future_community_notice', official_context=context,
+            question='Quando Buy e OTC estarão disponíveis?'), fallback)
+        contradictory = context.replace('- Governance: pre-launch',
+                                        '- Governance: pre-launch\n- Governance: active')
+        self.assertNotEqual(public_fallback_for(
+            'unsupported_future_community_notice', official_context=contradictory,
+            question=question), fallback)
+        incomplete = context.replace('- Governance: pre-launch', '')
+        self.assertNotEqual(public_fallback_for(
+            'unsupported_future_community_notice', official_context=incomplete,
+            question=question), fallback)
+        self.assertEqual(public_fallback_for(
+            'unsupported_future_community_notice', official_context=''),
+            'Não tenho informação oficial suficiente para confirmar essa resposta. '
+            'Posso explicar o funcionamento público e suas limitações com base no que está confirmado.')
+        approved_promise = ('[Contexto oficial: Comunidade]\n'
+                            'Assim que houver anúncio oficial, avisamos aqui na comunidade.')
+        self.assertTrue(validate_public_response(
+            'Assim que houver anúncio oficial, avisamos aqui na comunidade.',
+            official_context=approved_promise).allowed)
 
     def test_wallet_brand_examples_require_retrieved_public_evidence(self):
         context = KnowledgeTools(KnowledgeBase(

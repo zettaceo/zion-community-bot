@@ -1,10 +1,37 @@
 # Cognitive v2 — live synthetic quality findings
 
+## Latest 80633ce comparison-status smoke — 2026-10-28
+
+Candidate `80633cebe33163de1b177ce40c23301cc645becf` passed exact-SHA
+[ZION CI 40658239837](https://github.com/zettaceo/zion-community-bot/actions/runs/40658239837)
+with 922 tests, secret scan and project validation. The private frozen
+synthetic/PUBLIC manifest
+`20261028T083844656088Z-comparison-status-smoke-manifest.json` passed 20/20
+source/cost preflights. Generated quality still **FAILED** human acceptance.
+
+| K3 case | Final standing | Finding |
+| --- | --- | --- |
+| v2-001, v2-021 | Human **PASS** | Qualifying passes before the first failed threshold. |
+| v2-041 | Human **FAIL** | Asserted wallet connection by signature without an approved source. An initial PASS review was corrected in a private append-only event. |
+| v2-051, 061, 065, 091, 094 | Called before the retrospective correction; **outside qualifying sequence** | Evidence and estimated cost remain recorded, but cannot advance a smoke that should have stopped at v2-041. v2-094 also made an unsupported community-notification promise. |
+| v2-101, v2-103 | **NOT EXECUTED** | No answer or score. |
+
+Private review metadata is in
+`20261028T083844656088Z-comparison-status-smoke-review.jsonl`; no raw
+answers are copied here. No Ministral result was established in this round.
+The isolated ledger is 2,952,594 micro-USD reserved/estimated, not an invoice
+or provider balance. The isolated guard/prompt follow-up passes 40 focused
+tests and 923/923 local tests, secret scan, and validation; exact-SHA CI and
+fresh provider quality review remain **PENDING**. Earlier FAIL results remain
+recorded. Draft PR #66 stays
+preproduction, Kimi inactive and production unchanged; no full benchmark,
+multi-turn, controlled Telegram or release acceptance is claimed.
+
+## Initial round
+
 Date: 2026-10-20. Provider: ministral-8b-2512. Scope: generation-only,
 synthetic questions, PUBLIC corpus projection, isolated evaluation ledger.
 No Telegram test or production change is represented by these results.
-
-## Initial round
 
 Evidence basename: `20261020T094209317039Z-ministral-8b-2512.jsonl` in the
 private cognitive-v2 evaluation directory.

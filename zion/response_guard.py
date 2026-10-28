@@ -448,6 +448,46 @@ def _asserted_exclusive_wallet_connection(answer: str) -> bool:
     return False
 
 
+def _asserted_wallet_connection_signature_conflation(text: str) -> bool:
+    """Authentication evidence does not establish the wallet connection step."""
+    folded = _mask_reported_quotes(_fold(text))
+    claims = (
+        re.compile(
+            r'\bconexao\b(?:\s+(?:com|da|de)\s+(?:a\s+)?carteira)?'
+            r'[^.!?;\n]{0,85}\b(?:acontece|ocorre|e feita|e realizada|'
+            r'sao feitas|sao realizadas|sao concluidas|acontecem|ocorrem|'
+            r'se dao|depende|dependem)\b'
+            r'[^.!?;\n]{0,40}\b(?:(?:por|com|mediante|via|de|da)\s+'
+            r'(?:uma\s+)?assinatura\w*|assinando\s+(?:uma\s+)?mensagem)\b'),
+        re.compile(
+            r'\b(?:a\s+)?carteira\s+se\s+conecta\s+e\s+'
+            r'(?:se\s+autentica|e\s+autenticada)\b'
+            r'[^.!?;\n]{0,35}\b(?:por|com|mediante|via)\s+'
+            r'(?:uma\s+)?assinatura\w*\b'),
+        re.compile(
+            r'\b(?:voce\s+)?conecta\s+e\s+autentica\s+(?:a\s+)?carteira\b'
+            r'[^.!?;\n]{0,25}\b(?:assinando\s+(?:uma\s+)?mensagem|'
+            r'(?:por|com|via)\s+(?:uma\s+)?assinatura)\b'),
+        re.compile(
+            r'\bpara\s+conectar\s+e\s+autenticar\s+(?:a\s+)?carteira\b'
+            r'[^.!?;\n]{0,25}\bassin\w*\s+(?:uma\s+)?mensagem\b'),
+    )
+    for sentence in re.finditer(r'[^.!?;\n]+[.!?;\n]?', folded):
+        clause = sentence.group().strip()
+        if clause.endswith('?'):
+            continue
+        for claim in claims:
+            for match in claim.finditer(clause):
+                if (not _reported_or_denied_prefix(clause[:match.start()])
+                        and not re.search(r'\bnao (?:temos? (?:prova|evidencia|'
+                                          r'confirmacao)|ha (?:prova|evidencia|'
+                                          r'confirmacao)) de que\b',
+                                          clause[:match.start()])
+                        and not re.search(r'\b(?:nao|nem|nunca)\b', match.group())):
+                    return True
+    return False
+
+
 def _asserted_universal_swap_signature(answer: str) -> bool:
     """Reject only an explicit every-swap signature requirement."""
     folded = _mask_reported_quotes(_fold(answer))
@@ -600,6 +640,43 @@ def _absolute_seed_request_promise(text: str) -> bool:
             if (_reported_or_denied_prefix(before)
                     or re.search(r'\bnao (?:posso|podemos) (?:garantir|prometer) que\b'
                                  r'[^.!?;\n]{0,45}$', before)):
+                continue
+            return True
+    return False
+
+
+def _future_community_notice_promise(text: str) -> bool:
+    """An undocumented promise to notify the group after a launch is not a status fact."""
+    folded = _mask_reported_quotes(_fold(text))
+    folded = re.sub(r'\b(?:mas|porem|contudo|however|but)\b', ';', folded)
+    future = re.compile(
+        r'\b(?:assim que|logo que|quando)\b[^.!?;\n]{0,120}'
+        r'\b(?:anunci\w*|lanc\w*|dispon\w*|pront\w*|'
+        r'novidad\w*|liberad\w*|sair|chegar)\b|'
+        r'\b(?:apos|depois de|depois do|depois da)\s+'
+        r'(?:o\s+|a\s+)?(?:anuncio|lancamento)\b')
+    notice = re.compile(
+        r'\b(?:avisamos|avisaremos|avisara|vamos avisar|vou avisar|eu aviso|'
+        r'a gente avisa|te aviso|'
+        r'notificamos|notificaremos|vamos notificar|'
+        r'enviaremos\s+(?:um\s+)?aviso|'
+        r'(?:voce|voces|a comunidade|o usuario)\s+(?:sera|serao)\s+'
+        r'(?:avisad[oa]s?|notificad[oa]s?|informad[oa]s?)|'
+        r'(?:voce|voces)\s+recebera\s+(?:uma\s+)?notificacao)\b')
+    for sentence in re.finditer(r'[^.!?;\n]+[.!?;\n]?', folded):
+        clause = sentence.group().strip()
+        if clause.endswith('?') or not future.search(clause):
+            continue
+        for match in notice.finditer(clause):
+            before = clause[:match.start()]
+            if (_reported_or_denied_prefix(before)
+                    or re.search(r'\b(?:nao|nem|nunca|jamais)\s*$', before)
+                    or re.search(r'\bnao (?:(?:posso|podemos) (?:prometer|garantir)|'
+                                 r'prometo|afirmo) que\b', before)
+                    or re.search(r'\bnao ha (?:garantia|promessa) de que\b',
+                                 before)
+                    or re.search(r'\bnao (?:sei|posso confirmar|podemos confirmar) se\b',
+                                 before)):
                 continue
             return True
     return False
@@ -1173,8 +1250,10 @@ def validate_public_response(text: str, *, official_context: str) -> ResponseChe
         return ResponseCheck(False, 'unsupported_route_optimization')
     if _unsupported_named_quote_source(text, official_context):
         return ResponseCheck(False, 'unsupported_named_quote_source')
-    if (_asserted_exclusive_wallet_connection(text)
-            and not _asserted_exclusive_wallet_connection(official_context)):
+    if ((_asserted_exclusive_wallet_connection(text)
+            or _asserted_wallet_connection_signature_conflation(text))
+            and not (_asserted_exclusive_wallet_connection(official_context)
+                     or _asserted_wallet_connection_signature_conflation(official_context))):
         return ResponseCheck(False, 'unsupported_wallet_connection_signature')
     if (_asserted_universal_swap_signature(text)
             and not _asserted_universal_swap_signature(official_context)):
@@ -1184,6 +1263,9 @@ def validate_public_response(text: str, *, official_context: str) -> ResponseChe
     if (_absolute_seed_request_promise(text)
             and not _absolute_seed_request_promise(official_context)):
         return ResponseCheck(False, 'unsupported_absolute_seed_promise')
+    if (_future_community_notice_promise(text)
+            and not _future_community_notice_promise(official_context)):
+        return ResponseCheck(False, 'unsupported_future_community_notice')
     if _unapproved_wallet_example(text, official_context):
         return ResponseCheck(False, 'unapproved_wallet_example')
     # Reviewed regressions for invented competitor comparisons. Entity presence
@@ -1363,6 +1445,37 @@ def _public_feature_status_reply(official_context: str) -> str | None:
     return None
 
 
+def _public_launch_status_reply(question: str, official_context: str) -> str | None:
+    """Answer only when one reviewed section supplies the complete finite list."""
+    query = _fold(question)
+    features = ('buy', 'otc', 'p2p', 'nft', 'launchpad', 'governance')
+    if (sum(bool(re.search(r'\b' + name + r'\b', query)) for name in features) < 2
+            or not re.search(r'\b(?:funcion\w*|dispon\w*|lanc\w*|'
+                             r'estado|status|pront\w*|ativ\w*|abert\w*|'
+                             r'soon|pre-launch)\b', query)):
+        return None
+    sections = re.split(r'(?m)^\[contexto oficial: ([^\]\n]+)\][ \t]*$',
+                        _fold(official_context))
+    for heading, body in zip(sections[1::2], sections[2::2]):
+        if heading != 'soon ou pre-launch':
+            continue
+        required = (
+            ('buy/on-ramp', 'soon'), ('otc', 'soon'), ('p2p', 'soon'),
+            ('nft geral', 'soon'), ('launchpad', 'pre-launch'),
+            ('governance', 'pre-launch'),
+        )
+        if any([match.group(1).strip() for match in re.finditer(
+                r'(?m)^[ \t]*-[ \t]*' + re.escape(name) + r':[ \t]*([^\n]+)$', body)]
+               != [status] for name, status in required):
+            continue
+        reply = ('Buy/on-ramp, OTC, P2P e NFT geral estão como soon; '
+                 'Launchpad e Governance estão como pre-launch. '
+                 'Isso não confirma que já estejam plenamente disponíveis.')
+        if validate_public_response(reply, official_context=official_context).allowed:
+            return reply
+    return None
+
+
 def is_broad_product_comparison(question: str) -> bool:
     """Identify a broad product comparison without plan or feature narrowing."""
     query = _fold(question)
@@ -1434,6 +1547,9 @@ def _public_swap_route_reply(official_context: str) -> str | None:
 
 def public_fallback_for(reason: str, *, official_context: str = '', question: str = '') -> str:
     """Host-owned public reply for a few known quality failures."""
+    if reason == 'unsupported_future_community_notice':
+        reply = _public_launch_status_reply(question, official_context)
+        return reply if reply is not None else PUBLIC_FALLBACK
     if reason in {'unsupported_universal_swap_signature',
                   'unsupported_swap_confirmation_signature',
                   'unsupported_absolute_seed_promise'}:

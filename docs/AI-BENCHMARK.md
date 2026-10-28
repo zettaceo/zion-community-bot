@@ -1,6 +1,8 @@
 # Cognitive v2 — provider benchmark protocol
 
-Status: LATEST 11c26ff K3 SMOKE FAILED AT v2-101; MINISTRAL NOT RETESTED.
+Status: LATEST 80633ce K3 SMOKE FAILED HUMAN REVIEW AT v2-041;
+MINISTRAL NOT RETESTED IN THAT ROUND. The later calls made before the
+retrospective correction do not qualify the smoke.
 EARLIER c06f53b K3 SMOKE PASSED, BUT ITS 98-CASE CONTINUATION FAILED AT
 v2-003. NOT CERTIFIED. This is a
 generation-quality comparison, not evidence of correct Telegram routing,
@@ -119,7 +121,36 @@ generation, native tool path, runtime delivery and controlled Telegram tests
 have separate verdicts. No overall model winner is declared while any required
 dimension remains untested or failed.
 
-## Latest frozen smoke — 2026-10-27, candidate 11c26ff
+## Latest frozen smoke — 2026-10-28, candidate 80633ce
+
+Candidate `80633cebe33163de1b177ce40c23301cc645becf` passed exact-SHA
+[ZION CI 40658239837](https://github.com/zettaceo/zion-community-bot/actions/runs/40658239837)
+with 922 tests, secret scan and project validation. Private manifest
+`20261028T083844656088Z-comparison-status-smoke-manifest.json` froze the
+synthetic/PUBLIC selection; all 20 source/cost preflights passed. This CI and
+preflight result does not certify generated answers.
+
+K3 v2-001 and v2-021 passed human review. v2-041 is the **first human FAIL**:
+the answer asserted wallet connection by signature without an approved source.
+Its initial PASS review was corrected in a private append-only review event.
+Calls for v2-051, 061, 065, 091 and 094 happened before that retrospective
+correction. They are evidence and estimated cost **outside the valid
+stop-on-first-failure sequence**, not five more qualifying smoke passes. v2-094
+also made an unsupported promise to notify the community. v2-101 and v2-103
+were **NOT EXECUTED**. The final review record is private in
+`20261028T083844656088Z-comparison-status-smoke-review.jsonl`; no raw answer
+is copied into this document. No Ministral result was established in this
+round. The isolated ledger reached 2,952,594 micro-USD reserved/estimated,
+not an invoice or provider balance.
+
+The isolated guard/prompt forward-fix now passes 40 focused tests and 923/923
+local tests, secret scan, and project validation. Exact-SHA CI and a new frozen
+provider retest remain **PENDING**; this does not erase the prior model FAIL.
+Draft PR #66 remains preproduction; Kimi is inactive and production is
+unchanged. The full 108-case, four 12-turn, controlled Telegram,
+data-handling/security and release gates remain open.
+
+## Prior frozen smoke — 2026-10-27, candidate 11c26ff
 
 Candidate `11c26ffd328b76d27f51842c4f546657ad26d23f` passed 922/922
 local tests, secret scan, project validation and exact-SHA
