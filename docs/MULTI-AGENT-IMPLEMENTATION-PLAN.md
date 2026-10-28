@@ -4,7 +4,38 @@ Date: 2026-10-28. Status: IN PROGRESS, not production accepted.
 This section supersedes older current-state labels below; the prior mission's
 checklists remain historical evidence, not proof of v2 completion.
 
-## 2026-10-28 bc7218b synthetic/PUBLIC smoke — stopped at v2-094
+## 2026-10-28 bb9bfc3 synthetic/PUBLIC smoke — stopped at v2-101
+
+- [x] Exact-SHA [ZION CI 40751134298](https://github.com/zettaceo/zion-community-bot/actions/runs/40751134298)
+  for `bb9bfc348f5859fbe5b45489fb2884b6ed747249` succeeded: 928 tests,
+  imports, secret scan and validation. Private frozen manifest
+  `20261028T190606376383Z-future-status-smoke-manifest.json` passed 20/20
+  synthetic/PUBLIC source and cost preflights.
+- [!] K3's first eight cases (v2-001, 021, 041, 051, 061, 065, 091, 094)
+  passed independent human review in order. v2-101 then **FAILED automated
+  acceptance** with `missing_feature_status`; its generated text was withheld
+  and not scored. The source-bounded host fallback passes, but does not turn
+  model generation into PASS. v2-103 is **NOT EXECUTED**; no Ministral result
+  was established. Stop-on-first-failure applied.
+- [~] Private review metadata is in
+  `20261028T190606376383Z-future-status-smoke-review.jsonl`; raw answers stay
+  private. The isolated ledger after v2-101 is 3,863,923 micro-USD
+  reserved/estimated, not an invoice or provider balance. This frozen FAIL
+  cannot be converted into PASS by a later code change.
+- [x] Inspected the observed guard reason without inferring withheld text.
+  The exact PUBLIC retrieval already contains beta/partial/future qualifiers;
+  a new prompt contract keeps generic objections concise instead of listing
+  capabilities without their adjacent states. Independent false-negative
+  guard probes now reject, including restricted audiences and pronoun carry-over;
+  safe negative/conditional probes pass.
+  Full local validation passed 929/929, secret scan and project validation.
+  Conservative K3/Ministral prices were reverified on 2026-10-28.
+- [ ] Exact-SHA CI and a newly frozen provider round are required. Full 108-case,
+  four 12-turn, controlled Telegram, account data-handling/security and
+  release gates remain open. Draft PR #66 stays preproduction; Kimi inactive
+  and production unchanged.
+
+## 2026-10-28 prior bc7218b synthetic/PUBLIC smoke — stopped at v2-094
 
 - [x] Exact-SHA [ZION CI 40703279757](https://github.com/zettaceo/zion-community-bot/actions/runs/40703279757)
   for `bc7218bbe9d4b0b04f67ee467eff4f4c3a804047` succeeded: 926 tests,

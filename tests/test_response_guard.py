@@ -1291,6 +1291,24 @@ class ResponseGuardTests(unittest.TestCase):
             'Orders está parcialmente disponível. O planejamento de ordens já '
             'permite todas as funções.',
             'Orders está parcialmente disponível, mas permite tudo.',
+            'O acompanhamento da carteira funciona para todos. '
+            'Portfolio está parcialmente disponível.',
+            'O planejamento de ordens funciona sem limites para todos. '
+            'Orders está parcialmente disponível.',
+            'O acompanhamento da carteira funciona sem limites para todos os '
+            'usuários autorizados. Portfolio está parcialmente disponível.',
+            'O acompanhamento da carteira funciona para todos os usuários '
+            'autorizados e não autorizados. Portfolio está parcialmente disponível.',
+            'O acompanhamento da carteira funciona para todos os usuários '
+            'autorizados. Portfolio está parcialmente disponível.',
+            'O acompanhamento da carteira funciona pra todo mundo. '
+            'Portfolio está parcialmente disponível.',
+            'O acompanhamento da carteira está disponível pra todos. '
+            'Portfolio está parcialmente disponível.',
+            'O Portfolio está parcialmente disponível. Mas ele funciona para todo mundo.',
+            'O Portfolio está parcialmente disponível. Funciona pra todos.',
+            'O acompanhamento da carteira está disponível para todo mundo. '
+            'Portfolio está parcialmente disponível.',
         )
         for answer in unqualified:
             with self.subTest(answer=answer):
@@ -1302,6 +1320,9 @@ class ResponseGuardTests(unittest.TestCase):
             'Planejamento de ordens e acompanhamento da carteira estão parcialmente disponíveis.',
             'Portfolio e Orders estão parcialmente disponíveis.',
             'No estado parcial, o planejamento de ordens permite criar gatilhos.',
+            'O acompanhamento da carteira não funciona para todos. '
+            'Portfolio está parcialmente disponível.',
+            'O Portfolio está parcialmente disponível. Mas ele não funciona para todos.',
         )
         for answer in qualified:
             with self.subTest(answer=answer):
@@ -1350,6 +1371,9 @@ class ResponseGuardTests(unittest.TestCase):
             'Pro já está disponível para assinatura.',
             'Não há taxa, mas você pode usar o plano Free agora.',
             'Você pode usar o plano Free agora? Sim, pode.',
+            'No plano Free, você já pode experimentar a Z-SWAP.',
+            'Com o Free já disponível hoje, você pode testar a plataforma.',
+            'O Free já está acessível para todo mundo.',
         ):
             with self.subTest(answer=answer):
                 self.assertEqual(validate_public_response(
@@ -1364,6 +1388,11 @@ class ResponseGuardTests(unittest.TestCase):
             'ser confirmada.',
             'Não é verdade que a Hird está aberta.',
             'O usuário disse: "Teste o nível gratuito antes de pagar." '
+            'Não confirmei esse acesso.',
+            'Se tiver acesso, no plano Free você pode testar a interface.',
+            'No plano Free, você não pode testar sem confirmar acesso.',
+            'No plano Free, você pode testar a Z-SWAP?',
+            'O usuário disse: "No plano Free, você já pode experimentar a Z-SWAP." '
             'Não confirmei esse acesso.',
         ):
             with self.subTest(answer=answer):
@@ -1399,6 +1428,35 @@ class ResponseGuardTests(unittest.TestCase):
         self.assertTrue(validate_public_response(
             'Você pode usar o plano Free agora.',
             official_context=source_open).allowed)
+        self.assertEqual(validate_public_response(
+            'O Free já está acessível para todo mundo.',
+            official_context='[Contexto oficial: Planos da Z-SWAP]\n'
+                             'O plano Free está acessível agora.').reason,
+            'unverified_plan_access')
+        self.assertTrue(validate_public_response(
+            'O Free já está acessível para todo mundo.',
+            official_context='[Contexto oficial: Planos da Z-SWAP]\n'
+                             'O plano Free está acessível para todo mundo.').allowed)
+        for restricted_source in (
+            'O plano Free está acessível para todos os participantes do beta.',
+            'O plano Free está acessível para todos os usuários autorizados.',
+            'O plano Free está acessível para todo mundo com convite.',
+            'O plano Free está acessível agora para participantes do beta.',
+            'O plano Free está acessível hoje, mas só para convidados.',
+            'O plano Free está acessível pra todos os participantes do beta.',
+        ):
+            with self.subTest(restricted_source=restricted_source):
+                for unrestricted_answer in (
+                    'O Free já está acessível para todo mundo.',
+                    'O Free já está acessível pra todo mundo.',
+                    'Você pode usar o plano Free agora.',
+                    'No plano Free, você já pode experimentar a Z-SWAP.',
+                ):
+                    self.assertEqual(validate_public_response(
+                        unrestricted_answer,
+                        official_context='[Contexto oficial: Planos da Z-SWAP]\n'
+                                         + restricted_source).reason,
+                        'unverified_plan_access')
         self.assertEqual(validate_public_response(
             'Você pode usar o plano Free agora.',
             official_context='[Contexto oficial: Planos da Z-SWAP]\n'

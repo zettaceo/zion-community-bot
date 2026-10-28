@@ -1219,7 +1219,7 @@ def _source_paid_access_is_future(context: str) -> bool:
     )
 
 
-def _source_plan_access_is_open(context: str, scope: str) -> bool:
+def _source_plan_access_is_open(context: str, scope: str, *, universal: bool = False) -> bool:
     """Accept a current-access claim only with a direct PUBLIC plan predicate."""
     sections = re.split(r'(?m)^\[contexto oficial: ([^\]\n]+)\][ \t]*$',
                         _fold(context))
@@ -1237,9 +1237,12 @@ def _source_plan_access_is_open(context: str, scope: str) -> bool:
     for heading, body in zip(sections[1::2], sections[2::2]):
         if 'planos' not in heading:
             continue
+        audience = (r'(?:para|pra) (?:todos|todo mundo)' if universal else
+                    r'(?:agora|atualmente|hoje|(?:para|pra) (?:todos|todo mundo))')
+        audience += r'(?=[ \t]*(?:[.!?;]|\n|$))'
         predicate = (rf'\b{target}\b\s+(?:ja\s+)?(?:esta|e)\s+'
-                     r'(?:abert[oa]|disponivel|liberad[oa]|a venda)\s+'
-                     r'(?:agora|atualmente|hoje|para todos)\b')
+                     r'(?:abert[oa]|disponivel|acessivel|liberad[oa]|a venda)\s+'
+                     rf'{audience}')
         if re.search(predicate, body):
             return True
     return False
@@ -1269,7 +1272,14 @@ def _plan_access_status_is_preserved(answer: str, context: str) -> bool:
         r'(?:free|gratuit[oa])\b',
         r'\b(?:acesso\s+ao\s+)?(?:(?:plano|nivel|versao)\s+)?'
         r'(?:free|gratuit[oa])\s+(?:ja\s+)?(?:esta|e|ficou)\s+'
-        r'(?:abert[oa]|disponivel|liberad[oa]|ativ[oa])\b',
+        r'(?:abert[oa]|disponivel|acessivel|liberad[oa]|ativ[oa])\b'
+        r'(?:\s+(?:agora|atualmente|hoje|(?:para|pra) (?:todos|todo mundo)))?',
+        r'\b(?:no|com)\s+(?:(?:plano|nivel|versao)\s+)?'
+        r'(?:free|gratuit[oa])\s*,?\s+(?:voce|usuarios?)\s+(?:ja\s+)?'
+        r'pode(?:m)?\s+(?:usar|acessar|testar|experimentar)\b',
+        r'\b(?:(?:plano|nivel|versao)\s+)?(?:free|gratuit[oa])\s+'
+        r'(?:ja\s+)?(?:abert[oa]|disponivel|acessivel|liberad[oa])\s+'
+        r'(?:agora|hoje|(?:para|pra) (?:todos|todo mundo))\b',
         r'\b(?:plano\s+(?:pro|trader|pilot)|acesso\s+pago|'
         r'assinatura\s+do\s+plano\s+(?:pro|trader|pilot)|'
         r'mint\s+do\s+access pass)\s+(?:ja\s+)?(?:esta|e|ficou)\s+'
@@ -1323,7 +1333,10 @@ def _plan_access_status_is_preserved(answer: str, context: str) -> bool:
                 if not re.match(r'\s*(?:sim|isso|correto)\b'
                                 r'[^.!?;\n]{0,30}\b(?:pode|esta|e)\b', followup):
                     continue
-            if _source_plan_access_is_open(context, _plan_scope(match.group())):
+            universal = bool(re.search(r'\b(?:para|pra) (?:todos|todo mundo)\b',
+                                       match.group()))
+            if _source_plan_access_is_open(context, _plan_scope(match.group()),
+                                           universal=universal):
                 continue
             return False
     return True
@@ -1382,6 +1395,10 @@ def _partial_feature_is_promoted(folded: str,
             r'(?:disponive(?:l|is)|operaciona(?:l|is)|lancad[oa]s?)\b'
             r'|\b(?:esta|estao|e|sao|ficou|ficaram)\s+complet[oa]s?\b'
             r'|^\s+complet[oa]s?\b|\bsem restricoes\b'
+            r'|\b(?:funciona|funcionam)\s+(?:sem limites\s+)?'
+            r'(?:para|pra) (?:todos|todo mundo)\b'
+            r'|\b(?:esta|estao|e|sao)\s+disponive(?:l|is)\s+'
+            r'(?:para|pra) (?:todos|todo mundo)\b'
             r'|\b(?:ja\s+)?permite\s+todas\s+as\s+'
             r'(?:funcoes|funcionalidades)\b'
             r'|\b(?:ja\s+)?permite\s+tudo\b')
@@ -1396,6 +1413,19 @@ def _partial_feature_is_promoted(folded: str,
             if not re.search(r'\b(?:nao|nunca|nem)\b[^.!?;\n]{0,22}$',
                              tail[:claim.start()]):
                 return True
+        # A short pronoun or omitted subject in the next sentence may still
+        # refer to the same feature. A newly named feature ends the carry-over.
+        if clause_end < len(folded):
+            following = re.split(r'[.!?;\n]', folded[clause_end + 1:], maxsplit=1)[0]
+            if (not re.search(next_feature, following)
+                    and re.match(r'\s*(?:(?:mas|porem|e)\s+)?'
+                                 r'(?:(?:ele|ela|esse recurso|essa funcao)\s+)?'
+                                 r'(?:ja\s+)?(?:funciona|funcionam|esta|estao|e|sao)\b',
+                                 following)):
+                for claim in re.finditer(full, following):
+                    if not re.search(r'\b(?:nao|nunca|nem)\b[^.!?;\n]{0,22}$',
+                                     following[:claim.start()]):
+                        return True
     return False
 
 

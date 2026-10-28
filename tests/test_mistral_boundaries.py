@@ -105,6 +105,32 @@ class MistralBoundaryTests(unittest.TestCase):
         self.assertIn('Um plano Free documentado não comprova', system)
         self.assertIn('preserve seu estado futuro', system)
         self.assertIn('Economia de tempo ou ferramentas também exige', system)
+        self.assertIn('não enumere um catálogo de funcionalidades', system)
+        self.assertIn('próprio status documentado na mesma oração', system)
+        self.assertIn('status de outro recurso não basta', system)
+        self.assertIn('Sem status próprio no CONTEXTO OFICIAL recuperado, omita esse recurso', system)
+
+    def test_generic_price_objection_keeps_unverified_access_and_competitor_claims_out_of_system(self):
+        question = 'A Z-SWAP parece cara e ainda imatura. Por que eu escolheria ela?'
+        context = (
+            '[Contexto oficial: Proposta pública]\n'
+            'A Z-SWAP reúne recursos da plataforma numa experiência integrada.'
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            client = CapturingMistralClient(make_settings(Path(tmp)))
+            asyncio.run(client.answer(
+                question=question, context=context, agent_id='zion'))
+
+        system = client.messages[0]['content']
+        payload = json.loads(client.messages[1]['content'].split('\n', 1)[1])
+        self.assertEqual(payload['official_context'], context)
+        self.assertEqual(payload['user_question'], question)
+        self.assertNotIn(question, system)
+        self.assertIn('sem despejar um catálogo de recursos', system)
+        self.assertIn('sem confirmar preço menor, paridade de recursos ou maturidade', system)
+        self.assertIn('custo total, recursos necessários e estado público', system)
+        self.assertIn('Sem status próprio no CONTEXTO OFICIAL recuperado, omita esse recurso', system)
+        self.assertIn('não recomende testá-lo antes de pagar sem evidência', system)
 
     def test_short_swap_question_receives_source_scope_in_provider_prompt(self):
         context = KnowledgeTools(KnowledgeBase(

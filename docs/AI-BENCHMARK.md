@@ -1,8 +1,8 @@
 # Cognitive v2 — provider benchmark protocol
 
-Status: LATEST bc7218b K3 SMOKE FAILED HUMAN REVIEW AT v2-094;
-MINISTRAL NOT RETESTED IN THAT ROUND. The first seven K3 cases passed human
-review in order; v2-101 and v2-103 were not executed.
+Status: LATEST bb9bfc3 K3 SMOKE FAILED AUTOMATED GUARD AT v2-101;
+MINISTRAL NOT RETESTED IN THAT ROUND. The first eight K3 cases passed human
+review in order; v2-103 was not executed.
 The earlier 80633ce K3 smoke failed at v2-041, and later calls before its
 retrospective correction did not qualify that smoke.
 EARLIER c06f53b K3 SMOKE PASSED, BUT ITS 98-CASE CONTINUATION FAILED AT
@@ -123,7 +123,37 @@ generation, native tool path, runtime delivery and controlled Telegram tests
 have separate verdicts. No overall model winner is declared while any required
 dimension remains untested or failed.
 
-## Latest frozen smoke — 2026-10-28, candidate bc7218b
+## Latest frozen smoke — 2026-10-28, candidate bb9bfc3
+
+Candidate `bb9bfc348f5859fbe5b45489fb2884b6ed747249` passed local 928/928
+and exact-SHA [ZION CI 40751134298](https://github.com/zettaceo/zion-community-bot/actions/runs/40751134298)
+with imports, secret scan and project validation. Private frozen manifest
+`20261028T190606376383Z-future-status-smoke-manifest.json` passed all 20
+synthetic/PUBLIC source and cost preflights. K3 cases v2-001, 021, 041, 051,
+061, 065, 091 and 094 passed independent human review in declared order.
+v2-094 carried all six launch statuses without a future update promise.
+
+v2-101 then **FAILED automated acceptance** with `missing_feature_status`.
+The generated answer was withheld by the output guard and receives no content
+score; no unseen text is inferred. The host-owned fallback was separately
+checked against the retrieved PUBLIC source and accepted, but containment is
+not model-generation success. The sequence stopped; v2-103 is **NOT
+EXECUTED**. No Ministral result was established. Private review metadata is
+in `20261028T190606376383Z-future-status-smoke-review.jsonl`; the isolated
+ledger after v2-101 is 3,863,923 micro-USD reserved/estimated, not an invoice.
+This frozen smoke remains **FAIL**.
+A material preproduction prompt follow-up now keeps a generic price/maturity
+objection concise and avoids a feature catalog; any specifically cited feature
+still needs its own adjacent PUBLIC status. Independent deterministic replay
+also closed independently reproduced access/availability phrasings, including
+restricted Free audiences, broad Portfolio claims and adjacent-sentence
+carry-over, while preserving safe conditional or negative controls. Local validation passed 929/929,
+secret scan and project validation. The conservative K3/Ministral price
+snapshots were reverified against official pages on 2026-10-28. Exact-SHA CI
+and a fresh frozen provider round remain required; these local results do not
+change the failed smoke verdict.
+
+## Prior frozen smoke — 2026-10-28, candidate bc7218b
 
 Candidate `bc7218bbe9d4b0b04f67ee467eff4f4c3a804047` passed local 926/926
 and exact-SHA [ZION CI 40703279757](https://github.com/zettaceo/zion-community-bot/actions/runs/40703279757)

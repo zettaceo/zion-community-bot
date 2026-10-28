@@ -1,6 +1,37 @@
 # Cognitive v2 — live synthetic quality findings
 
-## Latest bc7218b plan/status smoke — 2026-10-28
+## Latest bb9bfc3 future-status smoke — 2026-10-28
+
+Candidate `bb9bfc348f5859fbe5b45489fb2884b6ed747249` passed local 928/928
+and exact-SHA [ZION CI 40751134298](https://github.com/zettaceo/zion-community-bot/actions/runs/40751134298)
+with imports, secret scan and validation. The private synthetic/PUBLIC
+manifest `20261028T190606376383Z-future-status-smoke-manifest.json` passed
+20/20 source/cost preflights. K3's first eight cases passed independent human
+review. v2-094 listed all six launch statuses without promising a future
+update.
+
+v2-101 then **FAILED automated acceptance** as `missing_feature_status`.
+The generated response was withheld, so it is not scored or reconstructed.
+The host-owned fallback was independently checked against the retrieved
+PUBLIC source and passed the guard, but this does not make K3 generation pass.
+The sequence stopped: v2-103 is **NOT EXECUTED**; Ministral was not retested.
+Private review metadata is in
+`20261028T190606376383Z-future-status-smoke-review.jsonl`; the isolated
+ledger totals 3,863,923 micro-USD reserved/estimated, not a provider invoice.
+No model passes this candidate's smoke, full benchmark or Telegram acceptance.
+Kimi remains inactive and production unchanged.
+
+A material follow-up narrows generic price/maturity responses to the documented
+high-level proposition and requires each specific feature to carry its own
+PUBLIC status in the same clause. Independently reproduced guard gaps around
+current Free access, restricted audiences and overly broad Portfolio/Orders
+availability now reject; negative or conditional controls remain allowed. Local
+validation passed 929/929, secret scan and project validation. The
+conservative K3/Ministral prices were reverified from official pages on
+2026-10-28. This is a new candidate awaiting exact-SHA CI and a frozen
+provider round; it cannot turn the bb9bfc3 FAIL into PASS.
+
+## Prior bc7218b plan/status smoke — 2026-10-28
 
 Candidate `bc7218bbe9d4b0b04f67ee467eff4f4c3a804047` passed local 926/926
 and exact-SHA [ZION CI 40703279757](https://github.com/zettaceo/zion-community-bot/actions/runs/40703279757)

@@ -1,6 +1,39 @@
 # ZION Multi-Agent Command System - Release Audit
 
-## Cognitive v2 latest preproduction checkpoint — 2026-10-28, bc7218b
+## Cognitive v2 latest preproduction checkpoint — 2026-10-28, bb9bfc3
+
+**Verdict: NOT RELEASE CERTIFIED.** Candidate
+`bb9bfc348f5859fbe5b45489fb2884b6ed747249` passed local 928/928 and
+exact-SHA [ZION CI 40751134298](https://github.com/zettaceo/zion-community-bot/actions/runs/40751134298)
+with imports, secret scan and validation. Private frozen synthetic/PUBLIC
+manifest `20261028T190606376383Z-future-status-smoke-manifest.json` passed
+20/20 source/cost preflights. K3's first eight smoke cases passed independent
+human review; v2-094 carried all six correct status values without promising
+future updates. v2-101 then **FAILED automated acceptance** as
+`missing_feature_status`. The generated response was withheld and not scored.
+The host-owned fallback passed a separate source/guard check, but did not
+change the generation verdict. v2-103 was **NOT EXECUTED**. Ministral was not
+retested.
+
+Private review metadata is in
+`20261028T190606376383Z-future-status-smoke-review.jsonl`; raw answers are
+not copied here. The isolated ledger after v2-101 totals 3,863,923 micro-USD
+reserved/estimated, not an invoice or account balance. Full 108-case,
+four 12-turn, native and Telegram acceptance, account data-handling/security,
+and release approval remain open. Draft PR #66 stays preproduction, Kimi
+inactive and production unchanged.
+
+A material preproduction follow-up now directs generic price/maturity
+objections away from an unqualified catalog; a feature named as an argument
+must carry its own PUBLIC status. Independent current-access/availability
+false negatives are blocked, including restricted audiences and pronoun
+carry-over, while safe controls still pass. Full local
+validation passed 929/929, secret scan and project validation. Conservative
+K3/Ministral prices were reverified from official pages on 2026-10-28.
+Exact-SHA CI and a fresh provider round are pending; this does not change the
+bb9bfc3 FAIL or authorize production.
+
+## Cognitive v2 prior preproduction checkpoint — 2026-10-28, bc7218b
 
 **Verdict: NOT RELEASE CERTIFIED.** Candidate
 `bc7218bbe9d4b0b04f67ee467eff4f4c3a804047` passed local 926/926 and
