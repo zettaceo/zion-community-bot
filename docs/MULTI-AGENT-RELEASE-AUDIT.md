@@ -17,9 +17,13 @@ The private matching review file preserves the FAIL.
 
 A local prompt/guard forward-fix blocks categorical staff promises while
 allowing safety instructions and wallet-local password guidance. A replay of
-17 private K3 outputs matched only the failed 413dc6a v2-041 output. Local
-937/937 tests, imports, secret scan and project validation passed. Exact-SHA
-CI, independent review and new frozen provider evidence remain pending. Full
+17 private K3 outputs matched only the failed 413dc6a v2-041 output.
+Intermediate `b318218` passed exact-SHA
+[ZION CI 40889458286](https://github.com/zettaceo/zion-community-bot/actions/runs/40889458286)
+with 937/937, but independent adversarial review exposed additional bypasses
+and false positives. The subsequent local adjustment passed all 19 reviewed
+probes and 937/937 tests, imports, secret scan and validation. Final exact-SHA
+CI and new frozen provider evidence remain pending. Full
 benchmark, four 12-turn conversations, controlled Telegram, account privacy
 and release gates are open. Draft PR #66 remains preproduction; Kimi inactive
 and production unchanged.

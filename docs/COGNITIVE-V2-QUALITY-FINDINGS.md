@@ -26,8 +26,11 @@ not a provider invoice or account balance. Kimi remains inactive and
 production unchanged. A new material prompt/guard forward-fix passed local
 937/937 tests, imports, secret scan and project validation. Replaying 17
 private K3 outputs locally matched only the failed 413dc6a v2-041 response.
-Exact-SHA CI, independent review and a new frozen provider retest remain
-pending. This later work cannot retroactively change the 413dc6a FAIL.
+Intermediate `b318218` passed exact-SHA CI 40889458286, but an independent
+adversarial review found more lexical escapes and false positives. The later
+local adjustment passed 19/19 reviewed probes. Final exact-SHA CI and a new
+frozen provider retest remain pending. This later work cannot retroactively
+change the 413dc6a FAIL.
 
 ## Prior c4d1f362 wallet-support smoke — 2026-10-29
 

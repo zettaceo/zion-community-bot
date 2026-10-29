@@ -17,8 +17,10 @@ cases and every Ministral case were NOT EXECUTED. The isolated ledger totals
 and production unchanged. A new prompt/guard forward-fix passed local
 937/937 tests, imports, secret scan and project validation. A local replay of
 17 private K3 outputs matched only the failed 413dc6a v2-041 response.
-Exact-SHA CI, independent review and provider retest remain pending; this
-does not change the frozen FAIL.
+Intermediate `b318218` passed exact-SHA CI 40889458286 but independent
+adversarial review found more lexical escapes and false positives. The later
+local adjustment passed 19/19 reviewed probes. Final exact-SHA CI and
+provider retest remain pending; this does not change the frozen FAIL.
 
 Prior c4d1f362 K3 smoke failed independent human review at v2-041;
 Ministral was not executed in that round. Exact-SHA

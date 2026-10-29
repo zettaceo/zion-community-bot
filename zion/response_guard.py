@@ -653,22 +653,27 @@ def _universal_secret_request_promise(text: str) -> bool:
                         r'api secrets?|passphrases?|token(?:s? de acesso|s? da api)|'
                         r'codigo 2fa)\b')
     reference = re.compile(r'\b(?:isso|esses? dados|esses? segredos|'
-                           r'essas? informacoes|that|these (?:details|secrets)|them)\b')
+                           r'essas? informacoes|that|these (?:details|secrets)|them|'
+                           r'(?:pedi|solicita|exigi)-l[ao]s?)\b')
     affiliation = (r'(?:\s+(?:da|do|de|dos|das)\s+(?:z[\s-]?swap|equipe|'
                    r'suporte|plataforma|zion)){0,2}')
     requester = (r'(?:ninguem|nenhum[as]?\s+(?:membro|administrador|admin|'
                  r'representante|pessoa|agente|funcionario))' + affiliation)
-    organization = (r'(?:a z[\s-]?swap|o zion|a equipe|o suporte|'
+    organization = (r'(?:a z[\s-]?swap|o zion|a equipe|nossa equipe|o suporte|'
                     r'os administradores|nos)' + affiliation)
-    future_request = (r'(?:(?:(?:vai|ira|vamos|iremos|vao|irao)\s+)'
-                      r'(?:te\s+|lhe\s+)?(?:pedir|solicitar|exigir)|'
+    future_request = (r'(?:(?:te\s+|lhe\s+)?'
+                      r'(?:(?:vai|ira|vamos|iremos|vao|irao)\s+)'
+                      r'(?:te\s+|lhe\s+)?'
+                      r'(?:pedir|solicitar|exigir|pedi-la|solicita-la|exigi-la)|'
+                      r'(?:te\s+|lhe\s+)?'
                       r'(?:pedira|pedirao|pediremos|solicitara|solicitarao|'
                       r'solicitaremos|exigira|exigirao|exigiremos))')
     claim = re.compile(
         rf'\b(?:{requester}\s+(?:nunca\s+|jamais\s+)?'
         rf'(?:{future_request}|pede|solicita|exige)'
         rf'|{organization}\s+(?:nao|nunca|jamais)\s+{future_request}'
-        r'|(?:nao|nunca|jamais)\s+(?:pediremos|solicitaremos|exigiremos)'
+        r'|(?:nao|nunca|jamais)\s+(?:(?:vamos|iremos)\s+'
+        r'(?:pedir|solicitar|exigir)|pediremos|solicitaremos|exigiremos)'
         r'|(?:no one|nobody)(?:\s+(?:at|from)\s+z[\s-]?swap|\s+on our team)?'
         r'\s+will(?:\s+ever)?\s+(?:ask|request|demand)'
         r'|(?:we|z[\s-]?swap|our team|zion)\s+'
@@ -677,27 +682,33 @@ def _universal_secret_request_promise(text: str) -> bool:
         rf'{secret.pattern}[^.!?;\n]{{0,30}}\b(?:nao|nunca|jamais)\s+'
         r'(?:(?:vai|ira)\s+ser|sera|serao)\s+'
         r'(?:pedid[ao]s?|solicitad[ao]s?|exigid[ao]s?)\b')
-    previous_secret = False
-    previous_end = 0
-    for sentence in re.finditer(r'[^.!?;\n]+[.!?;\n]?', folded):
+    sentences = list(re.finditer(r'[^.!?;\n]+[.!?;\n]?', folded))
+    for index, sentence in enumerate(sentences):
         clause = sentence.group().strip()
         current_secret = bool(secret.search(clause))
-        refers_to_secret = (current_secret or
-                            (previous_secret and sentence.start() - previous_end <= 1
-                             and reference.search(clause)))
-        previous_secret = current_secret
-        previous_end = sentence.end()
+        adjacent_secret = (index > 0 and secret.search(sentences[index - 1].group())
+                           or index + 1 < len(sentences)
+                           and secret.search(sentences[index + 1].group()))
+        refers_to_secret = current_secret or (adjacent_secret and reference.search(clause))
         if not refers_to_secret or clause.endswith('?'):
             continue
         for match in (*claim.finditer(clause), *passive.finditer(clause)):
             before = clause[:match.start()]
             if (_reported_or_denied_prefix(before)
                     or re.search(r'\b(?:nao (?:posso|podemos|da para) '
-                                 r'(?:garantir|prometer)|nao prometo|'
+                                 r'(?:garantir|prometer|dizer|afirmar)|'
+                                 r'nao (?:devo|devemos) (?:prometer|afirmar)|'
+                                 r'nao prometo|'
                                  r'nao e seguro supor) que\b[^.!?;\n]{0,65}$'
                                  r'|\b(?:ninguem pode garantir|e falso afirmar|'
                                  r'(?:o usuario|voce|ele|ela) (?:relatou|disse|'
                                  r'alegou|afirmou)) que\b[^.!?;\n]{0,65}$'
+                                 r'|\b(?:o correto e nao prometer|'
+                                 r'e incorreto dizer|nao afirmamos|'
+                                 r'nao (?:existe|ha) garantia de|'
+                                 r'se (?:alguem prometer|a mensagem disser)) que\b'
+                                 r'[^.!?;\n]{0,65}$'
+                                 r'|\bse alguem disser\s*["“]?[^.!?;\n]{0,65}$'
                                  r'|\b(?:i|we) (?:cannot|can.t|do not|don.t) '
                                  r'(?:guarantee|promise) that\b[^.!?;\n]{0,65}$',
                                  before)):

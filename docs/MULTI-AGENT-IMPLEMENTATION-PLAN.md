@@ -23,9 +23,12 @@ checklists remain historical evidence, not proof of v2 completion.
   from normative safety guidance, checks Portuguese and English variants,
   and preserves a source-safe wallet triage fallback. The first 17 existing
   private K3 outputs were replayed locally: only the failed 413dc6a v2-041
-  output matched the new guard. Local validation passed 937/937, imports,
-  secret scan and project validation. Exact-SHA CI, independent review and a
-  new frozen provider round remain pending.
+  output matched the new guard. Intermediate `b318218` passed exact-SHA
+  [ZION CI 40889458286](https://github.com/zettaceo/zion-community-bot/actions/runs/40889458286)
+  with 937/937, but an independent adversarial review found additional
+  bypasses and false positives. The subsequent local adjustment passed all
+  19 reviewed probes and 937/937 tests, imports, secret scan and validation.
+  Final exact-SHA CI and a new frozen provider round remain pending.
 - [ ] Full benchmark, conversations, controlled Telegram, account
   data-handling, independent security and release gates remain open. Draft
   PR #66 remains preproduction; Kimi inactive and production unchanged.
