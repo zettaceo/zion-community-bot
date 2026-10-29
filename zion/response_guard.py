@@ -2061,6 +2061,13 @@ def _public_swap_route_reply(official_context: str) -> str | None:
     return None
 
 
+def wallet_connection_triage() -> str:
+    """Source-bounded support intake; never infer how a wallet connects."""
+    return ('Para entender a dificuldade de conexão, diga qual carteira '
+            'e rede você usa e qual mensagem de erro aparece. Não compartilhe '
+            'seed phrase, chave privada ou senha da carteira.')
+
+
 def public_fallback_for(reason: str, *, official_context: str = '', question: str = '') -> str:
     """Host-owned public reply for a few known quality failures."""
     if reason in {'unsupported_future_community_notice',
@@ -2078,9 +2085,7 @@ def public_fallback_for(reason: str, *, official_context: str = '', question: st
                   'unsupported_universal_secret_promise'}:
         if re.search(r'\b(?:conecta\w*|conexao|carteira\w*|wallet\w*)\b',
                      _fold(question)):
-            return ('Para entender a dificuldade de conexão, diga qual carteira '
-                    'e rede você usa e qual mensagem de erro aparece. Não compartilhe '
-                    'seed phrase, chave privada ou senha da carteira.')
+            return wallet_connection_triage()
         return PUBLIC_FALLBACK
     if reason in {'best_price_guarantee', 'unsupported_route_optimization',
                   'unsupported_named_quote_source'}:

@@ -1,7 +1,29 @@
 # Cognitive v2 — provider benchmark protocol
 
-Status: LATEST 413dc6a K3 SMOKE FAILED INDEPENDENT HUMAN REVIEW AT v2-041;
-MINISTRAL NOT EXECUTED IN THAT ROUND. Exact-SHA
+Status: LATEST 4271c98 K3 SMOKE FAILED HUMAN AND INDEPENDENT REVIEW AT
+v2-041; MINISTRAL NOT EXECUTED IN THAT ROUND. Candidate
+`4271c98b294256b8d4e7cc307cad7edb82de3f83` passed exact-SHA
+[ZION CI 40890714571](https://github.com/zettaceo/zion-community-bot/actions/runs/40890714571):
+SUCCESS, 937/937 tests. The frozen synthetic/PUBLIC source and cost preflights
+passed 20/20; these were not provider calls. K3 v2-001 and v2-021 passed
+human and independent review. Its v2-041 response passed the automated guard
+but failed human and independent review because it claimed the entire wallet
+connection always occurs inside the wallet, beyond the retrieved PUBLIC
+evidence. Stop-on-first-failure left the remaining seven K3 cases and all
+Ministral cases NOT EXECUTED. The isolated ledger totals 4,957,617 micro-USD
+reserved/estimated, not an invoice. A local deterministic EIR triage
+forward-fix is implemented: local validation passed 941/941 tests, imports,
+shell, secret scan and ZION validation; 78 focused AIService/guard tests and
+an independent 32/32 bounded selector matrix with source-id/filename spoof
+negatives passed. Exact-SHA CI for the forward-fix, controlled Telegram and
+the remaining provider cases remain release gates. The next v2-041 check must
+exercise the delivered AIService path; another raw-only v2-041 generation is
+not evidence that users receive the fixed response. The 4271c98 raw FAIL is
+unchanged; cognitive v2 is not production certified, Kimi remains inactive,
+and production is unchanged.
+
+Prior 413dc6a K3 smoke failed independent human review at v2-041;
+Ministral was not executed in that round. Exact-SHA
 [ZION CI 40850555948](https://github.com/zettaceo/zion-community-bot/actions/runs/40850555948)
 completed SUCCESS on `413dc6a1e3b36d368de3173ec496b82182f71389` with
 935/935 tests, imports, secret scan and project validation OK. The private

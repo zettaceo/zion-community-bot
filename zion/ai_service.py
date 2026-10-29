@@ -30,7 +30,8 @@ from .models import (
 )
 from .secret_store import SecretStore
 from .router import _fold
-from .response_guard import is_broad_product_comparison, public_fallback_for, validate_public_response
+from .response_guard import (is_broad_product_comparison, public_fallback_for,
+                             validate_public_response, wallet_connection_triage)
 
 
 logger = logging.getLogger("zion.ai")
@@ -56,6 +57,71 @@ WALLET_SECRET_INPUT_REGEX = re.compile(
     r"frase\s+semente|frase\s+de\s+recupera[cç][aã]o|"
     r"private\s+key|chave\s+privada"
     r")\b\s*[:=\-]\s*([^\n]{20,})"
+)
+
+
+def _wallet_connection_failure(canonical: str) -> bool:
+    """Only explicit wallet-connection trouble gets the fixed support intake."""
+    if len(canonical) > 180 or "\n" in canonical:
+        return False
+    if re.search(r"\b(?:api|endpoint|sdk|webhook|bot)\b", canonical):
+        return False
+    # A later swap failure must not turn an already connected wallet into a
+    # connection incident. Match trouble and wallet in the same clause.
+    clauses = re.split(r"[,;.!?]|\b(?:mas|porem)\b", canonical)
+    connection_action = r"(?:re)?conect(?:ar|a|am|ou|ando|ei|o)\b"
+    trouble = (
+        rf"\b(?:nao consigo|nao consegui|nao consegue|nao esta conseguindo|"
+        rf"nao da (?:para|pra))\b.{{0,55}}\b{connection_action}",
+        # Wallet is the grammatical subject. This excludes advice such as
+        # "por que não conectar minha carteira?" and first-person choices.
+        r"\b(?:carteira|wallet)\b.{0,45}\bnao "
+        r"(?:esta |ta |se )?(?:re)?conect(?:ar|a|am|ou|ando|ada|ado)\b",
+        rf"\b(?:erro|falha|problema|dificuldade)\b"
+        rf".{{0,45}}\b(?:{connection_action}|conex\w*\b)",
+        r"\bconex\w*\b.{0,45}\b(?:falh\w*|erro)\b",
+    )
+    for clause in clauses:
+        if not re.search(r"\b(?:carteira|wallet)\b", clause):
+            continue
+        if re.search(r"\bsem (?:erro|falha|problema|dificuldade)\b",
+                     clause):
+            continue
+        if re.search(r"\bnao (?:tenho|tem|ha|esta com|estou com|apresenta) "
+                     r"(?:nenhum )?(?:erro|falha|problema|dificuldade)\b", clause):
+            continue
+        if any(re.search(pattern, clause) for pattern in trouble):
+            return True
+    return False
+
+
+def _public_wallet_triage_context(knowledge: KnowledgeBase) -> str:
+    """Check the reviewed EIR source directly, independent of caller query."""
+    if knowledge.load_errors:
+        return ""
+    for chunk in knowledge.chunks:
+        authority = chunk.authority
+        if (
+            authority.classification is not KnowledgeClassification.PUBLIC
+            or authority.source_identity != "zswap-public-disclosure-policy"
+            or authority.source_id != "zswap-public-disclosure-policy"
+            or authority.filename != "zswap-safety-boundary.md"
+            or not authority.allows(AgentId.EIR)
+            or _fold(chunk.heading) != "seguranca de carteira"
+        ):
+            continue
+        body = _fold(chunk.text)
+        if all(term in body for term in (
+            "nunca deve pedir", "seed phrase", "chave privada", "senha da carteira"
+        )):
+            return f"[Contexto oficial: {chunk.heading}]\n{chunk.text}"
+    return ""
+
+
+_WALLET_TRIAGE_SOURCE_UNAVAILABLE = (
+    "Ainda não tenho informação oficial suficiente para orientar essa "
+    "conexão com segurança. Fale com a equipe da Z-SWAP sem compartilhar "
+    "seed phrase, chave privada ou senha da carteira."
 )
 
 
@@ -609,6 +675,34 @@ class AIService:
             if comparison_context:
                 context = comparison_context
         question_hash = self._hash_text(safe_question)
+
+        if (selected_agent is AgentId.EIR
+                and _wallet_connection_failure(interpretation.canonical)):
+            wallet_context = _public_wallet_triage_context(self.knowledge)
+            local_reply = _WALLET_TRIAGE_SOURCE_UNAVAILABLE
+            template = "wallet_connection_source_unavailable"
+            if wallet_context:
+                candidate_reply = wallet_connection_triage()
+                if validate_public_response(
+                    candidate_reply, official_context=wallet_context
+                ).allowed:
+                    local_reply = candidate_reply
+                    template = "wallet_connection_triage"
+            self._record_ai_event(
+                chat_id=chat_id,
+                user_id=user_id,
+                purpose="support_answer",
+                model="zion-local",
+                success=True,
+                input_hash=question_hash,
+                metadata={
+                    "knowledge_hits": 1 if wallet_context else 0,
+                    "provider_called": False,
+                    "agent_id": selected_agent.value,
+                    "local_template": template,
+                },
+            )
+            return AIAnswer(text=local_reply, model="zion-local")
 
         canonical_answer = self.knowledge.canonical_finite_answer(
             safe_question,

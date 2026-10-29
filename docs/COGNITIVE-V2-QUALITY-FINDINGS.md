@@ -1,6 +1,32 @@
 # Cognitive v2 — live synthetic quality findings
 
-## Latest 413dc6a wallet-support smoke — 2026-10-29
+## Latest 4271c98 wallet-support smoke — 2026-10-29
+
+Candidate `4271c98b294256b8d4e7cc307cad7edb82de3f83` passed exact-SHA
+[ZION CI 40890714571](https://github.com/zettaceo/zion-community-bot/actions/runs/40890714571):
+SUCCESS, 937/937 tests. Frozen synthetic/PUBLIC source and cost preflights
+passed 20/20; they were not provider requests.
+
+K3 v2-001 and v2-021 **PASSED human and independent review**. Its v2-041
+response passed the automated guard but **FAILED human and independent review**:
+it claimed the entire wallet connection always occurs inside the wallet. The
+retrieved PUBLIC evidence does not support that universal claim. The round
+stopped at the first failure. The remaining seven K3 cases and all Ministral
+cases were **NOT EXECUTED**. No raw answer or secret is reproduced here.
+
+The isolated ledger totals 4,957,617 micro-USD reserved/estimated, not a
+provider invoice or account balance. A local deterministic EIR triage
+forward-fix is implemented. Local validation passed 941/941 tests, imports,
+shell, secret scan and ZION validation; 78 focused AIService/guard tests and
+an independent 32/32 bounded selector matrix with source-id/filename spoof
+negatives passed. Exact-SHA CI for the forward-fix, controlled Telegram and
+the remaining provider cases remain release gates. The next v2-041 acceptance
+must verify the delivered AIService response; raw-only generation remains a
+separate diagnostic. The 4271c98 raw FAIL
+remains frozen. Cognitive v2 is not production certified; Kimi remains
+inactive and production is unchanged.
+
+## Prior 413dc6a wallet-support smoke — 2026-10-29
 
 Candidate `413dc6a1e3b36d368de3173ec496b82182f71389` passed exact-SHA
 [ZION CI 40850555948](https://github.com/zettaceo/zion-community-bot/actions/runs/40850555948):

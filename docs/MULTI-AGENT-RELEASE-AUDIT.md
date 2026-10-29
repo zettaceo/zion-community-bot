@@ -1,6 +1,32 @@
 # ZION Multi-Agent Command System - Release Audit
 
-## Cognitive v2 latest preproduction checkpoint — 2026-10-29, 413dc6a
+## Cognitive v2 latest preproduction checkpoint — 2026-10-29, 4271c98
+
+**Verdict: NOT RELEASE CERTIFIED.** Candidate
+`4271c98b294256b8d4e7cc307cad7edb82de3f83` passed exact-SHA
+[ZION CI 40890714571](https://github.com/zettaceo/zion-community-bot/actions/runs/40890714571):
+SUCCESS, 937/937 tests. Frozen synthetic/PUBLIC source and cost preflights
+passed 20/20; they were not provider calls. K3 v2-001 and v2-021 **PASSED
+human and independent review**. v2-041 **FAILED human and independent review**
+after the automated guard accepted an unsupported claim that the entire wallet
+connection always occurs inside the wallet. Stop-on-first-failure left the
+remaining seven K3 cases and all Ministral cases **NOT EXECUTED**. The isolated
+ledger totals 4,957,617 micro-USD reserved/estimated, not an invoice or
+account balance. The frozen FAIL is unchanged.
+
+A local deterministic EIR triage forward-fix is implemented. Local validation
+passed 941/941 tests, imports, shell, secret scan and ZION validation; 78
+focused AIService/guard tests and an independent 32/32 bounded selector matrix
+with source-id/filename spoof negatives passed. Exact-SHA CI, controlled
+Telegram and the remaining provider cases remain release gates. The next
+v2-041 check must exercise the delivered AIService path; raw-only generation
+remains a separate diagnostic. The 4271c98 raw FAIL remains unchanged. Full
+benchmark, four 12-turn
+conversations, account privacy, independent security and release gates remain
+open. Draft PR #66 remains preproduction; Kimi inactive and production
+unchanged.
+
+## Cognitive v2 prior preproduction checkpoint — 2026-10-29, 413dc6a
 
 **Verdict: NOT RELEASE CERTIFIED.** Candidate
 `413dc6a1e3b36d368de3173ec496b82182f71389` passed exact-SHA

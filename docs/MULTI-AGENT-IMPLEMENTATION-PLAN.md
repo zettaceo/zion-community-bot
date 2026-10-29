@@ -4,7 +4,32 @@ Date: 2026-10-29. Status: IN PROGRESS, not production accepted.
 This section supersedes older current-state labels below; the prior mission's
 checklists remain historical evidence, not proof of v2 completion.
 
-## 2026-10-29 413dc6a synthetic/PUBLIC smoke — stopped at v2-041
+## 2026-10-29 4271c98 synthetic/PUBLIC smoke — stopped at v2-041
+
+- [x] Candidate `4271c98b294256b8d4e7cc307cad7edb82de3f83` passed
+  exact-SHA [ZION CI 40890714571](https://github.com/zettaceo/zion-community-bot/actions/runs/40890714571):
+  SUCCESS, 937/937 tests. Frozen synthetic/PUBLIC source and cost preflights
+  passed 20/20; these were not provider calls.
+- [!] K3 v2-001 and v2-021 **PASSED human and independent review**. v2-041
+  **FAILED human and independent review** despite passing the automated guard:
+  EIR claimed the entire wallet connection always occurs inside the wallet,
+  beyond retrieved PUBLIC evidence. Stop-on-first-failure left seven remaining
+  K3 cases and all Ministral cases **NOT EXECUTED**. The isolated ledger totals
+  4,957,617 micro-USD reserved/estimated, not an invoice. This frozen FAIL
+  remains unchanged.
+- [~] A local deterministic EIR triage forward-fix is implemented. Local
+  validation passed 941/941 tests, imports, shell, secret scan and ZION
+  validation; 78 focused AIService/guard tests and an independent 32/32 bounded
+  selector matrix with source-id/filename spoof negatives passed. Exact-SHA CI,
+  controlled Telegram and the remaining provider cases remain release gates.
+  Next, verify v2-041 on the delivered AIService path; repeating raw-only
+  generation would not prove the user receives the fixed answer. The 4271c98
+  raw FAIL is unchanged.
+- [ ] Full benchmark, conversations, controlled Telegram, account
+  data-handling, independent security and release gates remain open. Draft
+  PR #66 remains preproduction; Kimi inactive and production unchanged.
+
+## 2026-10-29 prior 413dc6a synthetic/PUBLIC smoke — stopped at v2-041
 
 - [x] Candidate `413dc6a1e3b36d368de3173ec496b82182f71389` passed
   exact-SHA [ZION CI 40850555948](https://github.com/zettaceo/zion-community-bot/actions/runs/40850555948):
