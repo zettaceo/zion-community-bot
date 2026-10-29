@@ -501,6 +501,85 @@ class ResponseGuardTests(unittest.TestCase):
             official_context=negative_connection_source).reason,
             'unsupported_wallet_connection_signature')
 
+    def test_wallet_password_local_use_is_not_conflated_with_sharing(self):
+        context = KnowledgeTools(KnowledgeBase(
+            Path(__file__).resolve().parents[1] / 'knowledge')).call(
+                'search_approved_knowledge',
+                {'query': 'n consigo conecta carteira'}, agent_id='eir').render()
+        self.assertIn('[Contexto oficial: Segurança de carteira]', context)
+        rejected = (
+            'Não compartilhe seed phrase, chave privada ou senha — nunca são '
+            'necessários para conectar sua carteira.',
+            'Senha nunca é necessária para conectar a carteira.',
+            'Você não precisa de senha para desbloquear sua carteira.',
+            'Conectar a carteira não exige senha em nenhum caso.',
+            'A senha jamais será usada para conectar ou desbloquear.',
+            'Nenhuma carteira precisa de senha para conectar.',
+            'Não há necessidade de senha para desbloquear a carteira.',
+            'Não compartilhe senha: ela nunca é necessária para conectar '
+            'sua carteira.',
+            'Sua senha não deve ser compartilhada, mas ela nunca é necessária '
+            'para conectar sua carteira.',
+            'Não compartilhe sua senha, porque ela nunca é necessária '
+            'para conectar a carteira.',
+            'A senha deve ficar privada; ela nunca é necessária para conectar '
+            'a carteira.',
+            'Sua senha não deve ser compartilhada, já que ela nunca é '
+            'necessária para conectar sua carteira.',
+            'A senha é desnecessária para desbloquear sua carteira.',
+            'Conectar sua carteira dispensa senha em qualquer situação.',
+        )
+        for answer in rejected:
+            with self.subTest(answer=answer):
+                self.assertEqual(validate_public_response(
+                    answer, official_context=context).reason,
+                    'unsupported_wallet_password_necessity')
+        allowed = (
+            'Não compartilhe sua senha com o bot ou no chat.',
+            'A carteira pode pedir sua senha localmente para desbloquear; '
+            'não a envie aqui.',
+            'A Z-SWAP não pede sua senha da carteira.',
+            'Não é correto dizer que senha nunca é necessária para '
+            'desbloquear a carteira.',
+            'Não posso afirmar que senha nunca é necessária para conectar.',
+            'O usuário perguntou: “senha nunca é necessária para conectar '
+            'a carteira?”',
+            'Qual mensagem aparece ao tentar conectar sua carteira? '
+            'Oculte qualquer senha.',
+            'Não precisa compartilhar senha para conectar a carteira.',
+            'Não preciso de sua senha para ajudar a conectar a carteira.',
+            'O usuário relatou que senha nunca é necessária para conectar '
+            'a carteira.',
+            'Segundo o usuário, senha nunca é necessária para conectar '
+            'a carteira.',
+            'Eu não disse que senha nunca é necessária para conectar '
+            'a carteira.',
+            'É falso dizer que senha nunca é necessária para conectar '
+            'a carteira.',
+            'Se a carteira não precisar de senha para desbloquear, prossiga '
+            'sem digitar nada.',
+            'Não preciso de senha para desbloquear minha carteira porque '
+            'ela já está desbloqueada.',
+            'A senha não é necessária para esta resposta, mas para '
+            'desbloquear sua carteira talvez seja necessária localmente.',
+            'Quando a carteira não exigir senha para desbloquear, siga o fluxo.',
+            'Alguns usuários alegam que senha nunca é necessária para '
+            'desbloquear a carteira.',
+            'A senha não é desnecessária para desbloquear a carteira.',
+            'A conexão da carteira não dispensa senha local.',
+        )
+        for answer in allowed:
+            with self.subTest(answer=answer):
+                self.assertTrue(validate_public_response(
+                    answer, official_context=context).allowed)
+        fallback = public_fallback_for(
+            'unsupported_wallet_password_necessity',
+            question='n consigo conecta carteira', official_context=context)
+        self.assertIn('mensagem de erro', fallback)
+        self.assertIn('Não compartilhe', fallback)
+        self.assertTrue(validate_public_response(
+            fallback, official_context=context).allowed)
+
     def test_future_community_notice_requires_explicit_public_source(self):
         question = 'Buy, OTC, P2P, NFT, Launchpad e Governance já estão funcionando?'
         context = KnowledgeTools(KnowledgeBase(

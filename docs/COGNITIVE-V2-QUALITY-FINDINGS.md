@@ -1,6 +1,32 @@
 # Cognitive v2 — live synthetic quality findings
 
-## Latest eb43f28 partnership-offer smoke — 2026-10-29
+## Latest c4d1f362 wallet-support smoke — 2026-10-29
+
+Candidate `c4d1f362f4979975fd0fc6f786a6866c256afeef` passed exact-SHA
+[ZION CI 40844847015](https://github.com/zettaceo/zion-community-bot/actions/runs/40844847015):
+SUCCESS, 932/932 tests, secret scan and ZION validation OK. The private frozen
+manifest `20261029T085032831430Z-confirmed-handoff-smoke-manifest.json`
+passed 20/20 synthetic/PUBLIC source and cost preflights. These checks did
+not themselves execute twenty model requests.
+
+K3 v2-001 and v2-021 passed human review. Its v2-041 response passed the
+automated guard but **FAILED independent human review**: it stated absolutely
+that a password is never needed to connect a wallet. The retrieved PUBLIC
+evidence does not support that universal claim. This is a fatal factuality
+finding, not a provider smoke PASS. K3's remaining seven selected cases and
+all ten Ministral cases were **NOT EXECUTED** in this round. The private
+review metadata basename is
+`20261029T085032831430Z-confirmed-handoff-smoke-review.jsonl`; no raw answer
+or secret is reproduced here.
+
+The isolated evaluation ledger totals 4,700,924 micro-USD reserved or
+estimated spent, not a provider invoice or account balance. Kimi remains
+inactive and production unchanged. A material prompt/guard forward-fix passed
+local 935/935 tests, imports, secret scan and project validation; exact-SHA
+CI and a new frozen provider retest remain pending. The c4d1f362 human FAIL
+remains unchanged.
+
+## Prior eb43f28 partnership-offer smoke — 2026-10-29
 
 Candidate `eb43f289525242bf6abe2033359a6fb2319023e6` passed local
 929/929 and exact-SHA [ZION CI 40792690647](https://github.com/zettaceo/zion-community-bot/actions/runs/40792690647).
@@ -30,8 +56,8 @@ first-person, question-form and passive handoff claims, while allowing negated
 claims and descriptions of public triage. A source-bounded fallback does not
 assert commercial terms unless that same PUBLIC section supports them. Local
 validation passed 932/932, imports, secret scan and project validation.
-Exact-SHA CI and a new frozen provider round are pending; this does not
-retroactively change the eb43f28 FAIL.
+At that checkpoint, exact-SHA CI and a new frozen provider round were pending;
+their later execution does not retroactively change the eb43f28 FAIL.
 
 ## Prior 8a293c1 generic-objection smoke — 2026-10-28/29
 

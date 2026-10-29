@@ -4,6 +4,28 @@ Date: 2026-10-29. Status: IN PROGRESS, not production accepted.
 This section supersedes older current-state labels below; the prior mission's
 checklists remain historical evidence, not proof of v2 completion.
 
+## 2026-10-29 c4d1f36 synthetic/PUBLIC smoke — stopped at v2-041
+
+- [x] Candidate `c4d1f362f4979975fd0fc6f786a6866c256afeef` passed
+  exact-SHA [ZION CI 40844847015](https://github.com/zettaceo/zion-community-bot/actions/runs/40844847015):
+  932/932 tests, imports, secret scan and validation. The private
+  `20261029T085032831430Z-confirmed-handoff-smoke-manifest.json` passed
+  20/20 synthetic/PUBLIC source and cost preflights.
+- [!] K3 v2-001 and v2-021 passed independent human review. v2-041 **FAILED**:
+  EIR said a password is never needed to connect a wallet, although the
+  PUBLIC source only instructs users not to share passwords with the bot or
+  in chat. The guard accepted this factual overreach. The seven remaining K3
+  cases and Ministral were **NOT EXECUTED**. The private matching review file
+  records the verdict; isolated ledger total was 4,700,924 micro-USD
+  reserved/estimated, not an invoice. This frozen FAIL remains unchanged.
+- [~] A new local candidate distinguishes local wallet unlock from sharing a
+  password, with focused prompt, guard and delivery tests. Local validation
+  passed 935/935, imports, secret scan and project validation. Exact-SHA CI
+  and a new frozen provider round remain pending.
+- [ ] Full benchmark, conversations, controlled Telegram, account
+  data-handling, independent security and release gates remain open. Kimi
+  inactive; production unchanged.
+
 ## 2026-10-29 eb43f28 synthetic/PUBLIC smoke — stopped at v2-103
 
 - [x] Candidate `eb43f289525242bf6abe2033359a6fb2319023e6` passed local

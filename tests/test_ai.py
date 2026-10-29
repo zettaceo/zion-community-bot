@@ -458,6 +458,37 @@ class AITests(unittest.TestCase):
         self.assertIn('unconfirmed_partnership_handoff', dump)
         self.assertNotIn('posso encaminhar sua avaliação', dump)
 
+    def test_eir_local_password_absolute_is_replaced_without_retaining_text(self):
+        from zion.response_guard import validate_public_response
+        (self.root / 'knowledge' / 'official.md').write_text(
+            '# Segurança de carteira\nNunca compartilhe seed phrase, chave '
+            'privada ou senha com o suporte.\n', encoding='utf-8')
+        ai = AIService(replace(self.settings, ai_enabled=True), self.db,
+                       KnowledgeBase(self.settings.knowledge_dir))
+
+        class FakeClient:
+            configured = True
+
+            async def answer(self, **kwargs):
+                return AIAnswer(
+                    text='Não compartilhe seed phrase, chave privada ou senha — '
+                         'nunca são necessários para conectar sua carteira.',
+                    model='test', input_tokens=11, output_tokens=8,
+                    latency_ms=1)
+
+        ai.client = FakeClient()
+        result = asyncio.run(ai.answer(chat_id=1, user_id=2,
+                                       question='n consigo conecta carteira',
+                                       agent_id='eir'))
+        self.assertIn('qual carteira e rede', result.text)
+        self.assertIn('Não compartilhe', result.text)
+        self.assertNotIn('nunca são necessários', result.text)
+        self.assertTrue(validate_public_response(
+            result.text, official_context='').allowed)
+        dump = '\n'.join(self.db._conn.iterdump())
+        self.assertIn('unsupported_wallet_password_necessity', dump)
+        self.assertNotIn('nunca são necessários', dump)
+
     def test_rejected_price_and_safety_guarantees_get_bounded_safe_replies(self):
         from zion.response_guard import PUBLIC_FALLBACK, public_fallback_for, validate_public_response
         (self.root / "knowledge" / "official.md").write_text(

@@ -149,6 +149,19 @@ class MistralBoundaryTests(unittest.TestCase):
         self.assertIn('de qualificação e entrega efetiva', system)
         self.assertNotIn(question, system)
 
+    def test_eir_prompt_separates_local_wallet_unlock_from_sharing(self):
+        context = ('[Contexto oficial: Segurança]\n'
+                   'Nunca compartilhe seed phrase, chave privada ou senha.')
+        with tempfile.TemporaryDirectory() as tmp:
+            client = CapturingMistralClient(make_settings(Path(tmp)))
+            asyncio.run(client.answer(question='n consigo conecta carteira',
+                                      context=context, agent_id='eir'))
+        system = client.messages[0]['content']
+        self.assertIn('A carteira pode pedir senha localmente para desbloquear',
+                      system)
+        self.assertIn('não significa que uma carteira jamais', system)
+        self.assertIn('Não afirme', system)
+
     def test_short_swap_question_receives_source_scope_in_provider_prompt(self):
         context = KnowledgeTools(KnowledgeBase(
             Path(__file__).resolve().parents[1] / 'knowledge')).call(

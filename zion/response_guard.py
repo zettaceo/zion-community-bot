@@ -645,6 +645,76 @@ def _absolute_seed_request_promise(text: str) -> bool:
     return False
 
 
+def _unsupported_wallet_password_necessity(text: str) -> bool:
+    """Sharing a password with us differs from local wallet unlock.
+
+    Reject only an absolute claim that a password is unnecessary to connect or
+    unlock a wallet. A warning not to *share* a password is not that claim.
+    """
+    folded = _mask_reported_quotes(_fold(text))
+    folded = re.sub(r'\b(?:mas|porem|contudo|porque|pois|ja que)\b', ';', folded)
+    wallet = re.compile(r'\b(?:carteira\w*|wallets?)\b')
+    action = re.compile(r'\b(?:conect\w*|desbloque\w*|unlock\w*|connect\w*)\b')
+    unlock = re.compile(r'\b(?:desbloque\w*|unlock\w*)\b')
+    password = re.compile(r'\b(?:senhas?|passwords?)\b')
+    negative_need = re.compile(
+        r'(?=(\b(?:nunca|jamais|nao|nenhum[as]?)\b[^.!?;\n]{0,48}'
+        r'\b(?:necessari\w*|necessidad\w*|precis\w*|exig\w*|'
+        r'usad\w*|utilizad\w*|need\w*|requir\w*)\b))')
+    no_need = re.compile(r'\b(?:desnecessari\w*|dispens\w*)\b')
+    sharing = re.compile(r'\b(?:compartilh\w*|envi\w*|inform\w*|'
+                         r'fornec\w*|revel\w*|pass\w*)\b')
+    prior_password = False
+    for sentence in re.finditer(r'[^.!?;\n]+[.!?;\n]?', folded):
+        clause = sentence.group().strip()
+        current_password = bool(password.search(clause))
+        if (prior_password and not current_password
+                and re.match(r'^(?:ela|essa|isso)\b', clause)):
+            clause = 'senha ' + clause
+        prior_password = current_password
+        if (clause.endswith('?') or not action.search(clause)
+                or not (wallet.search(clause) or unlock.search(clause))):
+            continue
+        claims = [(match.start(1), match.end(1), match.group(1))
+                  for match in negative_need.finditer(clause)]
+        claims.extend((match.start(), match.end(), match.group())
+                      for match in no_need.finditer(clause))
+        for start, end, claim in claims:
+            before = clause[:start]
+            if (re.search(r'\b(?:nao e correto dizer que|nao e verdade que|'
+                          r'nao ha (?:confirmacao|evidencia|prova) de que|'
+                          r'nao (?:posso|podemos) afirmar que|'
+                          r'nao (?:disse|afirmei) que|nao preciso\b)\b',
+                          claim)
+                    or _reported_or_denied_prefix(before)
+                    or re.search(r'\bnao e correto dizer que\b[^.!?;\n]{0,70}$',
+                                 before)
+                    or re.search(r'\b(?:ele|ela|o usuario|a usuaria|o cliente|'
+                                 r'a cliente) (?:disse|falou|afirmou|alegou|'
+                                 r'relatou) que\b[^.!?;\n]{0,70}$', before)
+                    or re.search(r'\b(?:segundo o usuario|segundo a usuaria|'
+                                 r'eu nao disse que|e falso dizer que)\b'
+                                 r'[^.!?;\n]{0,70}$', before)
+                    or re.search(r'\b(?:alguns? usuarios?|algumas? usuarias?)\s+'
+                                 r'(?:alegam?|dizem|relatam) que\b'
+                                 r'[^.!?;\n]{0,70}$', before)
+                    or (re.match(r'^(?:se|caso|quando)\b', clause)
+                        and ',' not in before)
+                    or re.search(r'\bnao (?:e|foi|sera)?\s*$', before)):
+                continue
+            for secret in password.finditer(clause):
+                if abs(secret.start() - start) > 100:
+                    continue
+                between = clause[min(secret.start(), start):
+                                 max(secret.end(), end)]
+                if sharing.search(between):
+                    continue
+                if re.search(r'\bajud\w*\b', clause[start:]):
+                    continue
+                return True
+    return False
+
+
 def _future_community_notice_promise(text: str) -> bool:
     """An undocumented promise to notify the group after a launch is not a status fact."""
     folded = _mask_reported_quotes(_fold(text))
@@ -1620,6 +1690,8 @@ def validate_public_response(text: str, *, official_context: str) -> ResponseChe
     if (_absolute_seed_request_promise(text)
             and not _absolute_seed_request_promise(official_context)):
         return ResponseCheck(False, 'unsupported_absolute_seed_promise')
+    if _unsupported_wallet_password_necessity(text):
+        return ResponseCheck(False, 'unsupported_wallet_password_necessity')
     if (_future_community_notice_promise(text)
             and not _future_community_notice_promise(official_context)):
         return ResponseCheck(False, 'unsupported_future_community_notice')
@@ -1926,7 +1998,8 @@ def public_fallback_for(reason: str, *, official_context: str = '', question: st
         return ('Confira os detalhes da operação antes de confirmar. '
                 'Não compartilhe seed phrase ou chave privada.')
     if reason in {'unsupported_wallet_connection_signature',
-                  'unapproved_wallet_example'}:
+                  'unapproved_wallet_example',
+                  'unsupported_wallet_password_necessity'}:
         if re.search(r'\b(?:conecta\w*|conexao|carteira\w*|wallet\w*)\b',
                      _fold(question)):
             return ('Para entender a dificuldade de conexão, diga qual carteira '

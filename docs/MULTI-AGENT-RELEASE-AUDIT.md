@@ -1,6 +1,31 @@
 # ZION Multi-Agent Command System - Release Audit
 
-## Cognitive v2 latest preproduction checkpoint — 2026-10-29, eb43f28
+## Cognitive v2 latest preproduction checkpoint — 2026-10-29, c4d1f36
+
+**Verdict: NOT RELEASE CERTIFIED.** Candidate
+`c4d1f362f4979975fd0fc6f786a6866c256afeef` passed exact-SHA
+[ZION CI 40844847015](https://github.com/zettaceo/zion-community-bot/actions/runs/40844847015)
+with 932/932 tests, imports, secret scan and validation. The private
+`20261029T085032831430Z-confirmed-handoff-smoke-manifest.json` passed
+20/20 synthetic/PUBLIC source and cost preflights. K3 v2-001 and v2-021
+passed independent human review; v2-041 **FAILED** because EIR claimed a
+password is never needed to connect a wallet. The PUBLIC source only says
+not to share passwords with the bot or in chat. The automated response guard
+accepted the overreach. Stop-on-first-failure applied: seven remaining K3
+cases and all Ministral cases were **NOT EXECUTED**. The private matching
+review file preserves the verdict; isolated ledger total is 4,700,924
+micro-USD reserved/estimated, not an invoice or account balance.
+
+A local prompt and guard forward-fix now separates wallet-local unlock from
+secret sharing. Focused prompt, guard and AIService delivery tests passed,
+including independent adversarial negatives. Local 935/935, imports, secret
+scan and project validation passed. Exact-SHA CI and new frozen provider
+evidence remain pending. The c4d1f36 FAIL cannot be
+rewritten. Full benchmark, conversations, Telegram and account privacy gates
+remain open. Draft PR #66 stays preproduction; Kimi inactive and production
+unchanged.
+
+## Cognitive v2 prior preproduction checkpoint — 2026-10-29, eb43f28
 
 **Verdict: NOT RELEASE CERTIFIED.** Candidate
 `eb43f289525242bf6abe2033359a6fb2319023e6` passed local 929/929 and

@@ -1,23 +1,38 @@
 # Cognitive v2 — provider benchmark protocol
 
-Status: LATEST eb43f28 K3 SMOKE FAILED HUMAN REVIEW AT v2-103;
-MINISTRAL NOT RETESTED IN THAT ROUND. The first nine K3 cases passed human
+Status: LATEST c4d1f362 K3 SMOKE FAILED INDEPENDENT HUMAN REVIEW AT v2-041;
+MINISTRAL NOT EXECUTED IN THAT ROUND. Exact-SHA
+[ZION CI 40844847015](https://github.com/zettaceo/zion-community-bot/actions/runs/40844847015)
+completed SUCCESS on `c4d1f362f4979975fd0fc6f786a6866c256afeef` with
+932/932 tests, secret scan and project validation OK. The private frozen
+manifest `20261029T085032831430Z-confirmed-handoff-smoke-manifest.json`
+passed 20/20 source/cost preflights; preflight is not provider execution.
+K3 v2-001 and v2-021 passed human review, then v2-041 failed because it
+asserted absolutely that a password is never needed to connect a wallet,
+beyond the retrieved PUBLIC evidence. K3's remaining seven cases and all
+Ministral cases were NOT EXECUTED. The isolated ledger totals 4,700,924
+micro-USD reserved/estimated, not a provider invoice. Kimi is inactive and
+production unchanged. A subsequent prompt/guard forward-fix passed local
+935/935 tests, imports, secret scan and project validation; exact-SHA CI and
+a new provider retest remain pending.
+
+Prior eb43f28 K3 smoke failed human review at v2-103;
+Ministral was not retested in that round. The first nine K3 cases passed human
 review in order, including the previously failing v2-101. A generated FREYR
 reply then offered to forward a partnership evaluation without the DM,
 qualification and confirmed-delivery conditions of the real deterministic
 handoff. The provider output guard accepted it. The frozen FAIL remains.
-Local 932/932 validation of a narrow prompt/guard follow-up passed, but its
-exact-SHA CI and provider retest are pending.
+At that checkpoint, local 932/932 validation of a narrow prompt/guard
+follow-up had passed; exact-SHA CI and provider retest were still pending.
 The prior 8a293c1 smoke failed automated guard at v2-101; v2-103 was not
 executed in that round.
 The prior bb9bfc3 smoke also failed at v2-101; its own verdict is unchanged.
 The earlier 80633ce K3 smoke failed at v2-041, and later calls before its
 retrospective correction did not qualify that smoke.
 EARLIER c06f53b K3 SMOKE PASSED, BUT ITS 98-CASE CONTINUATION FAILED AT
-v2-003. NOT CERTIFIED. This is a
-generation-quality comparison, not evidence of correct Telegram routing,
-Guardian behavior, native tools, live
-community quality or permission to activate a provider. Read
+v2-003. NOT CERTIFIED. These results concern generation quality; they do not
+prove correct Telegram routing, Guardian behavior, native tools, live community
+quality or permission to activate a provider. Read
 `COGNITIVE-V2-QUALITY-FINDINGS.md` before any new paid run. Failed and
 unexecuted cases remain visible in the record.
 
