@@ -489,6 +489,39 @@ class AITests(unittest.TestCase):
         self.assertIn('unsupported_wallet_password_necessity', dump)
         self.assertNotIn('nunca são necessários', dump)
 
+    def test_eir_universal_secret_promise_is_replaced_without_retaining_text(self):
+        from zion.response_guard import validate_public_response
+        (self.root / 'knowledge' / 'official.md').write_text(
+            '# Segurança de carteira\nNunca compartilhe seed phrase, chave '
+            'privada ou senha com o suporte. Administradores não devem pedir '
+            'esses segredos.\n', encoding='utf-8')
+        ai = AIService(replace(self.settings, ai_enabled=True), self.db,
+                       KnowledgeBase(self.settings.knowledge_dir))
+
+        class FakeClient:
+            configured = True
+
+            async def answer(self, **kwargs):
+                return AIAnswer(
+                    text='A carteira pode pedir senha localmente. Nunca compartilhe '
+                         'seed phrase, chave privada ou senha comigo. '
+                         'Ninguém da Z-SWAP vai pedir isso.',
+                    model='test', input_tokens=11, output_tokens=18,
+                    latency_ms=1)
+
+        ai.client = FakeClient()
+        result = asyncio.run(ai.answer(chat_id=1, user_id=2,
+                                       question='n consigo conecta carteira',
+                                       agent_id='eir'))
+        self.assertIn('qual carteira e rede', result.text)
+        self.assertIn('Não compartilhe', result.text)
+        self.assertNotIn('Ninguém da Z-SWAP', result.text)
+        self.assertTrue(validate_public_response(
+            result.text, official_context='').allowed)
+        dump = '\n'.join(self.db._conn.iterdump())
+        self.assertIn('unsupported_universal_secret_promise', dump)
+        self.assertNotIn('Ninguém da Z-SWAP', dump)
+
     def test_rejected_price_and_safety_guarantees_get_bounded_safe_replies(self):
         from zion.response_guard import PUBLIC_FALLBACK, public_fallback_for, validate_public_response
         (self.root / "knowledge" / "official.md").write_text(

@@ -1,6 +1,35 @@
 # Cognitive v2 — live synthetic quality findings
 
-## Latest c4d1f362 wallet-support smoke — 2026-10-29
+## Latest 413dc6a wallet-support smoke — 2026-10-29
+
+Candidate `413dc6a1e3b36d368de3173ec496b82182f71389` passed exact-SHA
+[ZION CI 40850555948](https://github.com/zettaceo/zion-community-bot/actions/runs/40850555948):
+SUCCESS, 935/935 tests, imports, secret scan and ZION validation OK. The
+private frozen manifest
+`20261029T093516334894Z-wallet-local-unlock-smoke-manifest.json` passed
+20/20 synthetic/PUBLIC source and cost preflights. These checks were not
+twenty provider requests.
+
+K3 v2-001 and v2-021 passed human review. Its v2-041 response passed the
+automated guard but **FAILED independent human review**. It correctly
+described unlocking a wallet locally, then promised that nobody from Z-SWAP
+would ever request the sensitive information it mentioned. The retrieved
+PUBLIC guidance says staff should not request it; that guidance does not
+support an absolute guarantee about every person. This is a fatal factuality
+and calibration error. K3's remaining seven selected cases and all ten
+Ministral cases were **NOT EXECUTED** in this round. Private review metadata:
+`20261029T093516334894Z-wallet-local-unlock-smoke-review.jsonl`. No raw
+answer or secret is reproduced here.
+
+The isolated ledger totals 4,828,833 micro-USD reserved or estimated spent,
+not a provider invoice or account balance. Kimi remains inactive and
+production unchanged. A new material prompt/guard forward-fix passed local
+937/937 tests, imports, secret scan and project validation. Replaying 17
+private K3 outputs locally matched only the failed 413dc6a v2-041 response.
+Exact-SHA CI, independent review and a new frozen provider retest remain
+pending. This later work cannot retroactively change the 413dc6a FAIL.
+
+## Prior c4d1f362 wallet-support smoke — 2026-10-29
 
 Candidate `c4d1f362f4979975fd0fc6f786a6866c256afeef` passed exact-SHA
 [ZION CI 40844847015](https://github.com/zettaceo/zion-community-bot/actions/runs/40844847015):
@@ -19,12 +48,11 @@ review metadata basename is
 `20261029T085032831430Z-confirmed-handoff-smoke-review.jsonl`; no raw answer
 or secret is reproduced here.
 
-The isolated evaluation ledger totals 4,700,924 micro-USD reserved or
-estimated spent, not a provider invoice or account balance. Kimi remains
-inactive and production unchanged. A material prompt/guard forward-fix passed
-local 935/935 tests, imports, secret scan and project validation; exact-SHA
-CI and a new frozen provider retest remain pending. The c4d1f362 human FAIL
-remains unchanged.
+The isolated evaluation ledger at that checkpoint totaled 4,700,924 micro-USD
+reserved or estimated spent, not a provider invoice or account balance. Kimi
+remained inactive and production unchanged. A material prompt/guard forward-fix
+then passed local 935/935 tests; its exact-SHA CI and provider retest were
+still pending at that checkpoint. The c4d1f362 human FAIL remains unchanged.
 
 ## Prior eb43f28 partnership-offer smoke — 2026-10-29
 

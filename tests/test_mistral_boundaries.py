@@ -161,6 +161,8 @@ class MistralBoundaryTests(unittest.TestCase):
                       system)
         self.assertIn('não significa que uma carteira jamais', system)
         self.assertIn('Não afirme', system)
+        self.assertIn("ninguém da Z-SWAP vai pedir isso", system)
+        self.assertIn("'não devem pedir' não garante", system)
 
     def test_short_swap_question_receives_source_scope_in_provider_prompt(self):
         context = KnowledgeTools(KnowledgeBase(

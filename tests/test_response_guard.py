@@ -580,6 +580,58 @@ class ResponseGuardTests(unittest.TestCase):
         self.assertTrue(validate_public_response(
             fallback, official_context=context).allowed)
 
+    def test_secret_guidance_does_not_become_a_universal_future_promise(self):
+        context = KnowledgeTools(KnowledgeBase(
+            Path(__file__).resolve().parents[1] / 'knowledge')).call(
+                'search_approved_knowledge',
+                {'query': 'n consigo conecta carteira'}, agent_id='eir').render()
+        self.assertIn('não devem pedir', context)
+        unsupported = (
+            'Nunca compartilhe sua seed phrase, chave privada ou senha comigo. '
+            'Ninguém da Z-SWAP vai pedir isso.',
+            'Ninguém da Z-SWAP vai pedir sua seed phrase.',
+            'Nenhum administrador da Z-SWAP solicitará sua senha.',
+            'Nenhum membro da equipe da Z-SWAP vai pedir sua senha.',
+            'Não compartilhe sua chave privada. Ninguém da equipe irá pedir esses dados.',
+            'A equipe da Z-SWAP jamais vai pedir sua chave privada.',
+            'O ZION não vai pedir sua senha.',
+            'Nós nunca vamos solicitar sua API key.',
+            'Sua senha nunca será pedida por ninguém da Z-SWAP.',
+            'Ninguém da Z-SWAP pede sua senha.',
+            'Nunca pediremos sua senha.',
+            'No one at Z-SWAP will ever ask for your private key.',
+            'We will never ask for your password.',
+            'Never share your seed phrase. Nobody will ask for that.',
+        )
+        for answer in unsupported:
+            with self.subTest(answer=answer):
+                self.assertFalse(validate_public_response(
+                    answer, official_context=context).allowed)
+        allowed = (
+            'Administradores da Z-SWAP e ZION não devem pedir seed phrase ou chave privada.',
+            'Nunca compartilhe sua senha comigo ou com qualquer pessoa no chat.',
+            'A carteira pode pedir sua senha localmente para desbloquear; não a envie aqui.',
+            'Não posso garantir que ninguém da Z-SWAP vai pedir sua senha.',
+            'Você perguntou se ninguém da equipe vai pedir sua seed phrase?',
+            'O usuário perguntou: “Ninguém da Z-SWAP vai pedir sua chave privada?”',
+            'Não é correto afirmar que ninguém da Z-SWAP vai pedir sua senha.',
+            'Ninguém da equipe garantiu que o suporte vai pedir sua senha.',
+            'O usuário relatou que ninguém da Z-SWAP vai pedir sua senha.',
+            'Ninguém pode garantir que a equipe não vai pedir sua senha.',
+            'Ninguém da equipe vai pedir o seu token de swap em nome de uma compra.',
+            'I cannot guarantee that no one at Z-SWAP will ask for your password.',
+        )
+        for answer in allowed:
+            with self.subTest(answer=answer):
+                self.assertTrue(validate_public_response(
+                    answer, official_context=context).allowed)
+        fallback = public_fallback_for(
+            'unsupported_universal_secret_promise', question='n consigo conecta carteira',
+            official_context=context)
+        self.assertIn('qual carteira e rede', fallback)
+        self.assertTrue(validate_public_response(
+            fallback, official_context=context).allowed)
+
     def test_future_community_notice_requires_explicit_public_source(self):
         question = 'Buy, OTC, P2P, NFT, Launchpad e Governance já estão funcionando?'
         context = KnowledgeTools(KnowledgeBase(

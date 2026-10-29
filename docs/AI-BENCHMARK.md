@@ -1,7 +1,27 @@
 # Cognitive v2 — provider benchmark protocol
 
-Status: LATEST c4d1f362 K3 SMOKE FAILED INDEPENDENT HUMAN REVIEW AT v2-041;
+Status: LATEST 413dc6a K3 SMOKE FAILED INDEPENDENT HUMAN REVIEW AT v2-041;
 MINISTRAL NOT EXECUTED IN THAT ROUND. Exact-SHA
+[ZION CI 40850555948](https://github.com/zettaceo/zion-community-bot/actions/runs/40850555948)
+completed SUCCESS on `413dc6a1e3b36d368de3173ec496b82182f71389` with
+935/935 tests, imports, secret scan and project validation OK. The private
+frozen manifest `20261029T093516334894Z-wallet-local-unlock-smoke-manifest.json`
+passed 20/20 source/cost preflights; this does not mean twenty provider calls.
+K3 v2-001 and v2-021 passed human review. Its v2-041 response passed the
+automated guard but failed human review: after correctly describing local
+wallet unlocking, it promised that nobody from Z-SWAP would ever ask for the
+sensitive information mentioned. The PUBLIC source says they should not ask;
+it does not authorize an absolute claim about every person. K3's other seven
+cases and every Ministral case were NOT EXECUTED. The isolated ledger totals
+4,828,833 micro-USD reserved/estimated, not an invoice. Kimi remains inactive
+and production unchanged. A new prompt/guard forward-fix passed local
+937/937 tests, imports, secret scan and project validation. A local replay of
+17 private K3 outputs matched only the failed 413dc6a v2-041 response.
+Exact-SHA CI, independent review and provider retest remain pending; this
+does not change the frozen FAIL.
+
+Prior c4d1f362 K3 smoke failed independent human review at v2-041;
+Ministral was not executed in that round. Exact-SHA
 [ZION CI 40844847015](https://github.com/zettaceo/zion-community-bot/actions/runs/40844847015)
 completed SUCCESS on `c4d1f362f4979975fd0fc6f786a6866c256afeef` with
 932/932 tests, secret scan and project validation OK. The private frozen
@@ -12,9 +32,8 @@ asserted absolutely that a password is never needed to connect a wallet,
 beyond the retrieved PUBLIC evidence. K3's remaining seven cases and all
 Ministral cases were NOT EXECUTED. The isolated ledger totals 4,700,924
 micro-USD reserved/estimated, not a provider invoice. Kimi is inactive and
-production unchanged. A subsequent prompt/guard forward-fix passed local
-935/935 tests, imports, secret scan and project validation; exact-SHA CI and
-a new provider retest remain pending.
+production unchanged. At that checkpoint, a prompt/guard forward-fix had
+passed local 935/935 tests; its exact-SHA CI and provider retest were pending.
 
 Prior eb43f28 K3 smoke failed human review at v2-103;
 Ministral was not retested in that round. The first nine K3 cases passed human

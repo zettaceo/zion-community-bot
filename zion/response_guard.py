@@ -645,6 +645,67 @@ def _absolute_seed_request_promise(text: str) -> bool:
     return False
 
 
+def _universal_secret_request_promise(text: str) -> bool:
+    """Do not turn secret-sharing guidance into a categorical staff promise."""
+    folded = _mask_reported_quotes(_fold(text))
+    secret = re.compile(r'\b(?:seed phrase|frase semente|recovery phrase|'
+                        r'chave privada|private key|senhas?|passwords?|api keys?|'
+                        r'api secrets?|passphrases?|token(?:s? de acesso|s? da api)|'
+                        r'codigo 2fa)\b')
+    reference = re.compile(r'\b(?:isso|esses? dados|esses? segredos|'
+                           r'essas? informacoes|that|these (?:details|secrets)|them)\b')
+    affiliation = (r'(?:\s+(?:da|do|de|dos|das)\s+(?:z[\s-]?swap|equipe|'
+                   r'suporte|plataforma|zion)){0,2}')
+    requester = (r'(?:ninguem|nenhum[as]?\s+(?:membro|administrador|admin|'
+                 r'representante|pessoa|agente|funcionario))' + affiliation)
+    organization = (r'(?:a z[\s-]?swap|o zion|a equipe|o suporte|'
+                    r'os administradores|nos)' + affiliation)
+    future_request = (r'(?:(?:(?:vai|ira|vamos|iremos|vao|irao)\s+)'
+                      r'(?:te\s+|lhe\s+)?(?:pedir|solicitar|exigir)|'
+                      r'(?:pedira|pedirao|pediremos|solicitara|solicitarao|'
+                      r'solicitaremos|exigira|exigirao|exigiremos))')
+    claim = re.compile(
+        rf'\b(?:{requester}\s+(?:nunca\s+|jamais\s+)?'
+        rf'(?:{future_request}|pede|solicita|exige)'
+        rf'|{organization}\s+(?:nao|nunca|jamais)\s+{future_request}'
+        r'|(?:nao|nunca|jamais)\s+(?:pediremos|solicitaremos|exigiremos)'
+        r'|(?:no one|nobody)(?:\s+(?:at|from)\s+z[\s-]?swap|\s+on our team)?'
+        r'\s+will(?:\s+ever)?\s+(?:ask|request|demand)'
+        r'|(?:we|z[\s-]?swap|our team|zion)\s+'
+        r'(?:will never|never|won.t)\s+(?:ask|request|demand))\b')
+    passive = re.compile(
+        rf'{secret.pattern}[^.!?;\n]{{0,30}}\b(?:nao|nunca|jamais)\s+'
+        r'(?:(?:vai|ira)\s+ser|sera|serao)\s+'
+        r'(?:pedid[ao]s?|solicitad[ao]s?|exigid[ao]s?)\b')
+    previous_secret = False
+    previous_end = 0
+    for sentence in re.finditer(r'[^.!?;\n]+[.!?;\n]?', folded):
+        clause = sentence.group().strip()
+        current_secret = bool(secret.search(clause))
+        refers_to_secret = (current_secret or
+                            (previous_secret and sentence.start() - previous_end <= 1
+                             and reference.search(clause)))
+        previous_secret = current_secret
+        previous_end = sentence.end()
+        if not refers_to_secret or clause.endswith('?'):
+            continue
+        for match in (*claim.finditer(clause), *passive.finditer(clause)):
+            before = clause[:match.start()]
+            if (_reported_or_denied_prefix(before)
+                    or re.search(r'\b(?:nao (?:posso|podemos|da para) '
+                                 r'(?:garantir|prometer)|nao prometo|'
+                                 r'nao e seguro supor) que\b[^.!?;\n]{0,65}$'
+                                 r'|\b(?:ninguem pode garantir|e falso afirmar|'
+                                 r'(?:o usuario|voce|ele|ela) (?:relatou|disse|'
+                                 r'alegou|afirmou)) que\b[^.!?;\n]{0,65}$'
+                                 r'|\b(?:i|we) (?:cannot|can.t|do not|don.t) '
+                                 r'(?:guarantee|promise) that\b[^.!?;\n]{0,65}$',
+                                 before)):
+                continue
+            return True
+    return False
+
+
 def _unsupported_wallet_password_necessity(text: str) -> bool:
     """Sharing a password with us differs from local wallet unlock.
 
@@ -1690,6 +1751,9 @@ def validate_public_response(text: str, *, official_context: str) -> ResponseChe
     if (_absolute_seed_request_promise(text)
             and not _absolute_seed_request_promise(official_context)):
         return ResponseCheck(False, 'unsupported_absolute_seed_promise')
+    if (_universal_secret_request_promise(text)
+            and not _universal_secret_request_promise(official_context)):
+        return ResponseCheck(False, 'unsupported_universal_secret_promise')
     if _unsupported_wallet_password_necessity(text):
         return ResponseCheck(False, 'unsupported_wallet_password_necessity')
     if (_future_community_notice_promise(text)
@@ -1999,7 +2063,8 @@ def public_fallback_for(reason: str, *, official_context: str = '', question: st
                 'Não compartilhe seed phrase ou chave privada.')
     if reason in {'unsupported_wallet_connection_signature',
                   'unapproved_wallet_example',
-                  'unsupported_wallet_password_necessity'}:
+                  'unsupported_wallet_password_necessity',
+                  'unsupported_universal_secret_promise'}:
         if re.search(r'\b(?:conecta\w*|conexao|carteira\w*|wallet\w*)\b',
                      _fold(question)):
             return ('Para entender a dificuldade de conexão, diga qual carteira '
