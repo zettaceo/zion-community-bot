@@ -1,6 +1,30 @@
 # ZION Multi-Agent Command System - Release Audit
 
-## Cognitive v2 latest preproduction checkpoint — 2026-10-28, bb9bfc3
+## Cognitive v2 latest preproduction checkpoint — 2026-10-28/29, 8a293c1
+
+**Verdict: NOT RELEASE CERTIFIED.** Candidate
+`8a293c1d4fb26a7e0f5d97ad3d392b661c2650e2` passed local 929/929 and
+exact-SHA [ZION CI 40790171180](https://github.com/zettaceo/zion-community-bot/actions/runs/40790171180)
+with imports, secret scan and validation. Private manifest
+`20261028T235239935394Z-generic-objection-smoke-manifest.json` passed 20/20
+synthetic/PUBLIC source/cost preflights. The first eight K3 cases passed human
+and independent review. v2-101 **FAILED automated acceptance** with
+`missing_feature_status`; the generated text was withheld and not scored.
+v2-103 and Ministral were **NOT EXECUTED**. Private review metadata is in the
+matching `-review.jsonl`; isolated ledger totals 4,201,546 micro-USD
+reserved/estimated, not an invoice or account balance.
+
+The retrieved PUBLIC context for v2-101 had 13 sections. This may contribute
+to overbroad answers but does not prove the withheld wording. A global
+retrieval narrowing was rejected after focused tests exposed loss of required
+plan/fallback evidence, and was reverted before commit. A prompt-only
+restriction against naming modules/plans in a generic objection has focused
+tests passing, but requires new exact-SHA CI and provider evidence. The frozen
+FAIL remains. Full benchmark, conversations, native/Telegram acceptance,
+privacy/account and release gates remain open. Draft PR #66 remains
+preproduction; Kimi inactive and production unchanged.
+
+## Cognitive v2 prior preproduction checkpoint — 2026-10-28, bb9bfc3
 
 **Verdict: NOT RELEASE CERTIFIED.** Candidate
 `bb9bfc348f5859fbe5b45489fb2884b6ed747249` passed local 928/928 and

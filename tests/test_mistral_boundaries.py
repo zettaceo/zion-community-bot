@@ -127,6 +127,7 @@ class MistralBoundaryTests(unittest.TestCase):
         self.assertEqual(payload['user_question'], question)
         self.assertNotIn(question, system)
         self.assertIn('sem despejar um catálogo de recursos', system)
+        self.assertIn('Não cite módulos ou planos pelo nome nessa resposta genérica', system)
         self.assertIn('sem confirmar preço menor, paridade de recursos ou maturidade', system)
         self.assertIn('custo total, recursos necessários e estado público', system)
         self.assertIn('Sem status próprio no CONTEXTO OFICIAL recuperado, omita esse recurso', system)

@@ -4,7 +4,29 @@ Date: 2026-10-28. Status: IN PROGRESS, not production accepted.
 This section supersedes older current-state labels below; the prior mission's
 checklists remain historical evidence, not proof of v2 completion.
 
-## 2026-10-28 bb9bfc3 synthetic/PUBLIC smoke — stopped at v2-101
+## 2026-10-28/29 8a293c1 synthetic/PUBLIC smoke — stopped at v2-101
+
+- [x] Candidate `8a293c1d4fb26a7e0f5d97ad3d392b661c2650e2` passed
+  local 929/929 and exact-SHA [ZION CI 40790171180](https://github.com/zettaceo/zion-community-bot/actions/runs/40790171180)
+  with imports, secret scan and validation. Frozen private manifest
+  `20261028T235239935394Z-generic-objection-smoke-manifest.json` passed 20/20
+  PUBLIC/source/cost preflights.
+- [!] Eight K3 smoke cases passed human and independent review in order.
+  v2-101 **FAILED automated acceptance** as `missing_feature_status`; output
+  withheld, no content score. Stop-on-first-failure applied; v2-103 and
+  Ministral were **NOT EXECUTED**. Private review metadata is in the matching
+  `-review.jsonl`; isolated ledger totals 4,201,546 micro-USD reserved/estimated.
+- [~] A 13-section PUBLIC retrieval was observed for v2-101, without evidence
+  of the withheld wording. A proposed global context reduction broke existing
+  plan/fallback regressions and was reverted before commit. A prompt-only
+  restriction now avoids named modules/plans for generic objections; focused
+  tests pass, but exact-SHA CI and a new frozen provider round remain required.
+  The 8a293c1 and earlier FAIL verdicts cannot be rewritten.
+- [ ] Full 108-case, four 12-turn, controlled Telegram, account data-handling,
+  independent security and release gates remain open. Kimi inactive and
+  production unchanged.
+
+## 2026-10-28 prior bb9bfc3 synthetic/PUBLIC smoke — stopped at v2-101
 
 - [x] Exact-SHA [ZION CI 40751134298](https://github.com/zettaceo/zion-community-bot/actions/runs/40751134298)
   for `bb9bfc348f5859fbe5b45489fb2884b6ed747249` succeeded: 928 tests,

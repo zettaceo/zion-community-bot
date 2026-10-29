@@ -1,8 +1,9 @@
 # Cognitive v2 — provider benchmark protocol
 
-Status: LATEST bb9bfc3 K3 SMOKE FAILED AUTOMATED GUARD AT v2-101;
+Status: LATEST 8a293c1 K3 SMOKE FAILED AUTOMATED GUARD AT v2-101;
 MINISTRAL NOT RETESTED IN THAT ROUND. The first eight K3 cases passed human
-review in order; v2-103 was not executed.
+and independent review in order; v2-103 was not executed.
+The prior bb9bfc3 smoke also failed at v2-101; its own verdict is unchanged.
 The earlier 80633ce K3 smoke failed at v2-041, and later calls before its
 retrospective correction did not qualify that smoke.
 EARLIER c06f53b K3 SMOKE PASSED, BUT ITS 98-CASE CONTINUATION FAILED AT
@@ -123,7 +124,34 @@ generation, native tool path, runtime delivery and controlled Telegram tests
 have separate verdicts. No overall model winner is declared while any required
 dimension remains untested or failed.
 
-## Latest frozen smoke — 2026-10-28, candidate bb9bfc3
+## Latest frozen smoke — 2026-10-28/29, candidate 8a293c1
+
+Candidate `8a293c1d4fb26a7e0f5d97ad3d392b661c2650e2` passed local
+929/929 and exact-SHA [ZION CI 40790171180](https://github.com/zettaceo/zion-community-bot/actions/runs/40790171180)
+with imports, secret scan and validation. Private manifest
+`20261028T235239935394Z-generic-objection-smoke-manifest.json` passed 20/20
+synthetic/PUBLIC source and cost preflights. K3 cases v2-001, 021, 041, 051,
+061, 065, 091 and 094 passed human and independent review in declared order;
+v2-094 preserved all six launch statuses without a future update promise.
+
+v2-101 then **FAILED automated acceptance** with `missing_feature_status`.
+The generated text was withheld by the guard and has no content score or
+inferred wording. The input hash, source classification and stop decision were
+checked; v2-103 is **NOT EXECUTED**. No Ministral result was established.
+Private review metadata is in
+`20261028T235239935394Z-generic-objection-smoke-review.jsonl`; the isolated
+ledger after v2-101 is 4,201,546 micro-USD reserved/estimated, not an invoice.
+This frozen smoke is **FAIL**; earlier FAILs remain recorded.
+
+The PUBLIC retrieval for v2-101 had 13 sections, including feature and plan
+catalogs. A proposed global narrowing failed existing retrieval/fallback
+regressions and was reverted before commit. The next material preproduction
+candidate instead instructs generic objections not to name modules or plans,
+while retaining full PUBLIC evidence and the unchanged guard. Focused tests
+pass; exact-SHA CI and a new frozen provider round remain required. This is
+an unproven hypothesis, not a correction of the 8a293c1 verdict.
+
+## Prior frozen smoke — 2026-10-28, candidate bb9bfc3
 
 Candidate `bb9bfc348f5859fbe5b45489fb2884b6ed747249` passed local 928/928
 and exact-SHA [ZION CI 40751134298](https://github.com/zettaceo/zion-community-bot/actions/runs/40751134298)

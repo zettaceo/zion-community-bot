@@ -1,6 +1,28 @@
 # Cognitive v2 — live synthetic quality findings
 
-## Latest bb9bfc3 future-status smoke — 2026-10-28
+## Latest 8a293c1 generic-objection smoke — 2026-10-28/29
+
+Candidate `8a293c1d4fb26a7e0f5d97ad3d392b661c2650e2` passed local
+929/929 and exact-SHA [ZION CI 40790171180](https://github.com/zettaceo/zion-community-bot/actions/runs/40790171180).
+The private manifest `20261028T235239935394Z-generic-objection-smoke-manifest.json`
+passed 20/20 synthetic/PUBLIC source and cost preflights. K3's first eight
+cases passed human and independent review; the launch-status case v2-094 was
+complete. At v2-101, automated acceptance **FAILED** with
+`missing_feature_status`. The output was withheld and is not reconstructed or
+scored. The sequence stopped; v2-103 and Ministral were **NOT EXECUTED**.
+Review metadata is in
+`20261028T235239935394Z-generic-objection-smoke-review.jsonl`; the isolated
+ledger totals 4,201,546 micro-USD reserved/estimated, not an invoice. Kimi
+remains inactive and production unchanged.
+
+The 13-section PUBLIC retrieval for v2-101 suggests possible context overload,
+but it does not reveal the withheld response or prove causation. A global
+context reduction was tried locally and rejected because existing tests showed
+loss of plan/fallback evidence; it was reverted before commit. A narrower
+prompt instruction for generic objections is now a preproduction candidate,
+with focused tests passing and exact-SHA/provider evidence still pending.
+
+## Prior bb9bfc3 future-status smoke — 2026-10-28
 
 Candidate `bb9bfc348f5859fbe5b45489fb2884b6ed747249` passed local 928/928
 and exact-SHA [ZION CI 40751134298](https://github.com/zettaceo/zion-community-bot/actions/runs/40751134298)
