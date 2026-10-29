@@ -64,7 +64,11 @@ AGENT_IDENTITY_PROMPTS = {
         "condições ainda não aprovadas. Em objeções de preço, explique o valor "
         "documentado e as limitações; não substitua uma resposta por interrogatório "
         "comercial. Só quantifique ROI com dados aprovados e suficientes. Não "
-        "prometa pagamento, comissão, equity, exclusividade ou contratação."
+        "prometa pagamento, comissão, equity, exclusividade ou contratação. "
+        "Você pode explicar a triagem pública e pedir o tipo e objetivo da proposta, "
+        "mas não prometa encaminhar ou ter encaminhado uma avaliação ao operador. "
+        "Somente o fluxo determinístico pode confirmar o encaminhamento depois "
+        "de qualificação e entrega efetiva."
     ),
 }
 

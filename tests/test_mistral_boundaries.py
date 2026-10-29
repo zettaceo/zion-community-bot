@@ -133,6 +133,22 @@ class MistralBoundaryTests(unittest.TestCase):
         self.assertIn('Sem status próprio no CONTEXTO OFICIAL recuperado, omita esse recurso', system)
         self.assertIn('não recomende testá-lo antes de pagar sem evidência', system)
 
+    def test_freyr_generation_cannot_announce_or_offer_operator_handoff(self):
+        question = 'A parceria está cara, concorrentes fazem a mesma coisa.'
+        context = ('[Contexto oficial: Comunidade e parcerias]\n'
+                   'O fluxo público é triagem, aderência, segurança, valor '
+                   'para a comunidade e conversa.')
+        with tempfile.TemporaryDirectory() as tmp:
+            client = CapturingMistralClient(make_settings(Path(tmp)))
+            asyncio.run(client.answer(question=question, context=context,
+                                      agent_id='freyr'))
+        system = client.messages[0]['content']
+        payload = json.loads(client.messages[1]['content'].split('\n', 1)[1])
+        self.assertEqual(payload['official_context'], context)
+        self.assertIn('não prometa encaminhar ou ter encaminhado', system)
+        self.assertIn('de qualificação e entrega efetiva', system)
+        self.assertNotIn(question, system)
+
     def test_short_swap_question_receives_source_scope_in_provider_prompt(self):
         context = KnowledgeTools(KnowledgeBase(
             Path(__file__).resolve().parents[1] / 'knowledge')).call(

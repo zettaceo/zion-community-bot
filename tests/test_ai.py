@@ -425,6 +425,39 @@ class AITests(unittest.TestCase):
                 self.assertTrue(validate_public_response(result.text, official_context='').allowed)
                 self.assertNotIn(output, "\n".join(self.db._conn.iterdump()))
 
+    def test_freyr_generated_handoff_offer_is_replaced_without_forwarding(self):
+        from zion.response_guard import validate_public_response
+        (self.root / "knowledge" / "official.md").write_text(
+            "# Comunidade e parcerias\nA Z-SWAP avalia parcerias com projetos. "
+            "O fluxo público é triagem, aderência, segurança, valor para a "
+            "comunidade e conversa. Uma conversa não equivale a contrato, "
+            "pagamento ou prazo.\n", encoding="utf-8")
+        ai = AIService(replace(self.settings, ai_enabled=True), self.db,
+                       KnowledgeBase(self.settings.knowledge_dir))
+
+        class FakeClient:
+            configured = True
+
+            async def answer(self, **kwargs):
+                return AIAnswer(
+                    text='Se quiser, posso encaminhar sua avaliação de parceria '
+                         'pelo fluxo público de triagem.',
+                    model='test', input_tokens=11, output_tokens=8,
+                    latency_ms=1)
+
+        ai.client = FakeClient()
+        result = asyncio.run(ai.answer(
+            chat_id=1, user_id=2,
+            question='A parceria está cara, concorrentes fazem a mesma coisa.',
+            agent_id='freyr'))
+        self.assertIn('triagem pública de parcerias', result.text)
+        self.assertNotIn('encaminh', result.text)
+        self.assertTrue(validate_public_response(
+            result.text, official_context='').allowed)
+        dump = "\n".join(self.db._conn.iterdump())
+        self.assertIn('unconfirmed_partnership_handoff', dump)
+        self.assertNotIn('posso encaminhar sua avaliação', dump)
+
     def test_rejected_price_and_safety_guarantees_get_bounded_safe_replies(self):
         from zion.response_guard import PUBLIC_FALLBACK, public_fallback_for, validate_public_response
         (self.root / "knowledge" / "official.md").write_text(

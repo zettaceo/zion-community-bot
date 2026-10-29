@@ -725,6 +725,57 @@ def _future_launch_status_update_promise(text: str) -> bool:
     return False
 
 
+def _unconfirmed_partnership_handoff_claim(text: str) -> bool:
+    """Generated prose cannot confirm or offer an unexecuted operator handoff."""
+    folded = _mask_reported_quotes(_fold(text))
+    folded = re.sub(r'\b(?:mas|porem|contudo|however|but)\b', ';', folded)
+    target = r'(?:parcerias?|proposta|avaliacao|oportunidade)'
+    recipient = r'(?:operador|equipe|time|responsavel)'
+    transfer = (r'(?:encaminhar|enviar|repassar|passar|compartilhar|'
+                r'fazer o encaminhamento|colocar (?:voce|te|o|a) em contato)')
+    actions = (
+        re.compile(
+            r'\b(?:posso|podemos|consigo|conseguimos|vou|vamos|irei|iremos)'
+            rf'\s+(?:(?:te|lhe)\s+)?{transfer}\b'
+            rf'[^.!?;\n]{{0,120}}\b(?:{target}|{recipient})\b'),
+        re.compile(
+            r'\b(?:ja\s+)?(?:encaminhei|encaminhamos|enviei|enviamos|'
+            r'repassei|repassamos|encaminharei|encaminharemos|enviarei|'
+            r'enviaremos|encaminho|envio|repasso|passo|passamos)\b'
+            rf'[^.!?;\n]{{0,120}}\b(?:{target}|{recipient})\b'),
+        re.compile(
+            r'\bquer (?:que eu|que nos|que a gente)\s+'
+            r'(?:encaminhe|envie|repasse|compartilhe)\b'
+            rf'[^.!?;\n]{{0,120}}\b(?:{target}|{recipient})\b'),
+        re.compile(
+            rf'\b(?:sua|a|uma|essa|esta)\s+{target}\b'
+            r'[^.!?;\n]{0,40}\b(?:foi|sera|serao|vai ser|vao ser)\s+'
+            r'(?:encaminhad[ao]s?|enviad[ao]s?|repassad[ao]s?)\b'),
+    )
+    for sentence in re.finditer(r'[^.!?;\n]+[.!?;\n]?', folded):
+        clause = sentence.group().strip()
+        for pattern in actions:
+            for match in pattern.finditer(clause):
+                before = clause[:match.start()]
+                if (_reported_or_denied_prefix(before)
+                        or re.search(r'\b(?:nao|nem|nunca|jamais)\s*$', before)
+                        or re.search(r'\bnao (?:posso|podemos) '
+                                     r'(?:prometer|garantir) que\s+'
+                                     r'(?:(?:eu|nos|a gente)\s+)?$', before)
+                        or re.search(r'\bnao (?:estou|estamos) '
+                                     r'(?:dizendo|afirmando) que\s*$', before)
+                        or re.search(r'\bnao (?:prometo|afirmo|garanto) que\s*$', before)
+                        or re.search(r'\b(?:voce|usuario|cliente|ele|ela)\s+'
+                                     r'(?:disse|alegou|perguntou) que\s+'
+                                     r'(?:(?:eu|nos|a gente)\s+)?$', before)
+                        or (pattern is actions[-1]
+                            and re.search(r'\b(?:nao|nem|nunca|jamais)\b',
+                                          match.group()))):
+                    continue
+                return True
+    return False
+
+
 def _unapproved_wallet_example(answer: str, official_context: str) -> bool:
     """Reject only observed unsourced wallet examples, not neutral questions."""
     folded = _mask_reported_quotes(_fold(answer))
@@ -1575,6 +1626,8 @@ def validate_public_response(text: str, *, official_context: str) -> ResponseChe
     if (_future_launch_status_update_promise(text)
             and not _future_launch_status_update_promise(official_context)):
         return ResponseCheck(False, 'unsupported_future_status_update')
+    if _unconfirmed_partnership_handoff_claim(text):
+        return ResponseCheck(False, 'unconfirmed_partnership_handoff')
     if _unapproved_wallet_example(text, official_context):
         return ResponseCheck(False, 'unapproved_wallet_example')
     # Reviewed regressions for invented competitor comparisons. Entity presence
@@ -1899,6 +1952,22 @@ def public_fallback_for(reason: str, *, official_context: str = '', question: st
     if reason == 'unsupported_partnership_fee_policy':
         return ('Não tenho informação oficial sobre uma taxa padrão de parceria. '
                 'Posso explicar o processo público de triagem, sem prometer condições comerciais.')
+    if reason == 'unconfirmed_partnership_handoff':
+        section = re.search(
+            r'\[Contexto oficial: Comunidade e parcerias\](.*?)'
+            r'(?=\n\[Contexto oficial:|\Z)', official_context, re.S)
+        if section and all(term in _fold(section.group(1)) for term in
+                           ('parcerias', 'triagem', 'conversa')):
+            reply = ('Posso explicar a triagem pública de parcerias e ajudar '
+                     'a organizar os pontos da sua proposta.')
+            source = _fold(section.group(1))
+            if ('uma conversa nao equivale a' in source
+                    and all(term in source for term in
+                            ('contrato', 'pagamento', 'prazo'))):
+                reply += (' Uma conversa não confirma contrato, pagamento '
+                          'ou prazo.')
+            return reply
+        return PUBLIC_FALLBACK
     if reason in {'incomplete_plan_fee_matrix', 'unsupported_spelled_plan_fee'}:
         reply = _public_evm_fee_reply(question, official_context)
         if reply is not None:

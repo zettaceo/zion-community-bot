@@ -1,10 +1,34 @@
 # Cognitive Architecture v2 — current execution checkpoint
 
-Date: 2026-10-28. Status: IN PROGRESS, not production accepted.
+Date: 2026-10-29. Status: IN PROGRESS, not production accepted.
 This section supersedes older current-state labels below; the prior mission's
 checklists remain historical evidence, not proof of v2 completion.
 
-## 2026-10-28/29 8a293c1 synthetic/PUBLIC smoke — stopped at v2-101
+## 2026-10-29 eb43f28 synthetic/PUBLIC smoke — stopped at v2-103
+
+- [x] Candidate `eb43f289525242bf6abe2033359a6fb2319023e6` passed local
+  929/929 and exact-SHA [ZION CI 40792690647](https://github.com/zettaceo/zion-community-bot/actions/runs/40792690647)
+  with imports, secret scan and validation. Private manifest
+  `20261029T001519105610Z-no-named-modules-smoke-manifest.json` passed 20/20
+  synthetic/PUBLIC source and cost preflights.
+- [!] K3's first nine cases passed human review, including the previously
+  failing v2-101. v2-103 **FAILED independent human review** after the guard
+  accepted an overbroad offer to forward a partnership evaluation. Real FREYR
+  handoff is DM-only and requires qualification and confirmed delivery; no
+  handoff was executed by this generation-only probe. The round stopped.
+  Ministral was **NOT EXECUTED**. Private review metadata is in the matching
+  `-review.jsonl`; isolated ledger totals 4,576,396 micro-USD
+  reserved/estimated, not an invoice.
+- [~] A narrow local prompt/guard follow-up separates public triage wording
+  from actual handoff, blocks generated offers or confirmations, and preserves
+  the deterministic success/failure path. Local 932/932, imports, secret scan
+  and validation passed. Exact-SHA CI and a new frozen provider round remain
+  required. The eb43f28 FAIL cannot be rewritten.
+- [ ] Full 108-case, four 12-turn, controlled Telegram, account data-handling,
+  independent security and release gates remain open. Kimi inactive and
+  production unchanged.
+
+## 2026-10-28/29 prior 8a293c1 synthetic/PUBLIC smoke — stopped at v2-101
 
 - [x] Candidate `8a293c1d4fb26a7e0f5d97ad3d392b661c2650e2` passed
   local 929/929 and exact-SHA [ZION CI 40790171180](https://github.com/zettaceo/zion-community-bot/actions/runs/40790171180)

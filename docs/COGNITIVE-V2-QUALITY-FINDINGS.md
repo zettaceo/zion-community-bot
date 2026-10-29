@@ -1,6 +1,39 @@
 # Cognitive v2 — live synthetic quality findings
 
-## Latest 8a293c1 generic-objection smoke — 2026-10-28/29
+## Latest eb43f28 partnership-offer smoke — 2026-10-29
+
+Candidate `eb43f289525242bf6abe2033359a6fb2319023e6` passed local
+929/929 and exact-SHA [ZION CI 40792690647](https://github.com/zettaceo/zion-community-bot/actions/runs/40792690647).
+The private frozen manifest
+`20261029T001519105610Z-no-named-modules-smoke-manifest.json` passed 20/20
+synthetic/PUBLIC source and cost preflights. K3's first nine cases passed
+human review; v2-101 no longer failed on missing feature status. v2-103 was
+accepted by the automated guard but **FAILED independent human review**:
+FREYR offered to forward a partnership evaluation without stating the
+conditions required by the actual DM-only deterministic intake and delivery
+path. The PUBLIC context for that generation described triage and conversation,
+not an unconditional handoff or an action already taken. Portfolio and Orders
+were correctly marked partial, though peripheral to a commercial price
+objection. No secret or invented competitor price was observed.
+
+The round stopped after v2-103. No Ministral result was established. Private
+review metadata is in
+`20261029T001519105610Z-no-named-modules-smoke-review.jsonl`; isolated ledger
+total: 4,576,396 micro-USD reserved/estimated, not a provider invoice. Kimi
+remains inactive and production unchanged. The existing deterministic FREYR
+flow can really forward a qualified proposal in DM and confirms it only after
+delivery; this finding is about the model's overbroad pre-action offer.
+
+A narrow local follow-up now tells the FREYR generator to explain public triage
+without announcing or offering operator handoff. The response guard rejects
+first-person, question-form and passive handoff claims, while allowing negated
+claims and descriptions of public triage. A source-bounded fallback does not
+assert commercial terms unless that same PUBLIC section supports them. Local
+validation passed 932/932, imports, secret scan and project validation.
+Exact-SHA CI and a new frozen provider round are pending; this does not
+retroactively change the eb43f28 FAIL.
+
+## Prior 8a293c1 generic-objection smoke — 2026-10-28/29
 
 Candidate `8a293c1d4fb26a7e0f5d97ad3d392b661c2650e2` passed local
 929/929 and exact-SHA [ZION CI 40790171180](https://github.com/zettaceo/zion-community-bot/actions/runs/40790171180).

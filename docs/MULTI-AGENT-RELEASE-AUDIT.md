@@ -1,6 +1,31 @@
 # ZION Multi-Agent Command System - Release Audit
 
-## Cognitive v2 latest preproduction checkpoint — 2026-10-28/29, 8a293c1
+## Cognitive v2 latest preproduction checkpoint — 2026-10-29, eb43f28
+
+**Verdict: NOT RELEASE CERTIFIED.** Candidate
+`eb43f289525242bf6abe2033359a6fb2319023e6` passed local 929/929 and
+exact-SHA [ZION CI 40792690647](https://github.com/zettaceo/zion-community-bot/actions/runs/40792690647)
+with imports, secret scan and validation. Private manifest
+`20261029T001519105610Z-no-named-modules-smoke-manifest.json` passed 20/20
+synthetic/PUBLIC source and cost preflights. Nine K3 cases passed human review,
+including v2-101. v2-103 **FAILED independent human review**: a generated
+FREYR reply offered to forward a partnership evaluation without the DM,
+qualification and confirmed-delivery conditions of the real deterministic
+operator handoff. The automated guard accepted the offer. No Ministral result
+was established. Private review metadata is in the matching `-review.jsonl`;
+the isolated ledger totals 4,576,396 micro-USD reserved/estimated, not an
+invoice or account balance.
+
+The production handoff path itself was not changed: it sends a qualified
+summary in FREYR DM, checks delivery, then confirms or reports unavailability.
+The generated pre-action offer was too broad for the PUBLIC context. A narrow
+local prompt/guard follow-up now blocks that offer, with 932/932 validation,
+imports, secret scan and project validation passing. It needs exact-SHA CI and
+new frozen provider evidence. Full benchmark, four 12-turn conversations,
+native/Telegram acceptance, privacy/account and release gates remain open.
+Draft PR #66 remains preproduction; Kimi inactive and production unchanged.
+
+## Cognitive v2 prior preproduction checkpoint — 2026-10-28/29, 8a293c1
 
 **Verdict: NOT RELEASE CERTIFIED.** Candidate
 `8a293c1d4fb26a7e0f5d97ad3d392b661c2650e2` passed local 929/929 and

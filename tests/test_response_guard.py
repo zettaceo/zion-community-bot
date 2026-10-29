@@ -855,6 +855,63 @@ class ResponseGuardTests(unittest.TestCase):
             'Não sei se outras plataformas oferecem os mesmos recursos.',
             official_context='A Z-SWAP documenta seus próprios recursos.').allowed)
 
+    def test_generated_partnership_handoff_requires_confirmed_deterministic_action(self):
+        context = (
+            '[Contexto oficial: Comunidade e parcerias]\n'
+            'A Z-SWAP avalia parcerias com projetos Web3. O fluxo público é '
+            'triagem, aderência, segurança, valor para a comunidade e conversa. '
+            'Uma conversa não equivale a contrato, pagamento ou prazo.')
+        for answer in (
+            'Se quiser, posso encaminhar sua avaliação de parceria pelo fluxo público de triagem.',
+            'Vou enviar sua proposta ao operador.',
+            'Eu encaminho sua proposta para a equipe.',
+            'Se quiser, encaminho sua proposta.',
+            'Vamos passar sua proposta para a equipe.',
+            'Se quiser, posso compartilhar sua proposta com a equipe.',
+            'Posso colocar você em contato com a equipe para avaliar a parceria.',
+            'Vou fazer o encaminhamento da sua proposta.',
+            'Sua proposta vai ser encaminhada à equipe.',
+            'Vou encaminhar isso ao operador.',
+            'Quer que eu encaminhe sua proposta?',
+            'Posso encaminhar sua proposta?',
+            'Já encaminhei sua oportunidade para a equipe.',
+            'Sua proposta será encaminhada ao operador.',
+            'A avaliação de parceria foi enviada à equipe.',
+        ):
+            with self.subTest(answer=answer):
+                self.assertEqual(validate_public_response(
+                    answer, official_context=context).reason,
+                    'unconfirmed_partnership_handoff')
+        for answer in (
+            'Posso explicar o processo público de triagem de parcerias.',
+            'Qual é o objetivo da sua proposta?',
+            'Uma proposta passa por triagem e conversa.',
+            'Não posso encaminhar sua proposta sem a etapa operacional.',
+            'Não prometo que posso encaminhar sua avaliação de parceria.',
+            'Não estou dizendo que posso encaminhar sua proposta.',
+            'Não posso prometer que vou encaminhar sua proposta.',
+            'Sua proposta não foi encaminhada.',
+            'Você disse que eu posso encaminhar sua proposta.',
+            'Uma proposta só é encaminhada após triagem e confirmação.',
+        ):
+            with self.subTest(answer=answer):
+                self.assertTrue(validate_public_response(
+                    answer, official_context=context).allowed)
+        reply = public_fallback_for(
+            'unconfirmed_partnership_handoff', official_context=context,
+            question='A parceria está cara, concorrentes fazem a mesma coisa.')
+        self.assertIn('triagem pública de parcerias', reply)
+        self.assertNotIn('encaminh', reply)
+        self.assertTrue(validate_public_response(reply, official_context=context).allowed)
+        self.assertEqual(public_fallback_for(
+            'unconfirmed_partnership_handoff', official_context=''),
+            public_fallback_for('unknown_reason'))
+        missing_commercial_evidence = context.replace(
+            'Uma conversa não equivale a contrato, pagamento ou prazo.', '')
+        self.assertNotIn('contrato, pagamento ou prazo', public_fallback_for(
+            'unconfirmed_partnership_handoff',
+            official_context=missing_commercial_evidence))
+
     def test_monetary_claim_requires_currency_and_amount_in_official_context(self):
         for answer in ('O plano custa US$ 99.', 'A taxa custa 40 reais.', 'Custa € 12.'):
             with self.subTest(answer=answer):

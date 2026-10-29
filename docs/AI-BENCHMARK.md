@@ -1,8 +1,15 @@
 # Cognitive v2 — provider benchmark protocol
 
-Status: LATEST 8a293c1 K3 SMOKE FAILED AUTOMATED GUARD AT v2-101;
-MINISTRAL NOT RETESTED IN THAT ROUND. The first eight K3 cases passed human
-and independent review in order; v2-103 was not executed.
+Status: LATEST eb43f28 K3 SMOKE FAILED HUMAN REVIEW AT v2-103;
+MINISTRAL NOT RETESTED IN THAT ROUND. The first nine K3 cases passed human
+review in order, including the previously failing v2-101. A generated FREYR
+reply then offered to forward a partnership evaluation without the DM,
+qualification and confirmed-delivery conditions of the real deterministic
+handoff. The provider output guard accepted it. The frozen FAIL remains.
+Local 932/932 validation of a narrow prompt/guard follow-up passed, but its
+exact-SHA CI and provider retest are pending.
+The prior 8a293c1 smoke failed automated guard at v2-101; v2-103 was not
+executed in that round.
 The prior bb9bfc3 smoke also failed at v2-101; its own verdict is unchanged.
 The earlier 80633ce K3 smoke failed at v2-041, and later calls before its
 retrospective correction did not qualify that smoke.
@@ -124,7 +131,36 @@ generation, native tool path, runtime delivery and controlled Telegram tests
 have separate verdicts. No overall model winner is declared while any required
 dimension remains untested or failed.
 
-## Latest frozen smoke — 2026-10-28/29, candidate 8a293c1
+## Latest frozen smoke — 2026-10-29, candidate eb43f28
+
+Candidate `eb43f289525242bf6abe2033359a6fb2319023e6` passed local
+929/929 and exact-SHA [ZION CI 40792690647](https://github.com/zettaceo/zion-community-bot/actions/runs/40792690647)
+with imports, secret scan and validation. Private manifest
+`20261029T001519105610Z-no-named-modules-smoke-manifest.json` passed 20/20
+synthetic/PUBLIC source and cost preflights. K3's first nine cases passed
+automated acceptance and human review, including v2-101, which now explained
+the generic price objection without invented comparisons or named modules.
+
+v2-103 passed the automated guard but **FAILED independent human review**.
+Its conditional offer to forward a partnership evaluation did not state the
+DM, qualification and confirmed-delivery conditions of the actual deterministic
+FREYR handoff. The retrieved PUBLIC context describes triage and conversation,
+not a completed or unconditional operator handoff. This is an overbroad
+generated offer; the real deterministic path itself remains available. The
+round stopped after v2-103. No Ministral result was established. Private
+review metadata is in
+`20261029T001519105610Z-no-named-modules-smoke-review.jsonl`; the isolated
+ledger totals 4,576,396 micro-USD reserved/estimated, not an invoice. The
+ten-case smoke verdict is **FAIL**, and earlier FAILs are unchanged.
+
+A narrow local follow-up now tells FREYR to explain triage without promising
+handoff and rejects generated offers or confirmations without a confirmed
+deterministic action. The existing DM handoff success/failure paths were not
+changed. Local validation passed 932/932, imports, secret scan and project
+validation. Exact-SHA CI and a newly frozen provider round remain required;
+this fix does not retroactively change the eb43f28 result.
+
+## Prior frozen smoke — 2026-10-28/29, candidate 8a293c1
 
 Candidate `8a293c1d4fb26a7e0f5d97ad3d392b661c2650e2` passed local
 929/929 and exact-SHA [ZION CI 40790171180](https://github.com/zettaceo/zion-community-bot/actions/runs/40790171180)
