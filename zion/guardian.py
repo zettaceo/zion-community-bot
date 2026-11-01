@@ -10,6 +10,7 @@ import idna
 
 from .config import Settings
 from .db import ZionDB
+from .mnemonic import looks_like_bare_mnemonic
 from .models import (
     AbuseDecision,
     ChatBurstDecision,
@@ -205,6 +206,14 @@ def domain_matches(domain: str, allowed: str) -> bool:
 
 def detect_sensitive_content(text: str) -> SensitiveContentDecision:
     text = _normalize_security_text(text)
+    if looks_like_bare_mnemonic(text):
+        # Live acceptance 2026-11-01: a member about to paste "the 12 words I
+        # got when I created the wallet" would not use any label.
+        return SensitiveContentDecision(
+            detected=True,
+            kind="possible_wallet_secret",
+            reason="possível seed phrase (sequência de palavras BIP-39) sem rótulo",
+        )
     if not SENSITIVE_LABEL_REGEX.search(text):
         return SensitiveContentDecision()
     match = LONG_SECRET_AFTER_LABEL_REGEX.search(text)
