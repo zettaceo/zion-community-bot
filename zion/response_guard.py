@@ -1700,6 +1700,88 @@ _FINANCIAL_OUTCOME = (
 )
 
 
+_SECRET_NOUN = (
+    r"(?:seed(?: phrase)?|frases? (?:de )?(?:recuperacao|semente|secreta)|"
+    r"palavras? (?:de )?(?:recuperacao|seguranca)|mnemonic\w*|recovery phrase|"
+    r"secret phrase|chaves? privadas?|private keys?|senhas?|passwords?|"
+    r"codigo (?:2fa|de verificacao|de autenticacao|sms)|2fa codes?)"
+)
+_SOLICIT_VERB = (
+    r"(?:me (?:mande|manda|envie|envia|passe|passa|diga|diz|informe|informa|fala)|"
+    r"mande|manda|envie|envia|informe|informa|digite|compartilhe|compartilha|cole|"
+    r"forneca|passe|send|share|enter|provide|give me|type|paste|tell me|"
+    r"(?:pode|podem|poderia|precisa|precisamos|preciso) (?:me )?"
+    r"(?:enviar|mandar|passar|informar|dizer|compartilhar|fornecer))"
+)
+_FUND_VERB = (r"(?:envie|envia|mande|manda|deposite|deposita|transfira|transfere|"
+              r"pague|send|deposit|transfer|pay)")
+_FUND_OBJECT = (
+    r"(?:\d+(?:[.,]\d+)?\s?(?:eth|btc|usdt|usdc|sol|bnb|zetta|matic|pol|avax|arb|op|dai)|"
+    r"eth|btc|usdt|usdc|sol|bnb|fundos|tokens?|cripto\w*|saldo|taxa de ativacao|funds)"
+)
+_BARE_HOST = re.compile(
+    r"(?<![@\w.-])((?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+(?:com|io|xyz|app|net|org|ly|me|"
+    r"gg|co|finance|exchange|site|online|link|top|click|info|pro|ai|br|to|cc|vip|live))"
+    r"(?![\w-])"
+)
+_SAFETY_PREFIX = re.compile(
+    r"(?:\b(?:nao|nunca|jamais|nem|never|not|don't|do not|em nenhum momento|"
+    r"em hipotese alguma|de forma alguma|at no point|under no circumstances)\b(?:\s\w+){0,2}\s$"
+    r"|\b(?:ninguem|nobody|no one|se alguem|if anyone|if someone|golpes?|scams?|"
+    r"desconfie|cuidado|beware|fraudes?)\b[^.!?\n]{0,80}$)"
+)
+
+
+def _hosts(value: str) -> set[str]:
+    hosts = {h.casefold() for h in re.findall(r"https?://([^\s/<>:?#]+)", value)}
+    hosts |= {h.casefold() for h in _BARE_HOST.findall(value.casefold())}
+    return {h[4:] if h.startswith('www.') else h for h in hosts}
+
+
+def _scam_surface(folded: str, official_context: str) -> str | None:
+    """Phishing shapes a prompt injection could make the model emit.
+
+    A safety warning ("nunca envie sua seed", "se alguém pedir, é golpe")
+    is the desired answer and stays allowed; so does unlocking a wallet
+    inside the wallet itself and funding one's own wallet.
+    """
+    approved = ''.join(c for c in unicodedata.normalize('NFKD', official_context)
+                       if not unicodedata.combining(c)).casefold()
+    for reason, pattern in (
+        ('secret_solicitation', rf"\b{_SOLICIT_VERB}\b[^.!?\n]{{0,40}}\b{_SECRET_NOUN}\b"),
+        ('fund_solicitation', rf"\b{_FUND_VERB}\b[^.!?\n]{{0,30}}\b{_FUND_OBJECT}\b"),
+    ):
+        for match in re.finditer(pattern, folded):
+            prefix = folded[max(0, match.start() - 100):match.start()]
+            suffix = folded[match.end():match.end() + 50]
+            if _SAFETY_PREFIX.search(prefix) or re.match(
+                    r"[^.!?\n]{0,40}\b(?:e golpe|is a scam|nao responda|denuncie)\b", suffix):
+                continue
+            if re.match(r"[^.!?\n]{0,40}\b(?:na (?:sua )?(?:propria )?carteira|no (?:app|aplicativo) da "
+                        r"(?:sua )?carteira|(?:in|into) your (?:own )?wallet)\b", suffix) or (
+                    reason == 'fund_solicitation'
+                    and re.match(r"[^.!?\n]{0,15}\b(?:para|to) (?:a |sua )?(?:propria |sua |your (?:own )?)"
+                                 r"(?:carteira|wallet)\b", suffix)):
+                continue
+            return reason
+    if re.search(r"\b(?:receba|recebera|ganhe|ganha) o dobro\b|\bdouble (?:your|it)\b|"
+                 r"\bdobr(?:o|ar|amos) (?:seus|o seu|o) (?:fundos|saldo|tokens|deposito)\b", folded):
+        return 'fund_solicitation'
+    for address in re.findall(r"\b0x[0-9a-f]{40}\b", folded):
+        if address not in approved:
+            return 'unapproved_wallet_address'
+    allowed_hosts = _hosts(approved)
+    for host in _hosts(folded):
+        if host not in allowed_hosts and not any(host.endswith('.' + a) for a in allowed_hosts):
+            return 'unapproved_url'
+    if re.search(r"\bwhats\s?app\b|\bwpp\b", folded) and not re.search(r"\bwhats\s?app\b", approved):
+        return 'unapproved_contact'
+    for phone in re.findall(r"(?<!\w)\+?\d{2,3}[\s.-]?\(?\d{2}\)?[\s.-]?9?\d{4}[\s.-]?\d{4}(?!\w)", folded):
+        if re.sub(r"\D", "", phone) not in re.sub(r"\D", "", approved):
+            return 'unapproved_contact'
+    return None
+
+
 def validate_public_response(text: str, *, official_context: str) -> ResponseCheck:
     if not isinstance(text, str) or not text.strip():
         return ResponseCheck(False, 'empty_response')
@@ -1712,6 +1794,9 @@ def validate_public_response(text: str, *, official_context: str) -> ResponseChe
     for reason, pattern in _RULES:
         if re.search(pattern, folded):
             return ResponseCheck(False, reason)
+    scam = _scam_surface(folded, official_context)
+    if scam is not None:
+        return ResponseCheck(False, scam)
     quality_rules = (
         ('best_price_guarantee', r"\b(?:garant\w*|assegur\w*)\b(?:(?!\s*,\s*mas\b)[^.!?;\n]){0,60}\bmelhor(?:es)? (?:precos?|taxas?)\b"),
         ('best_price_guarantee', r'\bmelhor(?:es)? (?:precos?|taxas?) (?:e|sao|esta)? ?garantid[ao]s?\b'),
@@ -2154,6 +2239,11 @@ def public_fallback_for(reason: str, *, official_context: str = '', question: st
         return ('Não posso confirmar uma escolha automática da melhor rota nem '
                 'prometer o melhor preço ou taxa. Confira a cotação e os custos '
                 'antes de confirmar.')
+    if reason in {'secret_solicitation', 'fund_solicitation', 'unapproved_wallet_address',
+                  'unapproved_contact'}:
+        return ('Por segurança, não compartilhe seed phrase, chave privada ou senha e '
+                'não envie fundos a endereços, links ou contatos recebidos em conversa. '
+                'Use apenas os canais oficiais da Z-SWAP.')
     if reason in {'investment_advice', 'price_prediction'}:
         return ('Não faço recomendação de compra, venda ou investimento nem previsão '
                 'de preço. Posso explicar como a plataforma funciona e quais custos e '

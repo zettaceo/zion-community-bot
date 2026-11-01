@@ -60,6 +60,23 @@ checklists remain historical evidence, not proof of v2 completion.
   purchase wording keeps its own plan-access rule. 14 advice and 13 neutral
   regressions; zero official knowledge sentences and zero of 164 stored
   outputs flagged. Local validation 965/965, secret scan, ZION validation OK.
+- [x] Third guard gap, the most severe: a reply could ask for the seed
+  phrase, private key or password ("Me mande sua seed phrase"), solicit
+  funds ("Envie 0.1 ETH ... e receba o dobro"), show an unofficial wallet
+  address, or point to scheme-less phishing hosts (`claim-zswap.xyz`,
+  `bit.ly/...`) and WhatsApp/phone contacts — the URL check only saw
+  `https://`. A prompt injection could have turned a member reply into a
+  phishing message. New `_scam_surface` check (`secret_solicitation`,
+  `fund_solicitation`, `unapproved_wallet_address`, `unapproved_contact`,
+  bare-host `unapproved_url`) runs before the quality rules; hosts,
+  addresses and contacts are allowed only when present in the official
+  context. Safety warnings ("nunca envie sua seed", "em nenhum momento
+  compartilhe", "se alguém pedir, é golpe"), unlocking inside the wallet and
+  funding one's own wallet stay allowed. The fallback is normative, not a
+  categorical promise. 15 scam and 17 safe regressions; zero official
+  knowledge sentences and zero of 164 stored outputs flagged (one stored
+  "em nenhum momento compartilhe" warning drove a fix). Local validation
+  967/967, secret scan, ZION validation OK.
 - [ ] Owner-authorized live runs: production-baseline smoke (estimated well
   under USD 0.10 for all ten cases) and, separately, the K3 candidate smoke.
 - [ ] Run the remaining provider smoke cases one at a time under
