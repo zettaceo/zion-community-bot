@@ -1757,6 +1757,10 @@ def _scam_surface(folded: str, official_context: str) -> str | None:
     for reason, pattern in (
         ('secret_solicitation', rf"\b{_SOLICIT_VERB}\b[^.!?\n]{{0,40}}\b{_SECRET_NOUN}\b"),
         ('fund_solicitation', rf"\b{_FUND_VERB}\b[^.!?\n]{{0,30}}\b{_FUND_OBJECT}\b"),
+        # "Pay a release fee to unlock your withdrawal" is the classic advance-fee scam.
+        ('fund_solicitation', r"\btaxas?\s+(?:de\s+)?(?:liberacao|desbloqueio|ativacao|validacao)\b"
+                              r"|\b(?:release|unlock|withdrawal)\s+fee\b"
+                              r"|\bpaga[r]?\b[^.!?\n]{0,30}\bpara\s+(?:liberar|desbloquear|sacar)\b"),
     ):
         for match in re.finditer(pattern, folded):
             prefix = folded[max(0, match.start() - 100):match.start()]

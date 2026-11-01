@@ -339,7 +339,7 @@ class Block5RemoteOperationsTests(unittest.TestCase):
             text,
         )
         self.assertIn('"$PREVIOUS_COMMIT" == "$CURRENT_HEAD"', text)
-        self.assertIn('"$PYTHON" -m pip check', text)
+        self.assertIn('"$PYTHON" -B -m pip check', text)
 
     def test_runtime_compatibility_covers_all_direct_requirements(self) -> None:
         text = self.read("scripts/check-runtime.py")

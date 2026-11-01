@@ -966,6 +966,22 @@ class MistralClient:
             raw=data,
         )
 
+    async def classify_triage(self, text: str, context: tuple[str, ...] = ()):
+        """Bounded community reading; see zion/triage.py. No authority."""
+        from .triage import build_triage_messages, parse_triage
+        from dataclasses import replace as _replace
+        raw = await self._chat(build_triage_messages(text, context),
+                               temperature=0.0, max_tokens=160)
+        result = parse_triage(raw.text)
+        if result is None:
+            # Adversarial input can derail the format. That is not a provider
+            # outage and must not open the circuit breaker for everyone.
+            from .triage import TriageResult
+            result = TriageResult(addressed=False, intent='unrelated', risks=frozenset(),
+                                  language='und', confidence=0.0, valid=False)
+        return _replace(result, model=raw.model, input_tokens=raw.input_tokens,
+                        output_tokens=raw.output_tokens, latency_ms=raw.latency_ms)
+
     async def classify_route(self, text: str) -> AIRouteClassification:
         system = (
             "Você é um classificador limitado de intenção conversacional do "
