@@ -267,7 +267,7 @@ class Runtime:
             self.delivery_health_block_reasons: tuple[str, ...] = ()
             self.kimi_secret_captures: dict[tuple[int, int], float] = {}
             self.kimi_secret_store = ProviderSecretStore(settings.mistral_secret_path.parent / "providers").for_provider("kimi")
-            self.kimi_provisioning_client = KimiCompletionProvider(self.kimi_secret_store, model="kimi-k2.6")
+            self.kimi_provisioning_client = KimiCompletionProvider(self.kimi_secret_store, model="kimi-k3")
             self.mistral_secret_captures: dict[
                 tuple[int, int],
                 float,

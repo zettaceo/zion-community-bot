@@ -26,6 +26,31 @@ checklists remain historical evidence, not proof of v2 completion.
   secret warning. Human review: PENDING. Kimi K3 price reverified 2026-11-01
   on platform.kimi.ai (unchanged).
 - [ ] Human review of the delivered v2-041 answer.
+- [x] Production-baseline delivery probe (2026-11-01). Production serves
+  `ministral-8b-2512` through `AIService`/`MistralClient` with Kimi inactive,
+  so K3 smoke results alone cannot describe what members receive.
+  `--live --model ministral-8b-2512` now runs the unchanged production
+  generation path (real tool round, rate-limit retries, output guard) on the
+  PUBLIC/CURRENT corpus and an isolated durable `evaluation-baseline.db`.
+  Every HTTP attempt is admitted by the existing `RequestAdmission` +
+  `RuntimeCostBudget` at the worst dated rate before it is sent (request cap
+  USD 0.05, day cap USD 0.50); the case charge is its own settled or
+  uncertain reservations, never a ledger delta. Ministral price reverified
+  2026-11-01 (0.15/0.15 USD/M, unchanged). Kimi provisioning clients moved
+  to `kimi-k3`: Moonshot retires the K2 series by end of December 2026.
+- [x] Output-guard defect found while testing the probe: the guard accepted
+  "A Z-SWAP garante lucro", "Lucro garantido", "retorno garantido" and
+  "Os swaps nunca falham". New `financial_return_guarantee` and
+  `absolute_reliability` rules (PT/EN) block outcome and infallibility
+  promises, keep scam warnings and honest caveats ("não há garantia de
+  lucro", "desconfie de quem promete lucro", "nenhum dos planos promete
+  lucro"), close "não só garante"/"not only guarantees" bypasses and reply
+  with a fixed no-promise fallback. 21 promise and 22 caveat regressions,
+  zero official knowledge sentences flagged, and a replay of 164 stored
+  private model outputs changed none of their verdicts. Local validation
+  963/963, secret scan and ZION validation OK.
+- [ ] Owner-authorized live runs: production-baseline smoke (estimated well
+  under USD 0.10 for all ten cases) and, separately, the K3 candidate smoke.
 - [ ] Run the remaining provider smoke cases one at a time under
   dated pricing and stop-on-first-fatal review. A local result does not erase
   the historical raw K3 FAIL.

@@ -1,20 +1,28 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 from pathlib import Path
 import tempfile
 import unittest
 from unittest.mock import patch
 
+import httpx
+
 from tests.helpers import make_settings
 from zion.db import ZionDB
 from zion.evaluation import load_cases
 from zion.evaluation_budget import EvaluationBudget, PRICES
-from zion.evaluation_delivery import (DeliveryEvaluationService,
+from zion.evaluation_delivery import (BASELINE_MODEL,
+                                      BaselineDeliveryEvaluationService,
+                                      DeliveryEvaluationService,
                                       PublicEvaluationKnowledge,
                                       evaluate_delivery_case)
 from zion.knowledge import KnowledgeClassification
+from zion.provider_budget import ProviderTokenBudget
 from zion.providers import Completion, ProviderError
+from zion.runtime_cost import RuntimeCostBudget
+from zion.secret_store import SecretStore
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -164,3 +172,135 @@ class DeliveryEvaluationTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class _SyntheticMistralKey:
+    def status(self):
+        return SecretStore.PRIVATE
+
+    def read(self):
+        return 'synthetic-mistral-key-for-baseline-probe-123456'
+
+
+class _MistralHTTP:
+    def __init__(self, responses):
+        self.responses = list(responses)
+        self.calls = []
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *_exc):
+        return False
+
+    async def post(self, url, *, headers, json):
+        self.calls.append(json)
+        return self.responses.pop(0)
+
+
+def _mistral_ok(text, model=BASELINE_MODEL):
+    return httpx.Response(200, json={
+        'model': model,
+        'choices': [{'message': {'content': text}, 'finish_reason': 'stop'}],
+        'usage': {'prompt_tokens': 900, 'completion_tokens': 60, 'total_tokens': 960},
+    })
+
+
+class BaselineDeliveryEvaluationTests(unittest.TestCase):
+    """The production model through the production AIService/MistralClient path."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        root = Path(self.temp.name)
+        # Same daily token budget as the probe script; the helper's small
+        # default would block a retry after the first uncertain attempt.
+        self.settings = replace(make_settings(root), ai_enabled=True,
+                                ai_daily_token_budget=1000000,
+                                mistral_min_request_interval_ms=0,
+                                mistral_rate_limit_max_delay_seconds=0.0)
+        self.db = ZionDB(root / 'evaluation-baseline.db')
+        self.db.initialize()
+        self.addCleanup(self.db.close)
+        self.knowledge = PublicEvaluationKnowledge(ROOT / 'knowledge')
+
+    def costs(self, *, request_limit=50000, daily_limit=500000):
+        return RuntimeCostBudget(self.db, daily_limit=daily_limit,
+            provider_limits={'mistral': daily_limit},
+            model_limits={BASELINE_MODEL: daily_limit},
+            request_limit=request_limit,
+            prices={BASELINE_MODEL: PRICES[BASELINE_MODEL]})
+
+    def service(self, costs):
+        service = BaselineDeliveryEvaluationService(
+            self.settings, self.db, self.knowledge, runtime_cost_budget=costs)
+        service.secret_store = service.client.secret_store = _SyntheticMistralKey()
+        return service
+
+    def evaluate(self, case_id, service, responses):
+        http = _MistralHTTP(responses)
+        with patch('zion.mistral.httpx.AsyncClient', return_value=http), \
+                patch.object(RuntimeCostBudget, 'today', return_value=PRICES[BASELINE_MODEL].verified_on), \
+                patch.object(ProviderTokenBudget, 'today', return_value=PRICES[BASELINE_MODEL].verified_on):
+            return asyncio.run(evaluate_delivery_case(CASES[case_id], service=service)), http
+
+    def test_only_reviewed_production_model_is_accepted(self):
+        with self.assertRaisesRegex(ValueError, 'delivery_probe_model_not_reviewed'):
+            BaselineDeliveryEvaluationService(
+                replace(self.settings, mistral_model='mistral-large-2512'),
+                self.db, self.knowledge, runtime_cost_budget=self.costs())
+
+    def test_baseline_generation_is_review_required_with_its_own_charge(self):
+        costs = self.costs()
+        result, http = self.evaluate('v2-001', self.service(costs), [
+            _mistral_ok('A Z-SWAP compara rotas disponíveis conforme as condições do momento.')])
+        self.assertEqual(result['status'], 'REVIEW_REQUIRED')
+        self.assertEqual(result['model'], BASELINE_MODEL)
+        self.assertEqual(result['provider_calls'], 1)
+        self.assertEqual(len(http.calls), 1)
+        self.assertEqual(http.calls[0]['model'], BASELINE_MODEL)
+        expected = PRICES[BASELINE_MODEL].cost(900, 60)
+        self.assertEqual(result['estimated_micro_usd'], expected)
+        with patch.object(ProviderTokenBudget, 'today', return_value=PRICES[BASELINE_MODEL].verified_on):
+            self.assertEqual(costs.totals()['total'], expected)
+
+    def test_rate_limit_retry_counts_every_attempt_and_keeps_uncertain_charge(self):
+        costs = self.costs()
+        result, http = self.evaluate('v2-001', self.service(costs), [
+            httpx.Response(429, headers={'Retry-After': '0'}),
+            _mistral_ok('A Z-SWAP compara rotas disponíveis conforme as condições do momento.')])
+        self.assertEqual(len(http.calls), 2)
+        self.assertEqual(result['provider_calls'], 2)
+        self.assertEqual(result['status'], 'REVIEW_REQUIRED')
+        # The rate-limited attempt keeps its full worst-rate reservation.
+        self.assertGreater(result['estimated_micro_usd'], PRICES[BASELINE_MODEL].cost(900, 60))
+
+    def test_provider_failure_is_not_a_pass_and_withholds_fallback(self):
+        result, _ = self.evaluate('v2-001', self.service(self.costs()), [
+            httpx.Response(500)])
+        self.assertEqual(result['status'], 'PROVIDER_FAIL')
+        self.assertEqual(result['response'], '[WITHHELD_BY_OUTPUT_GUARD]')
+        self.assertGreater(result['estimated_micro_usd'], 0)
+
+    def test_request_cap_blocks_before_any_http_request(self):
+        result, http = self.evaluate('v2-001', self.service(self.costs(request_limit=1)), [])
+        self.assertEqual(http.calls, [])
+        self.assertEqual(result['status'], 'BUDGET_BLOCKED')
+        self.assertEqual(result['provider_calls'], 0)
+
+    def test_guard_rejected_generation_is_automated_fail(self):
+        result, _ = self.evaluate('v2-001', self.service(self.costs()), [
+            _mistral_ok('A Z-SWAP garante lucro em todos os swaps e nunca falha.')])
+        self.assertEqual(result['status'], 'AUTOMATED_FAIL')
+        self.assertEqual(result['response'], '[WITHHELD_BY_OUTPUT_GUARD]')
+
+    def test_unexpected_response_model_is_not_a_pass(self):
+        result, _ = self.evaluate('v2-001', self.service(self.costs()), [
+            _mistral_ok('Resposta.', model='mistral-large-2512')])
+        self.assertNotIn(result['status'], {'REVIEW_REQUIRED', 'LOCAL_REVIEW_REQUIRED'})
+
+    def test_local_wallet_case_needs_no_provider_or_credential_use(self):
+        result, http = self.evaluate('v2-041', self.service(self.costs()), [])
+        self.assertEqual(http.calls, [])
+        self.assertEqual(result['status'], 'LOCAL_REVIEW_REQUIRED')
+        self.assertEqual(result['estimated_micro_usd'], 0)

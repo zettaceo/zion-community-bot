@@ -12,7 +12,7 @@ import json
 
 from .agents import AgentId
 from .ai_service import AIService
-from .evaluation_budget import EvaluationBudget
+from .evaluation_budget import EvaluationBudget, PriceSnapshot
 from .generation_policy import GenerationFailure
 from .knowledge import KnowledgeBase, KnowledgeClassification, KnowledgeSourceStatus
 from .knowledge_tools import KnowledgeTools
@@ -20,6 +20,7 @@ from .mistral import build_answer_messages
 from .models import AIAnswer
 from .providers import CompletionProvider
 from .response_guard import validate_public_response
+from .runtime_cost import RuntimeCostBudget
 
 
 SMOKE_IDS = (
@@ -29,6 +30,10 @@ SMOKE_IDS = (
 EXPECTED_LOCAL = {'v2-021': 'canonical_finite_list',
                   'v2-041': 'wallet_connection_triage',
                   'v2-091': 'canonical_finite_list'}
+
+
+# The model production actually serves. Kimi remains a separate candidate.
+BASELINE_MODEL = 'ministral-8b-2512'
 
 
 class PublicEvaluationKnowledge(KnowledgeBase):
@@ -118,6 +123,104 @@ class DeliveryEvaluationService(AIService):
                         result.output_tokens, result.latency_ms, evidence)
 
 
+class _CaseAdmission:
+    """Per-case view over the durable token+currency admission.
+
+    Counts every HTTP attempt the real MistralClient admits (retries and the
+    bounded tool round included) and this case's own charge: the settled
+    estimate, or the full reservation when the outcome is uncertain. It never
+    derives cost from a global ledger delta another evaluation could move.
+    """
+
+    def __init__(self, inner, costs: RuntimeCostBudget):
+        self.inner, self.costs = inner, costs
+        self.db = inner.db
+        self.attempts = 0
+        self.charged = 0
+        self._open: dict[str, tuple[int, list[int]]] = {}
+
+    def reserve(self, provider, model, tokens, *, today=None):
+        reservation = self.inner.reserve(provider, model, tokens, today=today)
+        self.attempts += 1
+        cost_ref = reservation.split(':')[1]
+        with self.db.transaction():
+            entry = self.costs._read()['pending'][cost_ref]
+        self._open[reservation] = (entry['tokens'], list(entry['price']))
+        return reservation
+
+    def settle(self, reservation, input_tokens, output_tokens):
+        reserved, rates = self._open.pop(reservation)
+        try:
+            self.inner.settle(reservation, input_tokens, output_tokens)
+        except Exception:
+            self.charged += reserved
+            raise
+        self.charged += PriceSnapshot(BASELINE_MODEL, *rates, self.costs.today()).cost(
+            input_tokens, output_tokens)
+
+    def retain_uncertain(self, reservation):
+        pending = self._open.pop(reservation, None)
+        if pending is not None:
+            self.charged += pending[0]
+        self.inner.retain_uncertain(reservation)
+
+    def totals(self, *, today=None):
+        return self.inner.totals(today=today)
+
+
+class BaselineDeliveryEvaluationService(AIService):
+    """The production baseline path: real MistralClient, real tool round.
+
+    Only the corpus (PUBLIC/CURRENT), the database (isolated evaluation file)
+    and the per-attempt currency admission differ from the runtime. No
+    ModelApproval exists, so GenerationPolicy can only select the baseline.
+    """
+
+    def __init__(self, settings, db, knowledge, *, runtime_cost_budget: RuntimeCostBudget):
+        if settings.mistral_model != BASELINE_MODEL or not settings.ai_enabled:
+            raise ValueError('delivery_probe_model_not_reviewed')
+        super().__init__(settings, db, knowledge, runtime_cost_budget=runtime_cost_budget)
+        if self.generation_policy.approvals or self.completion_providers:
+            raise ValueError('baseline_probe_requires_no_candidate')
+        self.case_admission = _CaseAdmission(self.provider_token_budget, runtime_cost_budget)
+        self.provider_token_budget = self.case_admission
+        self.client.token_budget = self.case_admission
+        self.evaluation_model = BASELINE_MODEL
+        # Each rate-limit retry is a separately admitted attempt, for the
+        # first request and for the single bounded tool round.
+        self.max_provider_attempts = 2 * (max(0, settings.mistral_rate_limit_retries) + 1)
+        self.last_input_hash: str | None = None
+        self.last_error_type: str | None = None
+
+    @property
+    def provider_attempts(self) -> int:
+        return self.case_admission.attempts
+
+    @property
+    def last_cost_micro_usd(self) -> int:
+        return self.case_admission.charged
+
+    @last_cost_micro_usd.setter
+    def last_cost_micro_usd(self, value: int) -> None:
+        self.case_admission.charged = value
+
+    async def _generate_answer(self, kwargs: dict, *, agent: AgentId,
+                               context_query: str) -> AIAnswer:
+        messages = build_answer_messages(
+            question=kwargs['question'], context=kwargs['context'],
+            conversation_context=kwargs.get('conversation_context', ''),
+            agent_id=agent.value,
+        )
+        self.last_input_hash = hashlib.sha256(
+            json.dumps(messages, sort_keys=True, ensure_ascii=False).encode('utf-8')
+        ).hexdigest()
+        try:
+            return await super()._generate_answer(kwargs, agent=agent, context_query=context_query)
+        except Exception as error:
+            self.last_error_type = type(error).__name__
+            raise
+
+
 async def evaluate_delivery_case(case: dict, *, service: DeliveryEvaluationService) -> dict:
     """One frozen synthetic case. A safe fallback never becomes a model PASS."""
     if case['id'] not in SMOKE_IDS or case['human_review_required'] is not True:
@@ -163,7 +266,7 @@ async def evaluate_delivery_case(case: dict, *, service: DeliveryEvaluationServi
     guard = validate_public_response(answer.text, official_context=official_context)
     if service.last_error_type:
         status = ('BUDGET_BLOCKED' if calls == 0
-                  and service.last_error_type == 'EvaluationBudgetError'
+                  and service.last_error_type in {'EvaluationBudgetError', 'ProviderBudgetError'}
                   else 'PROVIDER_FAIL' if calls else 'HARNESS_FAIL')
     elif failed_event:
         status = 'AUTOMATED_FAIL'
@@ -173,7 +276,8 @@ async def evaluate_delivery_case(case: dict, *, service: DeliveryEvaluationServi
         status = 'HARNESS_FAIL'
     elif local and calls == 0:
         status = 'LOCAL_REVIEW_REQUIRED'
-    elif calls == 1 and answer.model == service.evaluation_model:
+    elif (1 <= calls <= getattr(service, 'max_provider_attempts', 1)
+          and answer.model == service.evaluation_model):
         status = 'REVIEW_REQUIRED'
     else:
         status = 'HARNESS_FAIL'

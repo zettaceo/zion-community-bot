@@ -50,7 +50,7 @@ def main() -> int:
             return _fail('input_invalid')
 
         # A metadata-only authentication probe must succeed before storage.
-        client = KimiCompletionProvider(store, model='kimi-k2.6')
+        client = KimiCompletionProvider(store, model='kimi-k3')
         try:
             asyncio.run(client.validate_candidate(candidate))
         except ProviderError as exc:

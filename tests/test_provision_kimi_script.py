@@ -38,7 +38,7 @@ class ProvisionKimiScriptTests(unittest.TestCase):
 
         class Client:
             def __init__(self, store, *, model):
-                assert model == 'kimi-k2.6'
+                assert model == 'kimi-k3'
 
             async def validate_candidate(self, secret):
                 probes.append(True)

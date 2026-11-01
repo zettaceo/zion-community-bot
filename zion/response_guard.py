@@ -1694,6 +1694,12 @@ def _terminal_beta_is_promoted(folded_answer: str) -> bool:
     return False
 
 
+_FINANCIAL_OUTCOME = (
+    r"(?:lucros?|lucrativ\w*|rendimentos?|rentabilidade|ganhos?|valorizac(?:ao|oes)|"
+    r"retornos? (?:financeiros?|positivos?|sobre (?:o |seu )?investimento|(?:do|de) investimento))"
+)
+
+
 def validate_public_response(text: str, *, official_context: str) -> ResponseCheck:
     if not isinstance(text, str) or not text.strip():
         return ResponseCheck(False, 'empty_response')
@@ -1715,6 +1721,13 @@ def validate_public_response(text: str, *, official_context: str) -> ResponseChe
         ('safety_guarantee', r'\bseguranca(?: da (?:operacao|transacao))?\s+(?:esta|e)\s+(?:(?:plenamente|totalmente|completamente|100%)\s+)?garantid[ao]s?\b'),
         ('execution_guarantee', r'\b(?:garant\w*|assegur\w*)\b[^.!?\n]{0,70}\b(?:transacao|ordem|swap|operacao)\b[^.!?\n]{0,50}\b(?:executad[oa]|concluid[oa]|bem.sucedid[oa])\b|\b(?:garant\w*|assegur\w*)\b[^.!?\n]{0,30}\bexecucao (?:da|do|de) (?:sua |seu |uma |um )?(?:transacao|ordem|swap|operacao)\b'),
         ('absolute_safety', r"\b(?:e segur[oa](?: para usar)?|(?:100%|totalmente|completamente) segur[oa]|livre de riscos?|seguranca total|risco zero|nao (?:tem|corre|existe) riscos?)\b"),
+        ('absolute_safety', r"\b(?:risk[- ]free|no risk|zero risk|(?:100%|completely|totally) safe)\b"),
+        # A DEX/aggregator never promises investment outcomes. Financial
+        # nouns only: a promised *reply* ("retorno da equipe") is not matched.
+        ('financial_return_guarantee', rf"\b(?:garant\w*|assegur\w*|promet\w*)\b(?:(?!\s*,\s*mas\b)[^.!?;\n]){{0,60}}\b{_FINANCIAL_OUTCOME}\b"),
+        ('financial_return_guarantee', rf"\b{_FINANCIAL_OUTCOME}\b(?:(?!\bnao\b|\bnunca\b|\bsem\b)[^.!?;\n]){{0,30}}\b(?:garantid[ao]s?|assegurad[ao]s?|cert[oa]s?)\b"),
+        ('financial_return_guarantee', r"\b(?:guarantee[sd]?|guaranteeing|promise[sd]?|assure[sd]?)\b[^.!?;\n]{0,40}\b(?:profits?|returns?|gains?|earnings?|yields?)\b|\b(?:guaranteed|assured|certain) (?:profits?|returns?|gains?|earnings?|yields?)\b"),
+        ('absolute_reliability', r"\b(?:swaps?|transac(?:ao|oes)|ordens?|operac(?:ao|oes)|plataforma|sistema|z-?swap|bridges?|pontes?)\b(?:(?!\bnao\b)[^.!?;\n]){0,25}\bnunca (?:falh\w*|da(?:o)? erro|trav\w*)\b|\b(?:100%|totalmente|sempre) confiavel\b|\bnever fails?\b"),
     )
     checked = folded
     for reason, pattern in quality_rules:
@@ -1725,6 +1738,33 @@ def validate_public_response(text: str, *, official_context: str) -> ResponseChe
             if reason == 'absolute_safety' and re.search(
                 r"\b(?:nenhuma?|nenhum) (?:plataforma|transacao|sistema|servico|rota|swap|protocolo|ponte)"
                 r"(?: ou (?:plataforma|transacao|sistema|servico|rota|swap|protocolo|ponte))? e $", prefix):
+                continue
+            if reason == 'financial_return_guarantee' and (
+                    # Scam warnings and honest caveats are the desired answer.
+                    re.search(r"\b(?:desconfie|cuidado|evite|golpes?|fraudes?|suspeit\w*|"
+                              r"beware|scams?|be careful)\b[^.!?\n]{0,50}$", prefix)
+                    or re.search(r"\bnao (?:ha|existe|tem|temos|oferece|oferecemos|fazemos) "
+                                 r"(?:(?:uma?|qualquer|nenhuma?) )?$", prefix)
+                    # "não promete", "não deve prometer", "nenhum deles promete",
+                    # "sem assumir ... ou prometer" — but never "não só garante".
+                    or re.search(r"\b(?:nao|nunca|jamais|nem)\s"
+                                 r"(?:(?!so\b|apenas\b|somente\b)\w+\s){0,2}$", prefix)
+                    or re.search(r"\bnenhuma?\b(?:\s\w+){0,2}\s$", prefix)
+                    or re.search(r"\bsem\b[^.!?;,\n]{0,80}\bou\s$", prefix)
+                    # A negated enumeration: "não é dividendo, renda passiva,
+                    # ..., garantia de valorização". Same sentence only.
+                    or (match.group().startswith('garantia') and re.search(
+                        r"\bnao (?:e|sao|representa|constitui)\b[^.!?;\n]{0,200}$",
+                        checked[max(0, match.start() - 220):match.start()]))
+                    or (re.search(r"\b(?:cannot|can't|can not|won't|will not|does not|doesn't|"
+                                  r"do not|don't|never|no one can|nobody can|not|no)\s(?:\w+\s){0,2}$",
+                                  prefix)
+                        and not re.search(r"\bnot (?:only|just|merely)\s(?:\w+\s)?$", prefix))
+                    or re.match(r"\s+(?:nao existe|nao e possivel|e impossivel)\b",
+                                checked[match.end():match.end() + 30])):
+                continue
+            if reason == 'absolute_safety' and re.search(
+                    r"\b(?:no (?:platform|transaction|swap) is|nothing is|not|never)\s$", prefix):
                 continue
             if (reason in {'best_price_guarantee', 'safety_guarantee'}
                     and match.group().startswith('garantia')
@@ -1739,7 +1779,7 @@ def validate_public_response(text: str, *, official_context: str) -> ResponseChe
                 continue
             if re.search(
                 r"\b(?:(?:nao|nunca|nem) (?:(?:podemos|posso|pode|e|e possivel|da para) )?"
-                r"|nao ha como |nao se pode |sem |ninguem pode |"
+                r"|nao ha como |nao se pode |sem |ninguem (?:pode )?|"
                 r"nenhuma plataforma pode |e impossivel )$", prefix):
                 continue
             return ResponseCheck(False, reason)
@@ -2095,6 +2135,10 @@ def public_fallback_for(reason: str, *, official_context: str = '', question: st
         return ('Não posso confirmar uma escolha automática da melhor rota nem '
                 'prometer o melhor preço ou taxa. Confira a cotação e os custos '
                 'antes de confirmar.')
+    if reason in {'financial_return_guarantee', 'absolute_reliability'}:
+        return ('Não posso prometer lucro, retorno ou funcionamento sem falhas: '
+                'resultados dependem do mercado e de cada operação. Confira os '
+                'detalhes e os custos antes de confirmar.')
     if reason in {'safety_guarantee', 'absolute_safety'}:
         return ('A Z-SWAP implementa controles para reduzir riscos, mas nenhuma '
                 'plataforma ou transação é livre de risco. Confira os detalhes da '
