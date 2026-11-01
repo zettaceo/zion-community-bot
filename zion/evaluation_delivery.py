@@ -34,6 +34,9 @@ EXPECTED_LOCAL = {'v2-021': 'canonical_finite_list',
 
 # The model production actually serves. Kimi remains a separate candidate.
 BASELINE_MODEL = 'ministral-8b-2512'
+# GA Mistral models that may replace it through MISTRAL_MODEL; same provider,
+# credential and data terms. Evaluated on the identical production path.
+BASELINE_MODELS = (BASELINE_MODEL, 'mistral-small-2603')
 
 
 class PublicEvaluationKnowledge(KnowledgeBase):
@@ -155,7 +158,7 @@ class _CaseAdmission:
         except Exception:
             self.charged += reserved
             raise
-        self.charged += PriceSnapshot(BASELINE_MODEL, *rates, self.costs.today()).cost(
+        self.charged += PriceSnapshot('reserved-rate', *rates, self.costs.today()).cost(
             input_tokens, output_tokens)
 
     def retain_uncertain(self, reservation):
@@ -177,7 +180,7 @@ class BaselineDeliveryEvaluationService(AIService):
     """
 
     def __init__(self, settings, db, knowledge, *, runtime_cost_budget: RuntimeCostBudget):
-        if settings.mistral_model != BASELINE_MODEL or not settings.ai_enabled:
+        if settings.mistral_model not in BASELINE_MODELS or not settings.ai_enabled:
             raise ValueError('delivery_probe_model_not_reviewed')
         super().__init__(settings, db, knowledge, runtime_cost_budget=runtime_cost_budget)
         if self.generation_policy.approvals or self.completion_providers:
@@ -185,7 +188,7 @@ class BaselineDeliveryEvaluationService(AIService):
         self.case_admission = _CaseAdmission(self.provider_token_budget, runtime_cost_budget)
         self.provider_token_budget = self.case_admission
         self.client.token_budget = self.case_admission
-        self.evaluation_model = BASELINE_MODEL
+        self.evaluation_model = settings.mistral_model
         # Each rate-limit retry is a separately admitted attempt, for the
         # first request and for the single bounded tool round.
         self.max_provider_attempts = 2 * (max(0, settings.mistral_rate_limit_retries) + 1)

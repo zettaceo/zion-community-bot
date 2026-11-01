@@ -250,6 +250,24 @@ class BaselineDeliveryEvaluationTests(unittest.TestCase):
                 replace(self.settings, mistral_model='mistral-large-2512'),
                 self.db, self.knowledge, runtime_cost_budget=self.costs())
 
+    def test_ga_small_model_runs_the_same_path_with_its_own_price(self):
+        model = 'mistral-small-2603'
+        settings = replace(self.settings, mistral_model=model)
+        costs = RuntimeCostBudget(self.db, daily_limit=500000,
+            provider_limits={'mistral': 500000}, model_limits={model: 500000},
+            request_limit=50000, prices={model: PRICES[model]})
+        service = BaselineDeliveryEvaluationService(
+            settings, self.db, self.knowledge, runtime_cost_budget=costs)
+        service.secret_store = service.client.secret_store = _SyntheticMistralKey()
+        http = _MistralHTTP([_mistral_ok(
+            'A Z-SWAP compara rotas disponíveis conforme as condições do momento.', model=model)])
+        with patch('zion.mistral.httpx.AsyncClient', return_value=http), \
+                patch.object(ProviderTokenBudget, 'today', return_value=PRICES[model].verified_on):
+            result = asyncio.run(evaluate_delivery_case(CASES['v2-001'], service=service))
+        self.assertEqual(result['status'], 'REVIEW_REQUIRED')
+        self.assertEqual(http.calls[0]['model'], model)
+        self.assertEqual(result['estimated_micro_usd'], PRICES[model].cost(900, 60))
+
     def test_baseline_generation_is_review_required_with_its_own_charge(self):
         costs = self.costs()
         result, http = self.evaluate('v2-001', self.service(costs), [

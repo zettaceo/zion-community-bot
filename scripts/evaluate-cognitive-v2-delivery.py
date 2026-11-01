@@ -26,7 +26,7 @@ from tests.helpers import make_settings
 from zion.db import ZionDB
 from zion.evaluation import load_cases
 from zion.evaluation_budget import EvaluationBudget
-from zion.evaluation_delivery import (BASELINE_MODEL,
+from zion.evaluation_delivery import (BASELINE_MODEL, BASELINE_MODELS,
                                       BaselineDeliveryEvaluationService,
                                       DeliveryEvaluationService,
                                       PublicEvaluationKnowledge, SMOKE_IDS,
@@ -39,6 +39,7 @@ from zion.secret_store import SecretStore
 PRICE_SOURCES = {
     'kimi-k3': 'https://platform.kimi.ai/',
     BASELINE_MODEL: 'https://docs.mistral.ai/models/ministral-3-8b-25-12',
+    'mistral-small-2603': 'https://docs.mistral.ai/models/mistral-small-4-0-26-03',
 }
 # Separate, smaller currency caps for the production-baseline probe. Each
 # admitted HTTP attempt is priced at the worst rate before it is sent.
@@ -87,7 +88,7 @@ async def run(case_id: str, live: bool, model: str = 'kimi-k3') -> int:
         raise ValueError('case_requires_explicit_live_opt_in')
     if model not in PRICE_SOURCES:
         raise ValueError('delivery_probe_model_not_reviewed')
-    baseline = live and model == BASELINE_MODEL
+    baseline = live and model in BASELINE_MODELS
     if git_output('status', '--porcelain', '--untracked-files=all'):
         raise ValueError('delivery_probe_requires_clean_worktree')
     head = git_output('rev-parse', 'HEAD')
@@ -104,13 +105,14 @@ async def run(case_id: str, live: bool, model: str = 'kimi-k3') -> int:
     private_directory(directory)
     stamp = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')
     stem = (stamp + '-delivery-' + ('baseline-' if baseline else '')
+            + ('' if model in (BASELINE_MODEL, 'kimi-k3') else model + '-')
             + case_id + '-' + head[:8])
     manifest_path = directory / (stem + '-manifest.json')
     result_path = directory / (stem + '-result.json')
 
     price = None
     if baseline:
-        price = EvaluationBudget.price(BASELINE_MODEL, datetime.now(timezone.utc).date())
+        price = EvaluationBudget.price(model, datetime.now(timezone.utc).date())
         # The production Mistral credential is read by the real client only;
         # nothing here prints, copies or stores it.
         mistral_secret = state / 'secrets' / 'mistral-api-key'
@@ -118,7 +120,7 @@ async def run(case_id: str, live: bool, model: str = 'kimi-k3') -> int:
             raise ValueError('baseline_credential_not_configured_or_unsafe')
         return await run_baseline(case, case_id, head, dataset_path, knowledge,
                                   directory, manifest_path, result_path, price,
-                                  mistral_secret)
+                                  mistral_secret, model)
     if live:
         price = EvaluationBudget.price('kimi-k3', datetime.now(timezone.utc).date())
         provider = KimiCompletionProvider(
@@ -203,12 +205,13 @@ def _base_manifest(case_id, head, dataset_path, knowledge, model, price) -> dict
 
 
 async def run_baseline(case, case_id, head, dataset_path, knowledge, directory,
-                       manifest_path, result_path, price, mistral_secret) -> int:
+                       manifest_path, result_path, price, mistral_secret,
+                       model=BASELINE_MODEL) -> int:
     """Production model through the production AIService/MistralClient path."""
     with tempfile.TemporaryDirectory(prefix='delivery-baseline-', dir=directory) as temp:
         settings = replace(make_settings(Path(temp)),
             knowledge_dir=ROOT / 'knowledge', ai_enabled=True,
-            ai_daily_token_budget=1000000, mistral_model=BASELINE_MODEL,
+            ai_daily_token_budget=1000000, mistral_model=model,
             mistral_secret_path=mistral_secret)
         # Durable and isolated: never the production SQLite database. The
         # token and currency ledgers must share it for atomic admission.
@@ -217,11 +220,11 @@ async def run_baseline(case, case_id, head, dataset_path, knowledge, directory,
         try:
             costs = RuntimeCostBudget(db, daily_limit=BASELINE_DAILY_CAP,
                 provider_limits={'mistral': BASELINE_DAILY_CAP},
-                model_limits={BASELINE_MODEL: BASELINE_DAILY_CAP},
-                request_limit=BASELINE_REQUEST_CAP, prices={BASELINE_MODEL: price})
+                model_limits={model: BASELINE_DAILY_CAP},
+                request_limit=BASELINE_REQUEST_CAP, prices={model: price})
             before = costs.totals()['total']
             manifest = _base_manifest(case_id, head, dataset_path, knowledge,
-                                      BASELINE_MODEL, price)
+                                      model, price)
             manifest.update(budget_before_micro_usd=before, caps_micro_usd={
                 'request': BASELINE_REQUEST_CAP, 'day': BASELINE_DAILY_CAP})
             write_private_json(manifest_path, manifest)
@@ -231,7 +234,7 @@ async def run_baseline(case, case_id, head, dataset_path, knowledge, directory,
             result['candidate_sha'] = head
             result['manifest'] = manifest_path.name
             write_private_json(result_path, result)
-            print(f"CASE={case_id} MODEL={BASELINE_MODEL} STATUS={result['status']} "
+            print(f"CASE={case_id} MODEL={model} STATUS={result['status']} "
                   f"PROVIDER_CALLS={result['provider_calls']}")
             print(f"CASE_ESTIMATED_MICRO_USD={result['estimated_micro_usd']}")
             print(f"DAY_RESERVED_OR_SPENT_MICRO_USD={costs.totals()['total']}")
@@ -249,7 +252,7 @@ def main() -> int:
     parser.add_argument('--live', action='store_true',
                         help='allow capped synthetic PUBLIC provider requests')
     parser.add_argument('--model', choices=tuple(PRICE_SOURCES), default='kimi-k3',
-                        help=f'{BASELINE_MODEL} exercises the production baseline path')
+                        help='Mistral baseline models exercise the production path')
     args = parser.parse_args()
     try:
         return asyncio.run(run(args.case_id, args.live, args.model))

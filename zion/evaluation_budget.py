@@ -43,7 +43,11 @@ PRICES = {
     # Official docs.mistral.ai/models/ministral-3-8b-25-12, reverified 2026-11-01
     # (0.15 USD/M input and output; unchanged).
     'ministral-8b-2512': PriceSnapshot('ministral-8b-2512', 150000, 150000, date(2026, 11, 1)),
+    # Official docs.mistral.ai/models/mistral-small-4-0-26-03 (GA), verified
+    # 2026-11-01: 0.15 USD/M input, 0.60 USD/M output.
+    'mistral-small-2603': PriceSnapshot('mistral-small-2603', 150000, 600000, date(2026, 11, 1)),
     # Official docs.mistral.ai/models/mistral-large-3-25-12, verified 2026-10-19.
+    # Marked Deprecated on 2026-11-01 ("Use Mistral Large 4"); do not adopt.
     'mistral-large-2512': PriceSnapshot('mistral-large-2512', 500000, 1500000, date(2026, 10, 19)),
     'kimi-k2.6': PriceSnapshot('kimi-k2.6', 950000, 4000000, date(2026, 10, 25)),
     'kimi-k3': PriceSnapshot('kimi-k3', 6000000, 15000000, date(2026, 11, 1)),

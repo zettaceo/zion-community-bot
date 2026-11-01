@@ -144,7 +144,20 @@ checklists remain historical evidence, not proof of v2 completion.
   partnership-fee wording, development-stage glosses and invented route
   criteria join the guard (repairable by sentence; checks run after the
   older, more specific rules). Local validation 986/986.
-- [ ] Ten-case round on the forward-fix SHA (estimated well
+- [x] Ten-case round on `08a312b` (CI 41313363013): v2-051, v2-061,
+  v2-065 and the three local cases PASS; v2-094 and v2-103 contained with
+  correct deterministic replies; v2-101 contained but the delivered reply
+  (Portfolio/Orders status) does not answer the price objection; v2-001
+  still embellishes ("impacto no preço (slippage)", minimum "para evitar
+  falhas", "provedor de liquidez mostrado"). Finding: `ministral-8b-2512`
+  (GA) embellishes systematically; per-phrase guards contain it but cannot
+  make it precise.
+- [x] Model lifecycle check on docs.mistral.ai (2026-11-01):
+  `mistral-large-2512` is **Deprecated** (do not adopt); Mistral Large 4 is
+  Public Preview (not for production); `ministral-8b-2512` and
+  `mistral-small-2603` (Small 4, 0.15/0.60 USD/M) are GA. The probe now
+  accepts both GA models on the identical production path.
+- [ ] Ten-case comparison with `mistral-small-2603` (estimated well
   under USD 0.10 for all ten cases) and, separately, the K3 candidate smoke.
 - [ ] Run the remaining provider smoke cases one at a time under
   dated pricing and stop-on-first-fatal review. A local result does not erase
