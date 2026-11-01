@@ -49,6 +49,17 @@ checklists remain historical evidence, not proof of v2 completion.
   zero official knowledge sentences flagged, and a replay of 164 stored
   private model outputs changed none of their verdicts. Local validation
   963/963, secret scan and ZION validation OK.
+- [x] Second guard gap from the same review: buy/sell/invest
+  recommendations and price forecasts ("Recomendo comprar ZETTA agora",
+  "O preço do ZETTA vai dobrar", "ZETTA will moon") were accepted. Note that
+  the running production commit `472a4b3` has no output guard at all. New
+  `investment_advice` and `price_prediction` rules (PT/EN) with a fixed
+  no-advice fallback; uncertainty ("ninguém sabe se o preço vai subir"),
+  scam warnings, refusals and operational guidance ("recomendo conferir os
+  detalhes", "a venda depois do fechamento oficial") stay accepted; plan
+  purchase wording keeps its own plan-access rule. 14 advice and 13 neutral
+  regressions; zero official knowledge sentences and zero of 164 stored
+  outputs flagged. Local validation 965/965, secret scan, ZION validation OK.
 - [ ] Owner-authorized live runs: production-baseline smoke (estimated well
   under USD 0.10 for all ten cases) and, separately, the K3 candidate smoke.
 - [ ] Run the remaining provider smoke cases one at a time under

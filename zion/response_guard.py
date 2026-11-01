@@ -1727,6 +1727,16 @@ def validate_public_response(text: str, *, official_context: str) -> ResponseChe
         ('financial_return_guarantee', rf"\b(?:garant\w*|assegur\w*|promet\w*)\b(?:(?!\s*,\s*mas\b)[^.!?;\n]){{0,60}}\b{_FINANCIAL_OUTCOME}\b"),
         ('financial_return_guarantee', rf"\b{_FINANCIAL_OUTCOME}\b(?:(?!\bnao\b|\bnunca\b|\bsem\b)[^.!?;\n]){{0,30}}\b(?:garantid[ao]s?|assegurad[ao]s?|cert[oa]s?)\b"),
         ('financial_return_guarantee', r"\b(?:guarantee[sd]?|guaranteeing|promise[sd]?|assure[sd]?)\b[^.!?;\n]{0,40}\b(?:profits?|returns?|gains?|earnings?|yields?)\b|\b(?:guaranteed|assured|certain) (?:profits?|returns?|gains?|earnings?|yields?)\b"),
+        # No buy/sell/invest recommendation and no price forecast, ever.
+        ('investment_advice', r"\b(?:recomendo|recomendamos|sugiro|sugerimos|aconselho|aconselhamos|indico)\b(?:\s(?!nao\b)\w+){0,3}\s(?:comprar|vender|investir|aportar|alocar|segurar|holdar)\b"),
+        ('investment_advice', r"\b(?:e|seria|esta) (?:um |uma )?(?:otim[oa]|bo[am]|o melhor|excelente) (?:momento|hora|oportunidade) (?:para|de) (?:comprar|vender|investir|entrar|aportar)\b|\b(?:melhor|otimo|excelente) investimento\b"),
+        # "Compre o Access Pass agora" is a plan-access claim with its own rule;
+        # here only crypto assets, investing verbs and buy-then-sell timing.
+        ('investment_advice', r"\b(?:invista|aporte|aloque)\b(?:\s\w+){0,3}\s(?:agora|ja|hoje|enquanto)\b|\b(?:coloque|coloca|colocar|invista|investir) (?:todas? (?:as )?)?(?:suas? )?economias\b"),
+        ('investment_advice', r"\bcompre\b(?:\s\w+){0,2}\s(?:zetta|tokens?|bitcoin|btc|eth|ether|solana|cripto\w*|moedas?|ativos?)\b(?:\s\w+){0,2}\s(?:agora|ja|hoje|enquanto)\b|\bcompre (?:agora|ja|hoje) e venda\b"),
+        ('investment_advice', r"\b(?:i|we) (?:recommend|suggest|advise) (?:you )?(?:to )?(?:buy|sell|invest)\w*\b|\b(?:buy|invest) (?:\w+ ){0,2}now\b|\b(?:good|great|best) time to (?:buy|sell|invest)\b"),
+        ('price_prediction', r"\b(?:precos?|valor|cotac(?:ao|oes)|token|tokens|zetta|bitcoin|btc|eth|ether|solana|sol|moedas?|cripto\w*)\b(?:(?!\bnao\b)[^.!?;\n]){0,40}\b(?:va(?:i|o)|ira(?:o)?) (?:subir|cair|dobrar|triplicar|valorizar|desvalorizar|explodir|disparar|chegar a|bater)\b"),
+        ('price_prediction', r"\bwill (?:moon|pump|go up|rise|double|triple|skyrocket|explode)\b|\bto the moon\b"),
         ('absolute_reliability', r"\b(?:swaps?|transac(?:ao|oes)|ordens?|operac(?:ao|oes)|plataforma|sistema|z-?swap|bridges?|pontes?)\b(?:(?!\bnao\b)[^.!?;\n]){0,25}\bnunca (?:falh\w*|da(?:o)? erro|trav\w*)\b|\b(?:100%|totalmente|sempre) confiavel\b|\bnever fails?\b"),
     )
     checked = folded
@@ -1765,6 +1775,15 @@ def validate_public_response(text: str, *, official_context: str) -> ResponseChe
                 continue
             if reason == 'absolute_safety' and re.search(
                     r"\b(?:no (?:platform|transaction|swap) is|nothing is|not|never)\s$", prefix):
+                continue
+            if reason in {'investment_advice', 'price_prediction'} and (
+                    # "Ninguém sabe se o preço vai subir", "can't say whether".
+                    re.search(r"\b(?:se|whether|if)\s(?:\w+\s){0,3}$", prefix)
+                    or re.search(r"\b(?:nao (?:posso|consigo|podemos|da para|e possivel|ha como|faco|fazemos)"
+                                 r"|ninguem|impossivel|cannot|can't|do not|don't|never|no one)\b"
+                                 r"[^.!?\n]{0,50}$", prefix)
+                    or re.search(r"\b(?:nao|nunca|jamais|nem)\s(?:(?!so\b|apenas\b)\w+\s){0,2}$", prefix)
+                    or re.search(r"\b(?:desconfie|cuidado|golpes?|beware|scams?)\b[^.!?\n]{0,50}$", prefix)):
                 continue
             if (reason in {'best_price_guarantee', 'safety_guarantee'}
                     and match.group().startswith('garantia')
@@ -2135,6 +2154,10 @@ def public_fallback_for(reason: str, *, official_context: str = '', question: st
         return ('Não posso confirmar uma escolha automática da melhor rota nem '
                 'prometer o melhor preço ou taxa. Confira a cotação e os custos '
                 'antes de confirmar.')
+    if reason in {'investment_advice', 'price_prediction'}:
+        return ('Não faço recomendação de compra, venda ou investimento nem previsão '
+                'de preço. Posso explicar como a plataforma funciona e quais custos e '
+                'riscos considerar antes de decidir.')
     if reason in {'financial_return_guarantee', 'absolute_reliability'}:
         return ('Não posso prometer lucro, retorno ou funcionamento sem falhas: '
                 'resultados dependem do mercado e de cada operação. Confira os '

@@ -15,7 +15,8 @@ from zion.response_guard import public_fallback_for, validate_public_response
 
 ROOT = Path(__file__).resolve().parents[1]
 CTX = '[Contexto oficial: Swaps]\nA Z-SWAP compara rotas.'
-NEW_REASONS = {'financial_return_guarantee', 'absolute_reliability'}
+NEW_REASONS = {'financial_return_guarantee', 'absolute_reliability',
+               'investment_advice', 'price_prediction'}
 
 PROMISES = (
     'A Z-SWAP garante lucro em todos os swaps.',
@@ -85,7 +86,7 @@ class FinancialPromiseGuardTests(unittest.TestCase):
         for reason in NEW_REASONS:
             reply = public_fallback_for(reason, official_context=CTX)
             self.assertTrue(validate_public_response(reply, official_context=CTX).allowed)
-            self.assertIn('Não posso prometer lucro', reply)
+            self.assertRegex(reply, r'^Não (?:posso prometer lucro|faço recomendação)')
 
     def test_no_official_knowledge_sentence_trips_the_new_rules(self):
         # The model paraphrases these caveats; blocking them would degrade
@@ -100,6 +101,53 @@ class FinancialPromiseGuardTests(unittest.TestCase):
                 if sentence.strip() and reason in NEW_REASONS:
                     flagged.append((chunk.authority.filename, sentence[:80]))
         self.assertEqual(flagged, [])
+
+
+ADVICE = (
+    'Recomendo comprar ZETTA agora, antes que suba.',
+    'Sugiro vender seus tokens hoje.',
+    'É um ótimo momento para investir.',
+    'Esse é o melhor investimento do mercado.',
+    'Compre agora e venda depois do listing.',
+    'Você deveria colocar todas as suas economias.',
+    'Não só recomendo comprar como aumentar a posição.',
+    'I recommend buying ZETTA now.',
+    'Buy ZETTA now.',
+    'O token ZETTA vai subir muito depois do lançamento.',
+    'O preço do ZETTA vai dobrar.',
+    'A cotação vai cair amanhã.',
+    'Bitcoin vai chegar a 200 mil.',
+    'ZETTA will moon after launch.',
+)
+
+NEUTRAL = (
+    'Não recomendo comprar nem vender nenhum ativo.',
+    'Ninguém sabe se o preço vai subir.',
+    'Não posso dizer se o token vai valorizar.',
+    'Não faço previsão se o ZETTA vai subir ou cair.',
+    'Desconfie de quem diz que o token vai dobrar.',
+    'Antes de comprar, confira a cotação e as taxas.',
+    'A venda depois do fechamento oficial não reinicia o prazo.',
+    'A taxa de rede pode variar conforme a demanda.',
+    'O preço exibido na cotação pode mudar até a confirmação.',
+    'Recomendo conferir os detalhes antes de confirmar.',
+    'Sugiro verificar a rede escolhida.',
+    'I cannot tell whether ZETTA will rise.',
+    'We do not recommend buying or selling.',
+)
+
+
+class InvestmentAdviceGuardTests(unittest.TestCase):
+    def test_advice_and_price_forecasts_are_blocked(self):
+        for text in ADVICE:
+            with self.subTest(text=text):
+                self.assertFalse(validate_public_response(text, official_context=CTX).allowed)
+
+    def test_neutral_guidance_and_uncertainty_are_accepted(self):
+        for text in NEUTRAL:
+            with self.subTest(text=text):
+                check = validate_public_response(text, official_context=CTX)
+                self.assertTrue(check.allowed, check.reason)
 
 
 if __name__ == '__main__':
