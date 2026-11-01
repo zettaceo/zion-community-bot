@@ -77,6 +77,15 @@ checklists remain historical evidence, not proof of v2 completion.
   knowledge sentences and zero of 164 stored outputs flagged (one stored
   "em nenhum momento compartilhe" warning drove a fix). Local validation
   967/967, secret scan, ZION validation OK.
+- [x] `/summary` and `/translate` published model output with no guard (in
+  v1 production too): a phishing message posted in another language could
+  be relayed by ZION in its own voice. Their output now passes the
+  phishing-only `scam_surface_reason` check (factual quality rules do not
+  apply to a restatement of member text); a hit is replaced by a fixed
+  notice and audited as `response_guard` failure. Official hosts come from
+  the PUBLIC corpus (`swap-z.app`, `zettaword.global`); lookalikes such as
+  `swap-z-app.xyz` are contained. Guard errors fail closed. Local
+  validation 970/970, secret scan, ZION validation OK.
 - [ ] Owner-authorized live runs: production-baseline smoke (estimated well
   under USD 0.10 for all ten cases) and, separately, the K3 candidate smoke.
 - [ ] Run the remaining provider smoke cases one at a time under

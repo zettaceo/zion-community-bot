@@ -30,7 +30,8 @@ from .models import (
 )
 from .secret_store import SecretStore
 from .router import _fold
-from .response_guard import (is_broad_product_comparison, public_fallback_for,
+from .response_guard import (TRANSFORMED_SCAM_NOTICE, is_broad_product_comparison,
+                             public_fallback_for, scam_surface_reason,
                              validate_public_response, wallet_connection_triage)
 
 
@@ -898,6 +899,25 @@ class AIService:
                 model=failed_model,
             )
 
+    def _public_reference_context(self) -> str:
+        """Official hosts/contacts that may appear in a restated text."""
+        return '\n'.join(chunk.text for chunk in self.knowledge.chunks
+                         if chunk.authority.classification is KnowledgeClassification.PUBLIC)
+
+    def _contain_transformed_output(self, answer: AIAnswer, *, purpose: str,
+                                    chat_id, user_id, input_hash: str) -> AIAnswer:
+        try:
+            reason = scam_surface_reason(answer.text,
+                                         official_context=self._public_reference_context())
+        except Exception:
+            reason = 'guard_unavailable'
+        if reason is None:
+            return answer
+        self._record_ai_event(chat_id=chat_id, user_id=user_id, purpose="response_guard",
+            model=answer.model, success=False, input_hash=input_hash,
+            metadata={"reason": reason, "source_purpose": purpose})
+        return replace(answer, text=TRANSFORMED_SCAM_NOTICE)
+
     async def summarize(
         self,
         *,
@@ -963,7 +983,8 @@ class AIService:
                 latency_ms=answer.latency_ms,
                 input_hash=self._hash_text(safe_text),
             )
-            return answer
+            return self._contain_transformed_output(answer, purpose="summarize",
+                chat_id=chat_id, user_id=user_id, input_hash=self._hash_text(safe_text))
         except ProviderBudgetError:
             return AIAnswer(text="O limite de uso da IA está indisponível ou foi atingido. Tente novamente mais tarde.",
                             model=self.settings.mistral_model)
@@ -1066,7 +1087,8 @@ class AIService:
                 input_hash=self._hash_text(safe_text),
                 metadata={"target_language": safe_target},
             )
-            return answer
+            return self._contain_transformed_output(answer, purpose="translate",
+                chat_id=chat_id, user_id=user_id, input_hash=self._hash_text(safe_text))
         except ProviderBudgetError:
             return AIAnswer(text="O limite de uso da IA está indisponível ou foi atingido. Tente novamente mais tarde.",
                             model=self.settings.mistral_model)

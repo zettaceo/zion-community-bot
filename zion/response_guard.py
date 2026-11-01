@@ -1721,7 +1721,7 @@ _FUND_OBJECT = (
 )
 _BARE_HOST = re.compile(
     r"(?<![@\w.-])((?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+(?:com|io|xyz|app|net|org|ly|me|"
-    r"gg|co|finance|exchange|site|online|link|top|click|info|pro|ai|br|to|cc|vip|live))"
+    r"gg|co|finance|exchange|site|online|link|top|click|info|pro|ai|br|to|cc|vip|live|global))"
     r"(?![\w-])"
 )
 _SAFETY_PREFIX = re.compile(
@@ -1780,6 +1780,25 @@ def _scam_surface(folded: str, official_context: str) -> str | None:
         if re.sub(r"\D", "", phone) not in re.sub(r"\D", "", approved):
             return 'unapproved_contact'
     return None
+
+
+TRANSFORMED_SCAM_NOTICE = (
+    'Não vou reproduzir este texto: ele contém pedido de dados sensíveis, '
+    'envio de fundos, endereço, link ou contato não oficial. Não compartilhe '
+    'seed phrase, chave privada ou senha e use apenas os canais oficiais da Z-SWAP.'
+)
+
+
+def scam_surface_reason(text: str, *, official_context: str = '') -> str | None:
+    """Only the phishing check, for model output that restates member text.
+
+    Summaries and translations legitimately repeat a member's claims, so the
+    factual quality rules do not apply; the bot must still never relay a
+    phishing message with its own voice.
+    """
+    folded = ''.join(c for c in unicodedata.normalize('NFKD', str(text or ''))
+                     if not unicodedata.combining(c)).casefold()
+    return _scam_surface(folded, official_context)
 
 
 def validate_public_response(text: str, *, official_context: str) -> ResponseCheck:
