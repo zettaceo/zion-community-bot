@@ -267,7 +267,10 @@ async def evaluate_delivery_case(case: dict, *, service: DeliveryEvaluationServi
         '\n'.join(case['turns'][-3:]), agent_id=case['expected_speaker'])
     official_context += '\n' + answer.evidence_context
     guard = validate_public_response(answer.text, official_context=official_context)
-    if service.last_error_type:
+    if calls == 0 and not events and service.circuit_open():
+        # Earlier provider failures opened the breaker; nothing was sent.
+        status = 'CIRCUIT_OPEN'
+    elif service.last_error_type:
         status = ('BUDGET_BLOCKED' if calls == 0
                   and service.last_error_type in {'EvaluationBudgetError', 'ProviderBudgetError'}
                   else 'PROVIDER_FAIL' if calls else 'HARNESS_FAIL')

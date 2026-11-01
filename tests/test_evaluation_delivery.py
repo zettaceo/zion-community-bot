@@ -317,6 +317,13 @@ class BaselineDeliveryEvaluationTests(unittest.TestCase):
             _mistral_ok('Resposta.', model='mistral-large-2512')])
         self.assertNotIn(result['status'], {'REVIEW_REQUIRED', 'LOCAL_REVIEW_REQUIRED'})
 
+    def test_open_circuit_is_reported_as_such_not_as_harness_failure(self):
+        service = self.service(self.costs())
+        with patch.object(type(service), 'circuit_open', return_value=True):
+            result, http = self.evaluate('v2-001', service, [])
+        self.assertEqual(http.calls, [])
+        self.assertEqual(result['status'], 'CIRCUIT_OPEN')
+
     def test_local_wallet_case_needs_no_provider_or_credential_use(self):
         result, http = self.evaluate('v2-041', self.service(self.costs()), [])
         self.assertEqual(http.calls, [])

@@ -157,7 +157,27 @@ checklists remain historical evidence, not proof of v2 completion.
   Public Preview (not for production); `ministral-8b-2512` and
   `mistral-small-2603` (Small 4, 0.15/0.60 USD/M) are GA. The probe now
   accepts both GA models on the identical production path.
-- [ ] Ten-case comparison with `mistral-small-2603` (estimated well
+- [!] `mistral-small-2603` comparison on `6382957` (CI 41313753405)
+  **could not be measured**: the first three cases each made three
+  attempts, and the client retries only on HTTP 429, so all were
+  rate-limited (equal-size reservations = the same first request). The
+  breaker then opened and the remaining four cases sent nothing (now
+  reported as `CIRCUIT_OPEN`, previously `HARNESS_FAIL`). Mistake recorded:
+  seven cases were launched on a new model without a single-case check.
+  The isolated ledger shows 245,511 micro-USD *reserved* for these
+  uncertain attempts (worst-rate estimates, not an invoice; 429 responses
+  carry no generated tokens). Real model spend on 2026-11-01 is the
+  Ministral 8B rounds, about 15,828 micro-USD. A free `/v1/models` check
+  confirmed the key can see `mistral-small-2603`; adopting it would need a
+  higher Mistral rate-limit tier.
+- [x] Correction: the v2-101 reply a member receives is the deterministic
+  objection answer (acknowledges the concern, documented proposal, Terminal
+  Pro beta, Portfolio/Orders partial, no official price comparison), not
+  the Portfolio-only text reconstructed earlier from a narrower context.
+- [ ] Decision for the owner: keep `ministral-8b-2512` (GA; every
+  overclaim found so far is contained or repaired by the guard, with the
+  residual risk of mild embellishment) or raise the Mistral tier and
+  re-run the comparison. (estimated well
   under USD 0.10 for all ten cases) and, separately, the K3 candidate smoke.
 - [ ] Run the remaining provider smoke cases one at a time under
   dated pricing and stop-on-first-fatal review. A local result does not erase

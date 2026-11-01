@@ -24,9 +24,9 @@ provider store directories `0700`, files `0600`.
 | Gate | State |
 | --- | --- |
 | Exact-SHA CI on the candidate | PASS on every pushed commit; record the final SHA's run |
-| Local validation (tests, shell, sensitive files, secret scan) | PASS, 970/970 at `39c8f91` |
+| Local validation (tests, shell, sensitive files, secret scan) | PASS, 988/988 |
 | v2-041 delivered answer, local, zero provider calls | Independent review PASS; **human review PENDING (OWNER)** |
-| Production-baseline delivery smoke, `ministral-8b-2512`, 10 cases | **NOT RUN — needs OWNER authorization to spend** (estimated < USD 0.10 total; caps USD 0.05/request, USD 0.50/day) |
+| Production-baseline delivery smoke, `ministral-8b-2512`, 10 cases | Authorized and run 2026-11-01 (four rounds, about USD 0.016). Last round `08a312b`: 6 PASS (3 local), 3 contained by deterministic replies, v2-001 mild embellishment. Every overclaim found was turned into a guard rule. **Human review of the evidence PENDING (OWNER)** |
 | K3 candidate smoke | Optional for this release; Kimi stays inactive |
 | Full 108-case benchmark and four 12-turn conversations | NOT RUN; requires the same spend authorization |
 | Independent security review of the diff | Guard red-team done in this branch (financial promises, advice, phishing, DM scams, `/summary`/`/translate`); a separate reviewer is still recommended |
