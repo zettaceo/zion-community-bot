@@ -20,6 +20,17 @@ separately curated knowledge projection may enter model retrieval.
 
 ## Superseded and excluded material
 
+### 2026-10-18 reconciliation update
+
+The archival page 13 Solana zero-platform-fee statement and the corresponding
+older reconciliation row below are superseded for current answers. Z-SWAP main
+`986ae759c1c76fe23967a8e61489d986b2bb9a51`, public source of truth, `tier/fees.ts`
+and `solana/conta-de-taxa.ts` now specify tier fees for eligible Jupiter USDC/SOL
+pairs and LI.FI routes leaving Solana, with the published exceptions. The
+current public projection is `knowledge/z-swap-plans.md`; the authorized APN
+transcription below is preserved as historical source text, not silently edited.
+
+
 - Z-SWAP `docs/PITCH-DECK.md`: `HISTORICAL / EXCLUDED` from current factual
   retrieval. It is the older Solana Foundation/Colosseum deck, not this APN.
 - Earlier APN/PPTX/PDF revisions: `SUPERSEDED` by the source hashes above.

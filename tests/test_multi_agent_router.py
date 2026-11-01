@@ -63,7 +63,7 @@ class MultiAgentRouterTests(unittest.TestCase):
     def test_live_acceptance_launch_schedule_routes_to_zion(self) -> None:
         self.assert_route(
             "Qual o cronograma de lançamento da plataforma?",
-            ConversationIntent.COMMUNITY,
+            ConversationIntent.ROADMAP,
             AgentId.ZION,
         )
 

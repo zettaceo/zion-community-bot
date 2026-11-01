@@ -47,8 +47,30 @@ class ConversationIntent(str, Enum):
     TECHNICAL = "technical"
     SUPPORT = "support"
     PARTNERSHIP = "partnership"
+    PRODUCT = "product"
+    PLAN = "plan"
+    ROADMAP = "roadmap"
+    SECURITY = "security"
+    COMPETITIVE_OBJECTION = "competitive_objection"
+    API_INTEGRATION = "api_integration"
     UNRELATED = "unrelated"
     AMBIGUOUS = "ambiguous"
+
+
+    @property
+    def delivery_family(self) -> str:
+        """Stable schema-4 delivery category; fine intent stays in route reason.
+
+        This projection grants no authority: registry validation occurs first.
+        It avoids migrating delivery/quarantine records for cognitive labels.
+        """
+        if self is ConversationIntent.API_INTEGRATION:
+            return 'technical'
+        if self in {ConversationIntent.PRODUCT, ConversationIntent.PLAN,
+                    ConversationIntent.ROADMAP, ConversationIntent.SECURITY,
+                    ConversationIntent.COMPETITIVE_OBJECTION}:
+            return 'community'
+        return self.value
 
 
 @dataclass(frozen=True, slots=True)
@@ -204,6 +226,11 @@ DEFAULT_AGENT_REGISTRY = AgentRegistry(
                 {
                     ConversationIntent.MODERATION,
                     ConversationIntent.COMMUNITY,
+                    ConversationIntent.PRODUCT,
+                    ConversationIntent.PLAN,
+                    ConversationIntent.ROADMAP,
+                    ConversationIntent.SECURITY,
+                    ConversationIntent.COMPETITIVE_OBJECTION,
                 }
             ),
         ),
@@ -220,7 +247,7 @@ DEFAULT_AGENT_REGISTRY = AgentRegistry(
                     KnowledgeScope.TECHNICAL_CONTROLLED,
                 }
             ),
-            group_intents=frozenset({ConversationIntent.TECHNICAL}),
+            group_intents=frozenset({ConversationIntent.TECHNICAL, ConversationIntent.API_INTEGRATION}),
             telegram_username="ZSwap_MimirBot",
         ),
         AgentProfile(

@@ -118,6 +118,8 @@ class AIAnswer:
     input_tokens: int = 0
     output_tokens: int = 0
     latency_ms: int = 0
+    # Local approved tool output only; never populated from provider JSON.
+    evidence_context: str = ""
 
 
 @dataclass(slots=True)

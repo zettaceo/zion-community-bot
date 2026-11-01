@@ -193,7 +193,7 @@ from zion.config import Settings
 from zion.knowledge import KnowledgeBase
 from zion.mistral import _valid_mistral_api_url
 
-settings = Settings.from_env()
+settings = Settings.from_env().with_primary_telegram_identity()
 
 if not settings.telegram_token:
     raise RuntimeError("TELEGRAM_BOT_TOKEN missing")

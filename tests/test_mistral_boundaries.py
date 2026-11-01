@@ -11,6 +11,8 @@ from unittest.mock import patch
 import httpx
 
 from tests.helpers import make_settings
+from zion.knowledge import KnowledgeBase
+from zion.knowledge_tools import KnowledgeTools
 from zion.mistral import (
     MistralClient,
     MistralRateLimited,
@@ -77,6 +79,141 @@ class CapturingMistralClient(MistralClient):
 
 
 class MistralBoundaryTests(unittest.TestCase):
+    def test_price_and_maturity_objection_carries_public_status_boundaries(self):
+        question = (
+            'Concerteza deve ter plataformas mais baratas, que oferecem '
+            'a mesma coisa que a zswap e já consolidadas no mercado'
+        )
+        context = KnowledgeTools(KnowledgeBase(
+            Path(__file__).resolve().parents[1] / 'knowledge')).call(
+                'search_approved_knowledge', {'query': question},
+                agent_id='zion').render()
+        self.assertIn('Portfolio e Orders estão parcialmente disponíveis', context)
+        self.assertIn('Terminal Pro está marcado como beta', context)
+        self.assertIn('Os quatro níveis', context)
+        self.assertIn('assinatura recorrente e o mint dos Access Pass', context)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            client = CapturingMistralClient(make_settings(Path(tmp)))
+            asyncio.run(client.answer(
+                question=question, context=context, agent_id='zion'))
+        system = client.messages[0]['content']
+        payload = json.loads(client.messages[1]['content'].split('\n', 1)[1])
+        self.assertEqual(payload['official_context'], context)
+        self.assertIn('todos os componentes estão plenamente disponíveis', system)
+        self.assertIn('preserve junto deles os estados parciais ou beta', system)
+        self.assertIn('Um plano Free documentado não comprova', system)
+        self.assertIn('preserve seu estado futuro', system)
+        self.assertIn('Economia de tempo ou ferramentas também exige', system)
+        self.assertIn('não enumere um catálogo de funcionalidades', system)
+        self.assertIn('próprio status documentado na mesma oração', system)
+        self.assertIn('status de outro recurso não basta', system)
+        self.assertIn('Sem status próprio no CONTEXTO OFICIAL recuperado, omita esse recurso', system)
+
+    def test_generic_price_objection_keeps_unverified_access_and_competitor_claims_out_of_system(self):
+        question = 'A Z-SWAP parece cara e ainda imatura. Por que eu escolheria ela?'
+        context = (
+            '[Contexto oficial: Proposta pública]\n'
+            'A Z-SWAP reúne recursos da plataforma numa experiência integrada.'
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            client = CapturingMistralClient(make_settings(Path(tmp)))
+            asyncio.run(client.answer(
+                question=question, context=context, agent_id='zion'))
+
+        system = client.messages[0]['content']
+        payload = json.loads(client.messages[1]['content'].split('\n', 1)[1])
+        self.assertEqual(payload['official_context'], context)
+        self.assertEqual(payload['user_question'], question)
+        self.assertNotIn(question, system)
+        self.assertIn('sem despejar um catálogo de recursos', system)
+        self.assertIn('Não cite módulos ou planos pelo nome nessa resposta genérica', system)
+        self.assertIn('sem confirmar preço menor, paridade de recursos ou maturidade', system)
+        self.assertIn('custo total, recursos necessários e estado público', system)
+        self.assertIn('Sem status próprio no CONTEXTO OFICIAL recuperado, omita esse recurso', system)
+        self.assertIn('não recomende testá-lo antes de pagar sem evidência', system)
+
+    def test_freyr_generation_cannot_announce_or_offer_operator_handoff(self):
+        question = 'A parceria está cara, concorrentes fazem a mesma coisa.'
+        context = ('[Contexto oficial: Comunidade e parcerias]\n'
+                   'O fluxo público é triagem, aderência, segurança, valor '
+                   'para a comunidade e conversa.')
+        with tempfile.TemporaryDirectory() as tmp:
+            client = CapturingMistralClient(make_settings(Path(tmp)))
+            asyncio.run(client.answer(question=question, context=context,
+                                      agent_id='freyr'))
+        system = client.messages[0]['content']
+        payload = json.loads(client.messages[1]['content'].split('\n', 1)[1])
+        self.assertEqual(payload['official_context'], context)
+        self.assertIn('não prometa encaminhar ou ter encaminhado', system)
+        self.assertIn('de qualificação e entrega efetiva', system)
+        self.assertNotIn(question, system)
+
+    def test_eir_prompt_separates_local_wallet_unlock_from_sharing(self):
+        context = ('[Contexto oficial: Segurança]\n'
+                   'Nunca compartilhe seed phrase, chave privada ou senha.')
+        with tempfile.TemporaryDirectory() as tmp:
+            client = CapturingMistralClient(make_settings(Path(tmp)))
+            asyncio.run(client.answer(question='n consigo conecta carteira',
+                                      context=context, agent_id='eir'))
+        system = client.messages[0]['content']
+        self.assertIn('A carteira pode pedir senha localmente para desbloquear',
+                      system)
+        self.assertIn('não significa que uma carteira jamais', system)
+        self.assertIn('Não afirme', system)
+        self.assertIn("ninguém da Z-SWAP vai pedir isso", system)
+        self.assertIn("'não devem pedir' não garante", system)
+
+    def test_short_swap_question_receives_source_scope_in_provider_prompt(self):
+        context = KnowledgeTools(KnowledgeBase(
+            Path(__file__).resolve().parents[1] / 'knowledge')).call(
+                'search_approved_knowledge', {'query': 'Como funciona os swaps?'},
+                agent_id='mimir').render()
+        self.assertIn('[Contexto oficial: Swaps e pontes]', context)
+        self.assertIn('[Contexto oficial: Agregadores de swap]', context)
+        self.assertIn('Jupiter', context)
+        self.assertNotIn('assinatura', context.casefold())
+        with tempfile.TemporaryDirectory() as tmp:
+            client = CapturingMistralClient(make_settings(Path(tmp)))
+            asyncio.run(client.answer(
+                question='Como funciona os swaps?', context=context,
+                agent_id='mimir'))
+        system = client.messages[0]['content']
+        payload = json.loads(client.messages[1]['content'].split('\n', 1)[1])
+        self.assertEqual(payload['official_context'], context)
+        self.assertIn('Um provedor nomeado, exemplo de rede ou mecanismo de confirmação', system)
+        self.assertIn('outra seção não recuperada', system)
+        self.assertIn('qualifica pontes', system)
+        self.assertIn('não estenda essa ressalva automaticamente aos swaps', system)
+        self.assertIn('nem que toda confirmação de swap exija assinatura', system)
+        self.assertIn('afirme esse mecanismo somente se a fonte recuperada', system)
+        self.assertIn('não a converta em promessa absoluta', system)
+        self.assertIn('Nunca compartilhe sua seed phrase ou chave privada', system)
+        self.assertIn('jamais será pedido no futuro', system)
+        self.assertIn('Não diga que conexão e autenticação acontecem por assinatura', system)
+        self.assertIn('Não prometa avisar o grupo ou notificar usuários', system)
+
+    def test_launch_status_prompt_does_not_turn_review_into_future_promise(self):
+        question = 'Buy, OTC, P2P, NFT, Launchpad e Governance já estão funcionando?'
+        context = KnowledgeTools(KnowledgeBase(
+            Path(__file__).resolve().parents[1] / 'knowledge')).call(
+                'search_approved_knowledge', {'query': question},
+                agent_id='zion').render()
+        self.assertIn('Buy/on-ramp: soon', context)
+        self.assertIn('Launchpad: pre-launch', context)
+        self.assertNotIn('será atualizado', context)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            client = CapturingMistralClient(make_settings(Path(tmp)))
+            asyncio.run(client.answer(
+                question=question, context=context, agent_id='zion'))
+        system = client.messages[0]['content']
+        payload = json.loads(client.messages[1]['content'].split('\n', 1)[1])
+        self.assertEqual(payload['official_context'], context)
+        self.assertIn('não prometa que cada status de lançamento será atualizado', system)
+        self.assertIn('Uma regra de revisão da base de conhecimento não é compromisso', system)
+        self.assertIn('sem prever se ou quando eles mudarão', system)
+
     def test_each_agent_receives_a_distinct_bounded_identity_prompt(self):
         expectations = {
             "zion": "orquestrador oficial",
