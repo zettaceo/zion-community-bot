@@ -301,3 +301,38 @@ class SentenceRepairTests(unittest.TestCase):
         self.assertIsNotNone(repaired)
         self.assertNotIn('nunca pede', repaired)
         self.assertTrue(repaired.endswith('Não compartilhe seed phrase, chave privada ou senha.'))
+
+
+class UnlistedNetworkTests(unittest.TestCase):
+    """Second live v2-001 case: an invented "Bitcoin para Ethereum" example."""
+
+    CTX = ('[Contexto oficial: Redes]\nA Z-SWAP suporta Ethereum, BNB Chain, Polygon, '
+           'Base, Arbitrum, Optimism, Avalanche e Solana.')
+
+    def test_unlisted_network_example_is_rejected(self):
+        for text in ('Você pode passar de Bitcoin para Ethereum.',
+                     'Troque TRON por Solana em segundos.',
+                     'Também funciona com Cardano e Polkadot.'):
+            with self.subTest(text=text):
+                self.assertEqual(validate_public_response(text, official_context=self.CTX).reason,
+                                 'unsupported_network')
+
+    def test_listed_networks_and_ordinary_words_pass(self):
+        for text in ('Você pode trocar ativos na Solana ou no Ethereum.',
+                     'A rota fica perto do valor estimado; near e aptos não são redes aqui.',
+                     'Bitcoin é citado no contexto oficial.'):
+            with self.subTest(text=text):
+                ctx = self.CTX + (' Bitcoin.' if text.startswith('Bitcoin') else '')
+                self.assertTrue(validate_public_response(text, official_context=ctx).allowed)
+
+    def test_invented_example_sentence_is_repaired_with_colon_lines(self):
+        text = ('Os swaps permitem trocar ativos, como passar de Bitcoin para Ethereum. '
+                'O processo funciona assim:\n\nPrimeiro, você escolhe o ativo e as redes de '
+                'origem e destino. A plataforma seleciona uma fonte de cotação conforme essas '
+                'redes e mostra a rota com taxas. Antes de confirmar, verifique o ativo, a '
+                'rede, o endereço de recebimento e o valor mínimo esperado.')
+        reason = validate_public_response(text, official_context=self.CTX).reason
+        repaired = repair_public_response(text, official_context=self.CTX, reason=reason)
+        self.assertIsNotNone(repaired)
+        self.assertNotIn('Bitcoin', repaired)
+        self.assertTrue(repaired.startswith('O processo funciona assim:'))

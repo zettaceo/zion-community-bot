@@ -1834,6 +1834,13 @@ def scam_surface_reason(text: str, *, official_context: str = '') -> str | None:
     return _scam_surface(folded, official_context)
 
 
+_UNLISTED_NETWORKS = (
+    r"\b(bitcoin|tron|cardano|xrp|ripple|litecoin|dogecoin|polkadot|cosmos|fantom|"
+    r"cronos|zksync|starknet|hedera|algorand|monero|kaspa|toncoin|tezos|"
+    r"bitcoin cash|ethereum classic)\b"
+)
+
+
 def validate_public_response(text: str, *, official_context: str) -> ResponseCheck:
     if not isinstance(text, str) or not text.strip():
         return ResponseCheck(False, 'empty_response')
@@ -1849,6 +1856,14 @@ def validate_public_response(text: str, *, official_context: str) -> ResponseChe
     scam = _scam_surface(folded, official_context)
     if scam is not None:
         return ResponseCheck(False, scam)
+    # An invented example ("de Bitcoin para Ethereum") implies network support
+    # the official list does not have. Only distinctive chain names; words
+    # that are also ordinary Portuguese/English (near, aptos, ton) are left out.
+    approved_folded = ''.join(c for c in unicodedata.normalize('NFKD', official_context)
+                              if not unicodedata.combining(c)).casefold()
+    for network in re.findall(_UNLISTED_NETWORKS, folded):
+        if not re.search(r'\b' + re.escape(network) + r'\b', approved_folded):
+            return ResponseCheck(False, 'unsupported_network')
     quality_rules = (
         ('best_price_guarantee', r"\b(?:garant\w*|assegur\w*)\b(?:(?!\s*,\s*mas\b)[^.!?;\n]){0,60}\bmelhor(?:es)? (?:precos?|taxas?)\b"),
         ('best_price_guarantee', r'\bmelhor(?:es)? (?:precos?|taxas?) (?:e|sao|esta)? ?garantid[ao]s?\b'),
@@ -2034,7 +2049,7 @@ def validate_public_response(text: str, *, official_context: str) -> ResponseChe
 _REPAIRABLE = frozenset({
     'unsupported_universal_secret_promise', 'unsupported_absolute_seed_promise',
     'safety_guarantee', 'absolute_safety', 'financial_return_guarantee',
-    'absolute_reliability',
+    'absolute_reliability', 'unsupported_network',
 })
 _SECRET_REASONS = frozenset({'unsupported_universal_secret_promise',
                              'unsupported_absolute_seed_promise'})
@@ -2051,7 +2066,7 @@ def repair_public_response(text: str, *, official_context: str, reason: str) -> 
     """
     if reason not in _REPAIRABLE or not isinstance(text, str):
         return None
-    pieces = re.findall(r'[^.!?\n]+(?:[.!?]+|$)[ \t]*|\n+', text)
+    pieces = re.findall(r'[^.!?\n]+(?:[.!?]+|(?=\n)|$)[ \t]*|[.!?]+[ \t]*|\n+', text)
     if ''.join(pieces) != text:
         return None
     kept, dropped = [], set()

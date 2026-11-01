@@ -112,6 +112,15 @@ checklists remain historical evidence, not proof of v2 completion.
   was dropped. Repairs are audited as `response_repair` and flagged
   `repaired` in delivery evidence — never a clean pass. Every other guard
   failure keeps the whole-answer fallback. Local validation 977/977.
+- [x] v2-001 on `9da6e27` (CI 41312341319; 1 call, 714 micro-USD): flow
+  correct, but "como passar de Bitcoin para Ethereum" invents a network the
+  official list does not have. Review: **FAIL**, stop applied. Forward-fix:
+  `unsupported_network` (distinctive chain names absent from the official
+  context; ambiguous words such as near/aptos/ton excluded), repairable by
+  sentence drop; repair segmentation now handles lines ending in ":".
+  Minor note for human review: "não é necessário comparar manualmente todas
+  as opções" softens "não compara todas as fontes" without being false.
+  Local validation 980/980.
 - [ ] Production-baseline smoke on the forward-fix SHA (estimated well
   under USD 0.10 for all ten cases) and, separately, the K3 candidate smoke.
 - [ ] Run the remaining provider smoke cases one at a time under
