@@ -15,8 +15,11 @@ reserved/estimated, not an invoice. A local deterministic EIR triage
 forward-fix is implemented: local validation passed 941/941 tests, imports,
 shell, secret scan and ZION validation; 78 focused AIService/guard tests and
 an independent 32/32 bounded selector matrix with source-id/filename spoof
-negatives passed. Exact-SHA CI for the forward-fix, controlled Telegram and
-the remaining provider cases remain release gates. The next v2-041 check must
+negatives passed. The forward-fix passed exact-SHA
+[ZION CI 40936957422](https://github.com/zettaceo/zion-community-bot/actions/runs/40936957422)
+on `20639367a2a3a2cc527b12737df20b5d218f8f2f` with 941/941 tests;
+controlled Telegram and the remaining provider cases remain release gates.
+The next v2-041 check must
 exercise the delivered AIService path; another raw-only v2-041 generation is
 not evidence that users receive the fixed response. The 4271c98 raw FAIL is
 unchanged; cognitive v2 is not production certified, Kimi remains inactive,
@@ -134,6 +137,32 @@ The ten IDs above were checked offline with the project's locked Python
 runtime: `DATASET_OK cases=108 selected=10 provider_calls=0`. This proves
 selection only. Do not invoke `--live` until the manifest and review owner are
 ready; the host's bare `python3` may lack locked dependencies.
+
+## Delivered AIService probe
+
+`scripts/evaluate-cognitive-v2-delivery.py` is a separate, single-case
+synthetic probe of the answer that `AIService` would deliver. Its default
+`v2-041` run is local and makes zero provider calls. Other frozen smoke IDs
+require explicit `--live --case-id ID`; run and review one case at a time so a
+human failure stops further requests. A clean worktree, exact Git SHA,
+PUBLIC/CURRENT knowledge projection, private manifest, and per-request K3
+cost reservation are required before any live request. The persistent isolated
+evaluation ledger enforces the existing $0.25/request, $2/day, $8 total caps.
+The temporary service database is discarded and is never the production DB.
+
+The probe does not create a runtime model approval. A no-network baseline stub
+ensures only the evaluation-only K3 adapter can be called, and historical
+assistant conversation text is withheld from that adapter. Expected local
+finite-list replies (`v2-021`, `v2-091`) and the wallet triage (`v2-041`) are
+reported as `LOCAL_REVIEW_REQUIRED`, never as K3 generation passes. An
+unexpected local fallback, missing delivery event, provider error, guard
+rejection, or cost block cannot qualify a case. The exact charge is read from
+that case's reservation rather than a shared-ledger delta. Results stay
+`REVIEW_REQUIRED` until human and independent review. This proves the
+AIService delivery path only, not Telegram transport or live community
+behavior. The frozen raw K3 v2-041 FAIL remains unchanged. With the probe and
+its regression tests, local ZION validation passed 951/951 tests and the secret
+scan; exact-SHA CI for this commit is recorded in the PR.
 
 ## Human scorecard
 

@@ -4,6 +4,24 @@ Date: 2026-10-29. Status: IN PROGRESS, not production accepted.
 This section supersedes older current-state labels below; the prior mission's
 checklists remain historical evidence, not proof of v2 completion.
 
+## Delivery-path consolidation — in progress
+
+- [x] Replace raw-only wallet retests with a separate, single-case synthetic
+  `AIService.answer` probe. The evaluation-only adapter uses PUBLIC/CURRENT
+  knowledge, a disposable service DB, durable isolated K3 cost admission and
+  no runtime model approval. Local wallet and finite-list replies are labeled
+  separately from provider generations. Guard fallback, missing audit event,
+  unexpected local fallback and budget exhaustion cannot become a pass.
+  After the independent review's two measurement fixes (expected delivery
+  event required; cost read from the case's own reservation), local
+  validation passed 951/951 tests, shell, sensitive-file check and secret scan.
+- [ ] Freeze a clean exact-SHA local v2-041 manifest, then review the delivered
+  answer. Only after that, run remaining provider cases one at a time under
+  dated pricing and stop-on-first-fatal review. A local result does not erase
+  the historical raw K3 FAIL.
+- [ ] Controlled Telegram, full 108-case and four 12-turn evaluations,
+  account data-handling and independent release/security gates remain open.
+
 ## 2026-10-29 4271c98 synthetic/PUBLIC smoke — stopped at v2-041
 
 - [x] Candidate `4271c98b294256b8d4e7cc307cad7edb82de3f83` passed
@@ -20,7 +38,9 @@ checklists remain historical evidence, not proof of v2 completion.
 - [~] A local deterministic EIR triage forward-fix is implemented. Local
   validation passed 941/941 tests, imports, shell, secret scan and ZION
   validation; 78 focused AIService/guard tests and an independent 32/32 bounded
-  selector matrix with source-id/filename spoof negatives passed. Exact-SHA CI,
+  selector matrix with source-id/filename spoof negatives passed. Exact-SHA
+  [ZION CI 40936957422](https://github.com/zettaceo/zion-community-bot/actions/runs/40936957422)
+  on `20639367a2a3a2cc527b12737df20b5d218f8f2f` passed 941/941 tests;
   controlled Telegram and the remaining provider cases remain release gates.
   Next, verify v2-041 on the delivered AIService path; repeating raw-only
   generation would not prove the user receives the fixed answer. The 4271c98

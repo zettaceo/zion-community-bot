@@ -17,7 +17,9 @@ account balance. The frozen FAIL is unchanged.
 A local deterministic EIR triage forward-fix is implemented. Local validation
 passed 941/941 tests, imports, shell, secret scan and ZION validation; 78
 focused AIService/guard tests and an independent 32/32 bounded selector matrix
-with source-id/filename spoof negatives passed. Exact-SHA CI, controlled
+with source-id/filename spoof negatives passed. Exact-SHA
+[ZION CI 40936957422](https://github.com/zettaceo/zion-community-bot/actions/runs/40936957422)
+on `20639367a2a3a2cc527b12737df20b5d218f8f2f` passed 941/941 tests; controlled
 Telegram and the remaining provider cases remain release gates. The next
 v2-041 check must exercise the delivered AIService path; raw-only generation
 remains a separate diagnostic. The 4271c98 raw FAIL remains unchanged. Full

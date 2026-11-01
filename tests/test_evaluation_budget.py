@@ -36,12 +36,14 @@ class EvaluationBudgetTests(unittest.TestCase):
     def test_uncertain_charge_survives_new_connection_and_settlement_is_once(self):
         reservation = self.budget.reserve('kimi-k2.6', MESSAGES, 128, today=TODAY)
         reserved = self.budget.total_micro_usd()
+        self.assertEqual(self.budget.charge_for(reservation), reserved)
         other = ZionDB(self.path)
         try:
             restarted = EvaluationBudget(other)
             self.assertEqual(restarted.total_micro_usd(), reserved)
             actual = restarted.settle(reservation, Completion('public', 'kimi-k2.6', 10, 5, 1))
             self.assertLess(actual, reserved)
+            self.assertEqual(restarted.charge_for(reservation), actual)
             with self.assertRaises(EvaluationBudgetError):
                 restarted.settle(reservation, Completion('public', 'kimi-k2.6', 10, 5, 1))
         finally:
