@@ -17,7 +17,8 @@ ROOT = Path(__file__).resolve().parents[1]
 CTX = '[Contexto oficial: Swaps]\nA Z-SWAP compara rotas.'
 NEW_REASONS = {'financial_return_guarantee', 'absolute_reliability',
                'investment_advice', 'price_prediction', 'secret_solicitation',
-               'fund_solicitation', 'unapproved_wallet_address', 'unapproved_contact'}
+               'fund_solicitation', 'unapproved_wallet_address', 'unapproved_contact',
+               'dm_contact_promise', 'human_impersonation', 'fund_recovery_promise'}
 
 PROMISES = (
     'A Z-SWAP garante lucro em todos os swaps.',
@@ -87,7 +88,8 @@ class FinancialPromiseGuardTests(unittest.TestCase):
         for reason in NEW_REASONS:
             reply = public_fallback_for(reason, official_context=CTX)
             self.assertTrue(validate_public_response(reply, official_context=CTX).allowed)
-            self.assertRegex(reply, r'^(?:Não (?:posso prometer lucro|faço recomendação)|Por segurança)')
+            self.assertRegex(reply, r'^(?:Não (?:posso prometer lucro|faço recomendação)|Por segurança'
+                                    r'|Sou um assistente automático)')
 
     def test_no_official_knowledge_sentence_trips_the_new_rules(self):
         # The model paraphrases these caveats; blocking them would degrade
@@ -170,6 +172,16 @@ SCAMS = (
     'Acesse www.zswap-support.net agora.',
     'Fale com o suporte pelo WhatsApp +55 11 99999-9999.',
     'Ligue para +55 (11) 98888-7777.',
+    'Chame o @zswap_support_bot no privado.',
+    'Adicione o suporte oficial @ZswapHelpDesk.',
+    'Um administrador vai te chamar no privado para resolver.',
+    'Nossa equipe de suporte entrará em contato pelo seu DM.',
+    'An admin will DM you shortly.',
+    'Sou um atendente humano da equipe.',
+    'I am a team member.',
+    'Me chama no privado que eu te ajudo a recuperar os fundos.',
+    'We can recover your funds.',
+    'Podemos recuperar seus tokens.',
 )
 
 SAFE = (
@@ -190,6 +202,15 @@ SAFE = (
     'Cuidado com mensagens que pedem para enviar ETH.',
     'Informe qual carteira e rede você usa e a mensagem de erro.',
     'Use o Node.js 20 conforme a documentação.',
+    'Desconfie de quem chamar você no privado dizendo ser da equipe.',
+    'Admins nunca chamam primeiro no privado.',
+    'Ninguém da equipe vai te chamar no privado pedindo dados.',
+    'Ninguém da equipe entrará em contato no privado.',
+    'A equipe entrará em contato pelo canal oficial após a triagem.',
+    'A equipe vai analisar o caso.',
+    'Não podemos recuperar fundos enviados a um endereço errado.',
+    'Se alguém disser que pode recuperar seus fundos, é golpe.',
+    'Sou o ZION, assistente da comunidade.',
 )
 
 

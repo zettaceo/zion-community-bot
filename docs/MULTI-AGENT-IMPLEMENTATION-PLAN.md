@@ -86,6 +86,15 @@ checklists remain historical evidence, not proof of v2 completion.
   the PUBLIC corpus (`swap-z.app`, `zettaword.global`); lookalikes such as
   `swap-z-app.xyz` are contained. Guard errors fail closed. Local
   validation 970/970, secret scan, ZION validation OK.
+- [x] Telegram support-scam shapes: "um administrador vai te chamar no
+  privado", "sou um atendente humano", "podemos recuperar seus fundos" and
+  unknown `@handles` were accepted. New `dm_contact_promise`,
+  `human_impersonation`, `fund_recovery_promise` and handle-level
+  `unapproved_contact` (handles pass only from official context; the PUBLIC
+  corpus publishes none) with an automated-assistant safety fallback;
+  warnings and refusals stay accepted. 25 scam and 26 safe regressions;
+  official corpus and the 164-output replay unchanged. Local validation
+  970/970, secret scan, ZION validation OK.
 - [ ] Owner-authorized live runs: production-baseline smoke (estimated well
   under USD 0.10 for all ten cases) and, separately, the K3 candidate smoke.
 - [ ] Run the remaining provider smoke cases one at a time under

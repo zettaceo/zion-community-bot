@@ -1764,6 +1764,31 @@ def _scam_surface(folded: str, official_context: str) -> str | None:
                                  r"(?:carteira|wallet)\b", suffix)):
                 continue
             return reason
+    for reason, pattern in (
+        # Classic Telegram support scam: "an admin will DM you".
+        ('dm_contact_promise',
+         r"\b(?:admin\w*|administrador\w*|moderador\w*|equipe|suporte|atendente\w*|alguem da equipe|"
+         r"team|staff|support|an admin|moderators?)\b[^.!?\n]{0,50}\b(?:vai|ira|vao|irao|entrara|entrarao|"
+         r"will) (?:te |you )?(?:chamar|contatar|entrar em contato|mandar mensagem|falar com voce|"
+         r"dm|message|contact|reach out)\b"
+         r"|\b(?:equipe|suporte|admin\w*|administrador\w*|moderador\w*|atendente\w*)\b[^.!?\n]{0,50}"
+         r"\bentrar(?:a|ao)? em contato\b[^.!?\n]{0,30}\b(?:privado|dm|pv|inbox|direct)\b"),
+        ('human_impersonation',
+         r"\bsou (?:um|uma) (?:atendente|humano|human[oa]|pessoa real|membro da equipe|funcionari[oa]|"
+         r"administrador\w*|moderador\w*)\b|\bi am (?:a|an) (?:human|real person|admin|team member|"
+         r"staff member|moderator)\b"),
+        ('fund_recovery_promise',
+         r"\b(?:ajudo|ajudamos|vou te ajudar|vamos|podemos|posso|consigo|conseguimos|we can|i can|"
+         r"we will|i will|we'll|i'll)\b[^.!?\n]{0,25}\b(?:recuperar|recover)\b[^.!?\n]{0,15}"
+         r"\b(?:fundos|funds|tokens|saldo|criptos?|dinheiro|money|carteira|wallet)\b"),
+    ):
+        for match in re.finditer(pattern, folded):
+            if not _SAFETY_PREFIX.search(folded[max(0, match.start() - 100):match.start()]):
+                return reason
+    approved_handles = set(re.findall(r"(?<![\w.])@[a-z][a-z0-9_]{4,31}\b", approved))
+    for handle in re.findall(r"(?<![\w.])@[a-z][a-z0-9_]{4,31}\b", folded):
+        if handle not in approved_handles:
+            return 'unapproved_contact'
     if re.search(r"\b(?:receba|recebera|ganhe|ganha) o dobro\b|\bdouble (?:your|it)\b|"
                  r"\bdobr(?:o|ar|amos) (?:seus|o seu|o) (?:fundos|saldo|tokens|deposito)\b", folded):
         return 'fund_solicitation'
@@ -1784,7 +1809,8 @@ def _scam_surface(folded: str, official_context: str) -> str | None:
 
 TRANSFORMED_SCAM_NOTICE = (
     'Não vou reproduzir este texto: ele contém pedido de dados sensíveis, '
-    'envio de fundos, endereço, link ou contato não oficial. Não compartilhe '
+    'envio de fundos, endereço, link ou contato não oficial, ou uma oferta '
+    'de atendimento privado. Não compartilhe '
     'seed phrase, chave privada ou senha e use apenas os canais oficiais da Z-SWAP.'
 )
 
@@ -2258,6 +2284,10 @@ def public_fallback_for(reason: str, *, official_context: str = '', question: st
         return ('Não posso confirmar uma escolha automática da melhor rota nem '
                 'prometer o melhor preço ou taxa. Confira a cotação e os custos '
                 'antes de confirmar.')
+    if reason in {'dm_contact_promise', 'human_impersonation', 'fund_recovery_promise'}:
+        return ('Sou um assistente automático da comunidade. Por segurança, desconfie de '
+                'mensagens privadas de quem se apresente como equipe ou ofereça recuperar '
+                'fundos, e não compartilhe seed phrase, chave privada ou senha.')
     if reason in {'secret_solicitation', 'fund_solicitation', 'unapproved_wallet_address',
                   'unapproved_contact'}:
         return ('Por segurança, não compartilhe seed phrase, chave privada ou senha e '
