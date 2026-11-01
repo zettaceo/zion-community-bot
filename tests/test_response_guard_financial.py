@@ -374,3 +374,46 @@ class LaunchStatusGlossTests(unittest.TestCase):
         self.assertIn('soon', reply)
         self.assertIn('pre-launch', reply)
         self.assertTrue(validate_public_response(reply, official_context=self.ctx).allowed)
+
+
+class LiveRoundThreeTests(unittest.TestCase):
+    """Overclaims from the e16d468 production-model round (2026-11-01)."""
+
+    def setUp(self):
+        from zion.knowledge import KnowledgeBase as KB
+        self.kb = KB(ROOT / 'knowledge')
+        self.kb.reload()
+
+    def ctx(self, question, agent):
+        return self.kb.render_context(question, agent_id=agent)
+
+    def test_partnership_fee_policy_claims_are_rejected(self):
+        ctx = self.ctx('A parceria está cara, concorrentes fazem a mesma coisa.', 'freyr')
+        for text in ('A Z-SWAP não cobra taxa de parceria comercial.',
+                     'Não cobramos comissão de parceria.',
+                     'Parcerias comerciais sem custo.'):
+            with self.subTest(text=text):
+                self.assertEqual(validate_public_response(text, official_context=ctx).reason,
+                                 'unsupported_partnership_fee_policy')
+        self.assertTrue(validate_public_response(
+            'Não tenho informação oficial sobre uma taxa de parceria.', official_context=ctx).allowed)
+
+    def test_development_stage_glosses_are_rejected(self):
+        ctx = self.ctx('Buy, OTC, P2P, NFT, Launchpad e Governance já estão funcionando?', 'zion')
+        for text in ('Eles estão em diferentes fases de desenvolvimento.',
+                     'O Terminal Pro está em beta, o que significa que já tem funcionalidades testáveis.',
+                     'Ainda não é uma versão final completa.',
+                     'Há módulos em desenvolvimento.'):
+            with self.subTest(text=text):
+                self.assertEqual(validate_public_response(text, official_context=ctx).reason,
+                                 'unsupported_status_gloss')
+
+    def test_invented_route_criteria_are_rejected_but_shown_costs_pass(self):
+        ctx = self.ctx('Como funciona os swaps?', 'mimir')
+        self.assertEqual(validate_public_response(
+            'A rota exibida é a que está disponível naquele momento, considerando liquidez e custos.',
+            official_context=ctx).reason, 'unsupported_route_criteria')
+        for text in ('A rota mostra taxa e impacto no preço.',
+                     'A plataforma seleciona a fonte de cotação conforme as redes envolvidas.'):
+            with self.subTest(text=text):
+                self.assertTrue(validate_public_response(text, official_context=ctx).allowed)

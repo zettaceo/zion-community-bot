@@ -1856,27 +1856,6 @@ def validate_public_response(text: str, *, official_context: str) -> ResponseChe
     scam = _scam_surface(folded, official_context)
     if scam is not None:
         return ResponseCheck(False, scam)
-    # An invented example ("de Bitcoin para Ethereum") implies network support
-    # the official list does not have. Only distinctive chain names; words
-    # that are also ordinary Portuguese/English (near, aptos, ton) are left out.
-    approved_folded = ''.join(c for c in unicodedata.normalize('NFKD', official_context)
-                              if not unicodedata.combining(c)).casefold()
-    for network in re.findall(_UNLISTED_NETWORKS, folded):
-        if not re.search(r'\b' + re.escape(network) + r'\b', approved_folded):
-            return ResponseCheck(False, 'unsupported_network')
-    # Launch-state terms are copied, never explained: "pre-launch (em fase
-    # inicial de desenvolvimento)" invents a development stage.
-    gloss = r"(?:fase inicial|em desenvolvimento|de desenvolvimento|em construcao|em testes?|quase pront[oa]s?|em finalizacao|em preparacao)"
-    for match in re.finditer(rf"\b(?:pre-?launch|coming soon|soon|beta|teaser)\b[^.!?\n]{{0,30}}?{gloss}", folded):
-        term = re.search(gloss, match.group()).group()
-        if term not in approved_folded:
-            return ResponseCheck(False, 'unsupported_status_gloss')
-    for match in re.finditer(r"\bdatas? (?:de|do|para o) lancamento\b|\blaunch dates?\b|"
-                             r"\b(?:previsao|previst[oa]) (?:de|para) (?:o )?lancamento\b", folded):
-        before = folded[max(0, match.start() - 60):match.start()]
-        if (match.group() not in approved_folded
-                and not re.search(r"\b(?:nao|nenhuma?|sem|no|without|not)\b[^.!?\n]{0,40}$", before)):
-            return ResponseCheck(False, 'unsupported_launch_dates')
     quality_rules = (
         ('best_price_guarantee', r"\b(?:garant\w*|assegur\w*)\b(?:(?!\s*,\s*mas\b)[^.!?;\n]){0,60}\bmelhor(?:es)? (?:precos?|taxas?)\b"),
         ('best_price_guarantee', r'\bmelhor(?:es)? (?:precos?|taxas?) (?:e|sao|esta)? ?garantid[ao]s?\b'),
@@ -2023,6 +2002,10 @@ def validate_public_response(text: str, *, official_context: str) -> ResponseChe
         r'\b(?:nao ha|nao existe) (?:uma? )?taxa (?:padrao|fixa) '
         r'(?:de|para) parcerias?\b|\bparcerias? (?:nao (?:tem|possuem) '
         r'taxa (?:padrao|fixa)|(?:sao|e) gratuit[oa]s?)\b'
+        # Live v2-103: "A Z-SWAP não cobra taxa de parceria comercial."
+        r'|\b(?:nao cobra(?:mos|m)?|nao ha cobranca de|isent[oa]s? de|sem) (?:nenhuma )?'
+        r'(?:taxas?|comiss(?:ao|oes)|custos?|cobrancas?) (?:de|para|na|nas|em) (?:uma )?parcerias?\b'
+        r'|\bparcerias? (?:comerciais? )?(?:sem custo|gratuit\w*|nao (?:tem|possuem?) custo)\b'
     )
     if (re.search(no_standard_partnership_fee, folded)
             and not re.search(no_standard_partnership_fee, approved)):
@@ -2049,6 +2032,47 @@ def validate_public_response(text: str, *, official_context: str) -> ResponseChe
     if (any(value == 'invalid_amount' for _, value in monetary_claims)
             or monetary_claims - _monetary_claims(official_context)):
         return ResponseCheck(False, 'unsupported_monetary_claim')
+    # An invented example ("de Bitcoin para Ethereum") implies network support
+    # the official list does not have. Only distinctive chain names; words
+    # that are also ordinary Portuguese/English (near, aptos, ton) are left out.
+    approved_folded = ''.join(c for c in unicodedata.normalize('NFKD', official_context)
+                              if not unicodedata.combining(c)).casefold()
+    # Live v2-001: "a rota exibida ... considerando liquidez e custos" adds a
+    # selection criterion the source does not state.
+    for match in re.finditer(r"\brotas?\b[^.!?\n]{0,60}\b(?:considerando|com base (?:em|na|no|nos|nas)|"
+                             r"levando em conta|baseada? (?:em|na|no|nos|nas)|otimizad[ao]s? (?:por|para))\s"
+                             r"(?:a |o |os |as )?(?:melhor(?:es)? )?(?:liquidez|custos?|taxas?|precos?|velocidade|"
+                             r"eficiencia)\b", folded):
+        if not re.search(r"\b(?:liquidez|custos?|taxas?|precos?|velocidade|eficiencia)\b",
+                         match.group()[-25:]) or match.group() in approved_folded:
+            continue
+        if not re.search(re.escape(match.group().split()[-1]) + r"[^.!?\n]{0,40}\brota|\brota[^.!?\n]{0,40}"
+                         + re.escape(match.group().split()[-1]), approved_folded):
+            return ResponseCheck(False, 'unsupported_route_criteria')
+    for network in re.findall(_UNLISTED_NETWORKS, folded):
+        if not re.search(r'\b' + re.escape(network) + r'\b', approved_folded):
+            return ResponseCheck(False, 'unsupported_network')
+    # Launch-state terms are copied, never explained: "pre-launch (em fase
+    # inicial de desenvolvimento)" invents a development stage.
+    gloss = r"(?:fase inicial|em desenvolvimento|de desenvolvimento|em construcao|em testes?|quase pront[oa]s?|em finalizacao|em preparacao)"
+    # Live v2-094/v2-103: "em diferentes fases de desenvolvimento", "módulos
+    # em desenvolvimento", "beta, o que significa que ... versão final".
+    for match in re.finditer(r"\b(?:fases? de desenvolvimento|(?:modulos?|recursos?) em desenvolvimento|"
+                             r"versao final|(?:beta|soon|pre-?launch|coming soon)\W{0,4}"
+                             r"(?:\([^)]{0,20}\)\W{0,3})?(?:o que significa|ou seja|isto e|que significa))\b",
+                             folded):
+        if match.group() not in approved_folded:
+            return ResponseCheck(False, 'unsupported_status_gloss')
+    for match in re.finditer(rf"\b(?:pre-?launch|coming soon|soon|beta|teaser)\b[^.!?\n]{{0,30}}?{gloss}", folded):
+        term = re.search(gloss, match.group()).group()
+        if term not in approved_folded:
+            return ResponseCheck(False, 'unsupported_status_gloss')
+    for match in re.finditer(r"\bdatas? (?:de|do|para o) lancamento\b|\blaunch dates?\b|"
+                             r"\b(?:previsao|previst[oa]) (?:de|para) (?:o )?lancamento\b", folded):
+        before = folded[max(0, match.start() - 60):match.start()]
+        if (match.group() not in approved_folded
+                and not re.search(r"\b(?:nao|nenhuma?|sem|no|without|not)\b[^.!?\n]{0,40}$", before)):
+            return ResponseCheck(False, 'unsupported_launch_dates')
     approved_urls = set(re.findall(r'https?://[^\s<>]+', official_context))
     for url in re.findall(r'https?://[^\s<>]+', text):
         if url.rstrip('.,);') not in {u.rstrip('.,);') for u in approved_urls}:
@@ -2063,7 +2087,8 @@ _REPAIRABLE = frozenset({
     'unsupported_universal_secret_promise', 'unsupported_absolute_seed_promise',
     'safety_guarantee', 'absolute_safety', 'financial_return_guarantee',
     'absolute_reliability', 'unsupported_network', 'unsupported_status_gloss',
-    'unsupported_launch_dates',
+    'unsupported_launch_dates', 'unsupported_partnership_fee_policy',
+    'unsupported_route_criteria',
 })
 _SECRET_REASONS = frozenset({'unsupported_universal_secret_promise',
                              'unsupported_absolute_seed_promise'})
@@ -2362,7 +2387,7 @@ def public_fallback_for(reason: str, *, official_context: str = '', question: st
             return wallet_connection_triage()
         return PUBLIC_FALLBACK
     if reason in {'best_price_guarantee', 'unsupported_route_optimization',
-                  'unsupported_named_quote_source'}:
+                  'unsupported_named_quote_source', 'unsupported_route_criteria'}:
         reply = _public_swap_route_reply(official_context)
         if reply is not None:
             return reply

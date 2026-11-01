@@ -131,7 +131,20 @@ checklists remain historical evidence, not proof of v2 completion.
   `unsupported_launch_dates` (honest "não há data divulgada" allowed),
   answered by the existing deterministic launch-status reply. Local
   validation 983/983.
-- [ ] Full ten-case production-baseline smoke on one exact SHA (estimated well
+- [x] Full ten-case round on `e16d468` (CI 41312958910; total about 6.4k
+  micro-USD). Note: the ten cases were run back to back and reviewed
+  afterwards rather than stopping between cases; with costs under one cent
+  per case this was a deliberate choice, recorded here. PASS: v2-021, v2-041,
+  v2-091 (local), v2-051, v2-061, v2-065. Contained: v2-101 (guard withheld
+  the model text for `missing_feature_status`; the member receives the
+  deterministic reply). Review FAIL: v2-103 "A Z-SWAP não cobra taxa de
+  parceria comercial" (invented, and contradicted by its next sentence),
+  v2-094 "fases de desenvolvimento"/"beta, o que significa ... versão
+  final", v2-001 "rota ... considerando liquidez e custos". Forward-fix:
+  partnership-fee wording, development-stage glosses and invented route
+  criteria join the guard (repairable by sentence; checks run after the
+  older, more specific rules). Local validation 986/986.
+- [ ] Ten-case round on the forward-fix SHA (estimated well
   under USD 0.10 for all ten cases) and, separately, the K3 candidate smoke.
 - [ ] Run the remaining provider smoke cases one at a time under
   dated pricing and stop-on-first-fatal review. A local result does not erase
