@@ -36,7 +36,8 @@ class PriceSnapshot:
         return (raw * 12 + 9999999) // 10000000
 
 
-# Official platform.kimi.ai model table; K3 reverified 2026-10-29.
+# Official platform.kimi.ai model table; K3 reverified 2026-11-01
+# (input 3, 5m cache write 3, output 15 USD/M; unchanged since 2026-10-29).
 # K3 input includes cache write conservatively (3 + 3 USD/M).
 PRICES = {
     # Official docs.mistral.ai/models/ministral-3-8b-25-12, reverified 2026-10-28.
@@ -44,7 +45,7 @@ PRICES = {
     # Official docs.mistral.ai/models/mistral-large-3-25-12, verified 2026-10-19.
     'mistral-large-2512': PriceSnapshot('mistral-large-2512', 500000, 1500000, date(2026, 10, 19)),
     'kimi-k2.6': PriceSnapshot('kimi-k2.6', 950000, 4000000, date(2026, 10, 25)),
-    'kimi-k3': PriceSnapshot('kimi-k3', 6000000, 15000000, date(2026, 10, 29)),
+    'kimi-k3': PriceSnapshot('kimi-k3', 6000000, 15000000, date(2026, 11, 1)),
 }
 
 

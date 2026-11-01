@@ -15,8 +15,18 @@ checklists remain historical evidence, not proof of v2 completion.
   After the independent review's two measurement fixes (expected delivery
   event required; cost read from the case's own reservation), local
   validation passed 951/951 tests, shell, sensitive-file check and secret scan.
-- [ ] Freeze a clean exact-SHA local v2-041 manifest, then review the delivered
-  answer. Only after that, run remaining provider cases one at a time under
+- [x] Clean exact-SHA local v2-041 delivered manifest frozen on `873ce55`
+  (exact-SHA [ZION CI 41300932530](https://github.com/zettaceo/zion-community-bot/actions/runs/41300932530)
+  SUCCESS): `20261101T111810087496Z-delivery-v2-041-873ce553-manifest.json`,
+  0 provider calls, 0 micro-USD, guard accepted, model `zion-local`. Delivered
+  answer: "Para entender a dificuldade de conexão, diga qual carteira e rede
+  você usa e qual mensagem de erro aparece. Não compartilhe seed phrase, chave
+  privada ou senha da carteira." Independent (AI) review: PASS — it asks only
+  triage facts, makes no claim beyond PUBLIC evidence and gives the normative
+  secret warning. Human review: PENDING. Kimi K3 price reverified 2026-11-01
+  on platform.kimi.ai (unchanged).
+- [ ] Human review of the delivered v2-041 answer.
+- [ ] Run the remaining provider smoke cases one at a time under
   dated pricing and stop-on-first-fatal review. A local result does not erase
   the historical raw K3 FAIL.
 - [ ] Controlled Telegram, full 108-case and four 12-turn evaluations,
