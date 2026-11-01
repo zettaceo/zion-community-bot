@@ -1203,6 +1203,56 @@ class AIService:
             )
             return None
 
+    async def classify_triage(self, *, text: str, context: tuple[str, ...] = ()):
+        """Read one member turn; None whenever the provider or budget is unavailable.
+
+        Callers keep their deterministic behaviour on None (fail closed to the
+        existing gates). The reading grants no authority by itself.
+        """
+        if not self.provider_available():
+            return None
+        safe_text = sanitize_for_ai(text)[:1500]
+        safe_context = tuple(sanitize_for_ai(c)[:400] for c in context[-3:])
+        reservation = self._reserve_budget(
+            self._estimate_tokens(safe_text + "\n".join(safe_context), 900))
+        if reservation is None:
+            return None
+        try:
+            try:
+                async with self._semaphore:
+                    result = await self.client.classify_triage(safe_text, safe_context)
+            finally:
+                self._release_budget(reservation)
+            self._record_provider_success()
+            self._record_provider_success_event(
+                reservation=reservation, input_tokens=result.input_tokens,
+                output_tokens=result.output_tokens, chat_id=None, user_id=None,
+                purpose="community_triage",
+                model=result.model or self.settings.mistral_model, success=True,
+                category=result.intent, risk=result.confidence, requires_human=False,
+                latency_ms=result.latency_ms, input_hash=self._hash_text(safe_text),
+                metadata={"authority": "interpretation_only",
+                          "risks": sorted(result.risks), "language": result.language,
+                          "addressed": result.addressed, "valid": result.valid},
+            )
+            return result if result.valid else None
+        except ProviderBudgetError:
+            return None
+        except Exception as exc:
+            self._record_provider_failure()
+            self._charge_uncertain_budget(reservation)
+            logger.warning("Falha na triagem comunitária: %s", type(exc).__name__)
+            self._record_ai_event(
+                chat_id=None, user_id=None, purpose="community_triage",
+                model=self.settings.mistral_model, success=False,
+                input_hash=self._hash_text(safe_text),
+                metadata={"error_type": type(exc).__name__,
+                          "budget_estimate_tokens": reservation,
+                          "usage_outcome": "uncertain",
+                          "authority": "interpretation_only"},
+            )
+            return None
+
     async def classify_route(
         self,
         *,

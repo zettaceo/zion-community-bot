@@ -40,6 +40,7 @@ from .agent_workflows import (
     triage_support,
 )
 from .ai_service import AIService, sanitize_for_ai
+from .triage import decide_action
 from .provider_secrets import ProviderSecretStore
 from .providers import KimiCompletionProvider
 from .kimi_provisioning import (set_kimi_key_command, kimi_secret_capture_handler,
@@ -269,6 +270,11 @@ class Runtime:
             self.kimi_secret_captures: dict[tuple[int, int], float] = {}
             # Ephemeral (chat, user) -> monotonic time of the last seed warning.
             self.wallet_secret_warnings: dict[tuple[int, int], float] = {}
+            # AI-first triage state: in memory only, bounded, never persisted.
+            self.member_recent_turns: dict[tuple[int, int], list[tuple[float, str]]] = {}
+            self.prompt_attack_attempts: dict[tuple[int, int], list[float]] = {}
+            self.triage_limiter = AskRateLimiter(TRIAGE_REQUESTS_PER_MINUTE)
+            self.triaged_updates: dict[tuple[int, int], float] = {}
             self.kimi_secret_store = ProviderSecretStore(settings.mistral_secret_path.parent / "providers").for_provider("kimi")
             self.kimi_provisioning_client = KimiCompletionProvider(self.kimi_secret_store, model="kimi-k3")
             self.mistral_secret_captures: dict[
@@ -963,7 +969,10 @@ def _wallet_secret_sharing_reply(question: str) -> str | None:
     folded = _fold_conversation_text(question)
     if not (_WALLET_SECRET_NOUN.search(folded) and _WALLET_SECRET_SHARE.search(folded)):
         return None
-    return (
+    return WALLET_SECRET_WARNING
+
+
+WALLET_SECRET_WARNING = (
         "⚠️ Não mande! Essas palavras que você recebeu ao criar a carteira "
         "(normalmente 12 ou 24) são a sua seed phrase, a frase de recuperação. "
         "Quem tiver essas palavras controla a sua carteira e pode levar todos os "
@@ -1036,6 +1045,238 @@ def _service_complaint_reply(question: str) -> str | None:
         "me diga em uma frase o que você precisa resolver (por exemplo, conexão "
         "da carteira, swap ou parceria) que eu sigo com você."
     )
+
+
+TRIAGE_REQUESTS_PER_MINUTE = 8
+TRIAGE_CONTEXT_SECONDS = 10 * 60
+PROMPT_ATTACK_WINDOW_SECONDS = 24 * 3600
+PROMPT_ATTACK_MUTE_AFTER = 3
+PROMPT_ATTACK_MUTE_SECONDS = 30 * 60
+_TRIAGE_AGENT = {
+    'support': (AgentId.EIR, ConversationIntent.SUPPORT),
+    'partnership': (AgentId.FREYR, ConversationIntent.PARTNERSHIP),
+    'technical': (AgentId.MIMIR, ConversationIntent.TECHNICAL),
+    'product': (AgentId.MIMIR, ConversationIntent.PRODUCT),
+}
+_SCAM_CAUTION = (
+    "⚠️ Atenção, pessoal: desconfie de quem oferece ajuda ou \"suporte\" no "
+    "privado, recuperação de carteira, dobrar fundos ou liberação de saque "
+    "mediante taxa. Não envie fundos, seed phrase, chave privada ou senha. Use "
+    "apenas os canais oficiais da Z-SWAP."
+)
+_ATTACK_REFUSAL = (
+    "Não posso mudar minhas regras, assumir outro papel nem mostrar "
+    "configurações ou dados internos. Se precisar de ajuda com a Z-SWAP, é só dizer."
+)
+_RESPECT_NOTICE = (
+    "Vamos manter o respeito por aqui. Se algo não funcionou, me conte o que "
+    "aconteceu que eu ajudo."
+)
+_COMPLAINT_REPLY = (
+    "Desculpe pela experiência, você tem razão em cobrar. Estou aqui agora: "
+    "me diga em uma frase o que você precisa resolver (por exemplo, conexão "
+    "da carteira, swap ou parceria) que eu sigo com você."
+)
+
+
+_LOCALIZED_REPLIES = {
+    'warn_secret': {
+        'zh': '⚠️ 不要发送！你创建钱包时得到的那些单词（通常是 12 或 24 个）就是你的助记词（恢复短语）。谁拥有它们，谁就能控制你的钱包并转走你所有的资金。不要分享给任何人：不要发在这里，不要私信发送，也不要发给自称是团队或客服的人。要帮你解决连接问题，我只需要知道你使用的钱包、网络以及看到的错误信息。',
+        'en': ("⚠️ Don't send them! The words you got when you created the wallet "
+               "(usually 12 or 24) are your seed phrase, the recovery phrase. Whoever "
+               "has them controls your wallet and can take all your funds. Don't share "
+               "them with anyone: not here, not in private, not with someone who says "
+               "they are staff or support. To help with the connection, I only need "
+               "your wallet, the network and the error message you see."),
+        'es': ("⚠️ ¡No las envíes! Las palabras que recibiste al crear la billetera "
+               "(normalmente 12 o 24) son tu frase semilla, la frase de recuperación. "
+               "Quien las tenga controla tu billetera y puede llevarse todos tus fondos. "
+               "No las compartas con nadie: ni aquí, ni en privado, ni con quien diga ser "
+               "del equipo o de soporte. Para ayudarte con la conexión solo necesito tu "
+               "billetera, la red y el mensaje de error."),
+    },
+    'warn_scam': {
+        'zh': '⚠️ 大家请注意：对任何在私信中提供帮助或“客服”、恢复钱包、让资金翻倍或收费“解锁”提现的人保持警惕。不要发送资金、助记词、私钥或密码。请只使用 Z-SWAP 官方渠道。',
+        'en': ("⚠️ Heads up, everyone: be wary of anyone offering help or \"support\" "
+               "in private, wallet recovery, doubling funds or unlocking a withdrawal "
+               "for a fee. Never send funds, your seed phrase, private key or password. "
+               "Use only the official Z-SWAP channels."),
+        'es': ("⚠️ Atención: desconfíen de quien ofrezca ayuda o \"soporte\" en privado, "
+               "recuperar billeteras, duplicar fondos o liberar retiros a cambio de una "
+               "tarifa. No envíen fondos, frase semilla, clave privada ni contraseña. "
+               "Usen solo los canales oficiales de Z-SWAP."),
+    },
+    'refuse_attack': {
+        'zh': '我不能更改我的规则、扮演其他角色，也不能展示内部设置或数据。如果你需要 Z-SWAP 相关的帮助，请直接告诉我。',
+        'en': ("I can't change my rules, take on another role or show internal "
+               "settings or data. If you need help with Z-SWAP, just say so."),
+        'es': ("No puedo cambiar mis reglas, asumir otro papel ni mostrar "
+               "configuraciones o datos internos. Si necesitas ayuda con Z-SWAP, dime."),
+    },
+    'respect_notice': {
+        'zh': '请在这里保持尊重。如果有什么地方不正常，告诉我发生了什么，我来帮你。',
+        'en': "Let's keep it respectful here. If something didn't work, tell me what happened and I'll help.",
+        'es': "Mantengamos el respeto por aquí. Si algo no funcionó, cuéntame qué pasó y te ayudo.",
+    },
+    'complaint': {
+        'zh': '很抱歉给你带来不好的体验，你的反馈是对的。我现在在这里：用一句话告诉我你需要解决什么（例如钱包连接、兑换或合作），我会一直跟进。',
+        'en': ("Sorry about the experience, you're right to push. I'm here now: tell "
+               "me in one sentence what you need to solve (for example, wallet "
+               "connection, a swap or a partnership) and I'll stay with you."),
+        'es': ("Perdón por la experiencia, tienes razón en reclamar. Estoy aquí ahora: "
+               "dime en una frase qué necesitas resolver (por ejemplo, conexión de la "
+               "billetera, un swap o una alianza) y sigo contigo."),
+    },
+}
+
+
+def _localized(kind: str, portuguese: str, language: str) -> str:
+    """Fixed host replies in the member's language (pt, en, es, zh); Portuguese
+    stays the default for pt, English covers every other detected language."""
+    if language in ('pt', 'und', ''):
+        return portuguese
+    options = _LOCALIZED_REPLIES.get(kind, {})
+    return options.get(language) or options.get('en') or portuguese
+
+
+def _member_key(update) -> tuple[int, int] | None:
+    chat, user = update.effective_chat, update.effective_user
+    if chat is None or user is None:
+        return None
+    return int(chat.id), int(user.id)
+
+
+def _member_recent_context(rt, update) -> tuple[str, ...]:
+    key = _member_key(update)
+    now = time.monotonic()
+    turns = rt.member_recent_turns.get(key, []) if key else []
+    return tuple(text for at, text in turns if now - at <= TRIAGE_CONTEXT_SECONDS)[-3:]
+
+
+def _remember_member_turn(rt, update, text: str) -> None:
+    key = _member_key(update)
+    if key is None or not text:
+        return
+    now = time.monotonic()
+    turns = [(at, t) for at, t in rt.member_recent_turns.get(key, [])
+             if now - at <= TRIAGE_CONTEXT_SECONDS]
+    turns.append((now, sanitize_for_ai(text)[:400]))
+    rt.member_recent_turns[key] = turns[-3:]
+    if len(rt.member_recent_turns) > 4096:
+        for stale in sorted(rt.member_recent_turns,
+                            key=lambda k: rt.member_recent_turns[k][-1][0])[:1024]:
+            rt.member_recent_turns.pop(stale, None)
+
+
+def _first_triage_of_update(rt, update) -> bool:
+    """Duplicate deliveries of one Telegram update are read once, not twice."""
+    update_id = getattr(update, "update_id", None)
+    if update_id is None:
+        return True
+    key = (int(update.effective_chat.id), int(update_id))
+    if key in rt.triaged_updates:
+        return False
+    rt.triaged_updates[key] = time.monotonic()
+    if len(rt.triaged_updates) > 4096:
+        for stale in sorted(rt.triaged_updates, key=rt.triaged_updates.get)[:1024]:
+            rt.triaged_updates.pop(stale, None)
+    return True
+
+
+def _triage_eligible(update, rt, text: str) -> bool:
+    user = update.effective_user
+    return bool(
+        update.effective_chat and update.effective_chat.type != "private"
+        and user is not None and not getattr(user, "is_bot", False)
+        and len(text.strip()) >= 2 and not text.startswith("/")
+        and rt.ai.enabled and _first_triage_of_update(rt, update)
+        and rt.triage_limiter.allow(int(user.id))
+    )
+
+
+async def _apply_prompt_attack_policy(update, context, rt) -> str:
+    """Refuse every attempt; repeated attempts earn a short, audited mute.
+
+    Banning stays a human decision: a small model's reading may be wrong.
+    """
+    key = _member_key(update)
+    now = time.time()
+    attempts = [t for t in rt.prompt_attack_attempts.get(key, [])
+                if now - t <= PROMPT_ATTACK_WINDOW_SECONDS] + [now]
+    rt.prompt_attack_attempts[key] = attempts
+    if len(attempts) < PROMPT_ATTACK_MUTE_AFTER:
+        return _ATTACK_REFUSAL
+    rt.prompt_attack_attempts[key] = []
+    chat_id, user_id = key
+    try:
+        incident_id = rt.db.create_incident(
+            chat_id=chat_id, user_id=user_id, category="prompt_attack_repeated",
+            severity=Severity.MEDIUM, source="ai_triage",
+            evidence={"attempts_24h": len(attempts), "content_not_stored": True},
+            note="Repeated attempts to change the bot's rules; message bodies not stored.")
+    except Exception as exc:
+        logger.error("Falha ao registrar incidente de prompt attack: %s", type(exc).__name__)
+        return _ATTACK_REFUSAL
+    muted = await mute_user_safe(context, chat_id, user_id, PROMPT_ATTACK_MUTE_SECONDS)
+    try:
+        rt.db.record_action(
+            incident_id=incident_id, chat_id=chat_id, user_id=user_id,
+            action_type="mute", actor_type="guardian", actor_id="ai_triage_policy",
+            reason="prompt_attack_repeated", success=muted,
+            metadata={"duration_seconds": PROMPT_ATTACK_MUTE_SECONDS})
+    except Exception as exc:
+        logger.error("Falha ao registrar ação de prompt attack: %s", type(exc).__name__)
+    if not muted:
+        return _ATTACK_REFUSAL
+    return (_ATTACK_REFUSAL + f" Após repetidas tentativas, você foi silenciado por "
+            f"{format_duration(PROMPT_ATTACK_MUTE_SECONDS)}.")
+
+
+async def _triage_member_turn(update, context, rt, text: str, recent: tuple[str, ...]):
+    """Read a member turn the deterministic safety net did not settle.
+
+    Returns (local_reply, None) for a fixed host reply, (None, (agent, intent))
+    for an agent answer, or None to stay silent (also on any triage failure).
+    """
+    if not _triage_eligible(update, rt, text):
+        return None
+    reading = await rt.ai.classify_triage(text=text, context=recent)
+    if reading is None:
+        return None
+    risks = set(reading.risks)
+    if ('secret_sharing' in risks and explicit_topic(text) not in (None, 'security')
+            and not _WALLET_SECRET_NOUN.search(_fold_conversation_text(text))):
+        # A turn about another subject ("e se eu quiser ser parceiro") does not
+        # inherit the seed risk of an earlier turn.
+        risks.discard('secret_sharing')
+    action = decide_action(intent=reading.intent, risks=risks, text=text)
+    if action == 'warn_secret':
+        _remember_wallet_secret_warning(update, context)
+        return _localized('warn_secret', WALLET_SECRET_WARNING, reading.language), None
+    if action == 'warn_scam':
+        try:
+            rt.db.create_incident(
+                chat_id=update.effective_chat.id, user_id=update.effective_user.id,
+                category="scam_suspected", severity=Severity.LOW, source="ai_triage",
+                evidence={"content_not_stored": True},
+                note="AI triage suspected a scam attempt; message body not stored.")
+        except Exception as exc:
+            logger.error("Falha ao registrar suspeita de golpe: %s", type(exc).__name__)
+        return _localized('warn_scam', _SCAM_CAUTION, reading.language), None
+    if action == 'refuse_attack':
+        reply = await _apply_prompt_attack_policy(update, context, rt)
+        if reply == _ATTACK_REFUSAL:
+            reply = _localized('refuse_attack', _ATTACK_REFUSAL, reading.language)
+        return reply, None
+    if action == 'respect_notice':
+        return _localized('respect_notice', _RESPECT_NOTICE, reading.language), None
+    if action == 'answer':
+        if reading.intent == 'complaint':
+            return _localized('complaint', _COMPLAINT_REPLY, reading.language), None
+        target = _TRIAGE_AGENT.get(reading.intent)
+        if target is not None:
+            return None, target
+    return None
 
 
 def _casual_conversation_reply(question: str) -> str | None:
@@ -1171,6 +1412,10 @@ async def answer_natural_conversation(
 
     raw_question = (text or "").strip()
     rt = runtime(context)
+    member_context = _member_recent_context(rt, update)
+    _remember_member_turn(rt, update, raw_question)
+    triage_local_reply: str | None = None
+    triage_target = None
     multi_agent_group = bool(
         update.effective_chat.type != "private"
         and context.application.bot_data.get("zion_multi_agent_started")
@@ -1190,6 +1435,18 @@ async def answer_natural_conversation(
              int(update.effective_user.id)), raw_question, now=time.monotonic())
         if fragment_query:
             route = ConversationRoute.AI_SUPPORT
+    triage_overrides_router = route == ConversationRoute.IGNORE
+    if route not in {ConversationRoute.LOCAL_HELP, ConversationRoute.MODERATE_ONLY}:
+        # Every member turn the deterministic safety net did not settle is
+        # read for risk; a keyword-addressed turn ("posso mandar?") is not
+        # exempt from the seed, scam or attack reading.
+        triaged = await _triage_member_turn(update, context, rt, raw_question, member_context)
+        if triaged is not None:
+            triage_local_reply, triage_target = triaged
+            if triage_local_reply is not None:
+                route = ConversationRoute.LOCAL_HELP
+            elif route == ConversationRoute.IGNORE:
+                route = ConversationRoute.AI_SUPPORT
     if route == ConversationRoute.IGNORE:
         if multi_agent_group:
             inbound = _routing_inbound(update, AgentId.ZION)
@@ -1236,6 +1493,14 @@ async def answer_natural_conversation(
                 explicitly_addressed=True,
                 addressed_agent=addressed_agent,
             )
+            if triage_target is not None and (
+                    triage_overrides_router or decision.speaker is None):
+                decision = RouteDecision(
+                    intent=triage_target[1],
+                    speaker=DEFAULT_AGENT_REGISTRY.get(triage_target[0]),
+                    confidence=0.9,
+                    reason="ai_triage",
+                )
             if decision.speaker is None:
                 fallback = await rt.ai.classify_route(
                     chat_id=update.effective_chat.id,
@@ -1362,7 +1627,8 @@ async def answer_natural_conversation(
 
     if route == ConversationRoute.LOCAL_HELP:
         local_reply = (
-            _wallet_secret_sharing_reply(raw_question)
+            triage_local_reply
+            or _wallet_secret_sharing_reply(raw_question)
             or _wallet_secret_follow_up_reply(update, context, raw_question)
             or _security_refusal_reply(raw_question)
             or _community_help_reply(raw_question)
@@ -1378,7 +1644,7 @@ async def answer_natural_conversation(
         context,
         raw_question,
     )
-    if fragment_query:
+    if fragment_query or (triage_target is not None and triage_overrides_router):
         question = raw_question
     if question is None:
         return False

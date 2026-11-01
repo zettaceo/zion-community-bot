@@ -107,8 +107,8 @@ else
     exit 1
   fi
 fi
-"$PYTHON" "$ROOT/scripts/check-runtime.py"
-"$PYTHON" -m pip check
+"$PYTHON" -B "$ROOT/scripts/check-runtime.py"
+"$PYTHON" -B -m pip check
 
 echo "[2/15] Conferindo worktree e commit..."
 CURRENT_BRANCH="$(/usr/bin/git symbolic-ref --quiet --short HEAD 2>/dev/null || true)"
@@ -170,8 +170,8 @@ if ! /usr/bin/git merge-base --is-ancestor "$PREVIOUS_COMMIT" "$CURRENT_HEAD"; t
 fi
 
 echo "[3/15] Reconfirmando runtime auditado..."
-"$PYTHON" "$ROOT/scripts/check-runtime.py"
-"$PYTHON" -m pip check
+"$PYTHON" -B "$ROOT/scripts/check-runtime.py"
+"$PYTHON" -B -m pip check
 
 echo "[4/15] Validando código, testes, shell e segredos..."
 ZION_VALIDATION_PYTHON="$PYTHON" bash "$ROOT/scripts/validate.sh"
@@ -191,12 +191,12 @@ if [[ "$DASHBOARD_INSTALLED" == true ]]; then
 fi
 
 echo "[6/15] Validando configuração e conhecimento ANTES do stop..."
-"$PYTHON" "$ROOT/scripts/check-env-boundary.py" \
+"$PYTHON" -B "$ROOT/scripts/check-env-boundary.py" \
   --env "$ROOT/.env" \
   --allowlist "$ROOT/.env.example" \
   --owner zetta
 
-"$PYTHON" - <<'PY'
+"$PYTHON" -B - <<'PY'
 import stat
 from pathlib import Path
 
@@ -375,7 +375,7 @@ DEST="$DEST" \
 PREVIOUS_SERVICE_STATE_LAYOUT="$PREVIOUS_SERVICE_STATE_LAYOUT" \
 ZION_TARGET_DB="$TARGET_DB" \
 ZION_TARGET_LEGACY="$TARGET_LEGACY" \
-"$PYTHON" - <<'PY'
+"$PYTHON" -B - <<'PY'
 import os
 import shutil
 from pathlib import Path
@@ -460,7 +460,7 @@ ZION_TARGET_DB="$TARGET_DB" \
 ZION_TARGET_LEGACY="$TARGET_LEGACY" \
 ZION_TARGET_LOG="$TARGET_LOG" \
 ZION_TARGET_LOCK="$TARGET_LOCK" \
-"$PYTHON" - <<'PY'
+"$PYTHON" -B - <<'PY'
 import os
 import shutil
 from pathlib import Path
@@ -591,7 +591,7 @@ if ! sha256sum -c "$DEST/env.sha256" >/dev/null 2>&1; then
   echo "ERRO: .env mudou durante o cutover." >&2
   exit 1
 fi
-"$PYTHON" "$ROOT/scripts/check-env-boundary.py" \
+"$PYTHON" -B "$ROOT/scripts/check-env-boundary.py" \
   --env "$ROOT/.env" \
   --allowlist "$ROOT/.env.example" \
   --owner zetta
