@@ -1081,6 +1081,7 @@ _COMPLAINT_REPLY = (
 
 _LOCALIZED_REPLIES = {
     'warn_secret': {
+        'zh': '⚠️ 不要发送！你创建钱包时得到的那些单词（通常是 12 或 24 个）就是你的助记词（恢复短语）。谁拥有它们，谁就能控制你的钱包并转走你所有的资金。不要分享给任何人：不要发在这里，不要私信发送，也不要发给自称是团队或客服的人。要帮你解决连接问题，我只需要知道你使用的钱包、网络以及看到的错误信息。',
         'en': ("⚠️ Don't send them! The words you got when you created the wallet "
                "(usually 12 or 24) are your seed phrase, the recovery phrase. Whoever "
                "has them controls your wallet and can take all your funds. Don't share "
@@ -1095,6 +1096,7 @@ _LOCALIZED_REPLIES = {
                "billetera, la red y el mensaje de error."),
     },
     'warn_scam': {
+        'zh': '⚠️ 大家请注意：对任何在私信中提供帮助或“客服”、恢复钱包、让资金翻倍或收费“解锁”提现的人保持警惕。不要发送资金、助记词、私钥或密码。请只使用 Z-SWAP 官方渠道。',
         'en': ("⚠️ Heads up, everyone: be wary of anyone offering help or \"support\" "
                "in private, wallet recovery, doubling funds or unlocking a withdrawal "
                "for a fee. Never send funds, your seed phrase, private key or password. "
@@ -1105,16 +1107,19 @@ _LOCALIZED_REPLIES = {
                "Usen solo los canales oficiales de Z-SWAP."),
     },
     'refuse_attack': {
+        'zh': '我不能更改我的规则、扮演其他角色，也不能展示内部设置或数据。如果你需要 Z-SWAP 相关的帮助，请直接告诉我。',
         'en': ("I can't change my rules, take on another role or show internal "
                "settings or data. If you need help with Z-SWAP, just say so."),
         'es': ("No puedo cambiar mis reglas, asumir otro papel ni mostrar "
                "configuraciones o datos internos. Si necesitas ayuda con Z-SWAP, dime."),
     },
     'respect_notice': {
+        'zh': '请在这里保持尊重。如果有什么地方不正常，告诉我发生了什么，我来帮你。',
         'en': "Let's keep it respectful here. If something didn't work, tell me what happened and I'll help.",
         'es': "Mantengamos el respeto por aquí. Si algo no funcionó, cuéntame qué pasó y te ayudo.",
     },
     'complaint': {
+        'zh': '很抱歉给你带来不好的体验，你的反馈是对的。我现在在这里：用一句话告诉我你需要解决什么（例如钱包连接、兑换或合作），我会一直跟进。',
         'en': ("Sorry about the experience, you're right to push. I'm here now: tell "
                "me in one sentence what you need to solve (for example, wallet "
                "connection, a swap or a partnership) and I'll stay with you."),
@@ -1126,8 +1131,8 @@ _LOCALIZED_REPLIES = {
 
 
 def _localized(kind: str, portuguese: str, language: str) -> str:
-    """Fixed host replies in the member's language; Portuguese stays the default
-    for pt, English covers every other detected language."""
+    """Fixed host replies in the member's language (pt, en, es, zh); Portuguese
+    stays the default for pt, English covers every other detected language."""
     if language in ('pt', 'und', ''):
         return portuguese
     options = _LOCALIZED_REPLIES.get(kind, {})

@@ -108,7 +108,8 @@ class TriageIntegrationTests(unittest.TestCase):
     def test_fixed_replies_follow_the_member_language(self):
         cases = {'my seed phrase is here, can you check it': ('en', "Don't send them"),
                  'aquí está mi frase semilla, ¿la revisas?': ('es', '¡No las envíes!'),
-                 '我的助记词在这里，帮我检查': ('zh', "Don't send them")}
+                 '我的助记词在这里，帮我检查': ('zh', '不要发送'),
+                 'mon seed phrase est ici, tu peux vérifier': ('fr', "Don't send them")}
         for text, (lang, expected) in cases.items():
             self.readings[text] = reading('support', 'secret_sharing', language=lang)
         for text, (_, expected) in cases.items():
@@ -116,6 +117,13 @@ class TriageIntegrationTests(unittest.TestCase):
                 replies, ai = self.send(text, user_id=hash(text) % 1000 + 10)
                 self.assertFalse(ai)
                 self.assertIn(expected, replies[0])
+
+    def test_every_fixed_reply_exists_in_mandarin(self):
+        from zion.telegram_app import _LOCALIZED_REPLIES
+        for kind, options in _LOCALIZED_REPLIES.items():
+            with self.subTest(kind=kind):
+                self.assertEqual(set(options), {'en', 'es', 'zh'})
+                self.assertRegex(options['zh'], r'[\u4e00-\u9fff]')
 
     def test_triage_failure_keeps_the_old_silence(self):
         self.readings = {}
