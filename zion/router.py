@@ -24,7 +24,7 @@ def _fold(value: str) -> str:
 
 
 _PARTNERSHIP = re.compile(
-    r"\b(?:parcerias?|partner(?:ship)?|business|comercial|b2b|empresa|"
+    r"\b(?:parcerias?|parceir[oa]s?|partner(?:ship)?|business|comercial|b2b|empresa|"
     r"projeto|integracao comercial|integrar (?:nossa|minha)|afiliados?|"
     r"patrocinio|sponsor|listing|market maker|liquidez institucional)\b"
 )
