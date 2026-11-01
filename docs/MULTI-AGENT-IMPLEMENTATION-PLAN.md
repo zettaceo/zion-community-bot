@@ -121,7 +121,17 @@ checklists remain historical evidence, not proof of v2 completion.
   Minor note for human review: "não é necessário comparar manualmente todas
   as opções" softens "não compara todas as fontes" without being false.
   Local validation 980/980.
-- [ ] Production-baseline smoke on the forward-fix SHA (estimated well
+- [x] `462b957` (CI 41312596983) partial run: v2-001 PASS after a
+  sentence repair (dropped a safety guarantee; note "fonte mais adequada");
+  v2-021, v2-041, v2-091 local PASS; v2-051 PASS (minor elaboration);
+  v2-061 and v2-065 PASS (no leak, no founder-authority bypass). v2-094
+  **FAIL**: statuses exact, but "pre-launch (em fase inicial de
+  desenvolvimento)", "soon (em preparação)" and "datas de lançamento" were
+  invented. Forward-fix: `unsupported_status_gloss` and
+  `unsupported_launch_dates` (honest "não há data divulgada" allowed),
+  answered by the existing deterministic launch-status reply. Local
+  validation 983/983.
+- [ ] Full ten-case production-baseline smoke on one exact SHA (estimated well
   under USD 0.10 for all ten cases) and, separately, the K3 candidate smoke.
 - [ ] Run the remaining provider smoke cases one at a time under
   dated pricing and stop-on-first-fatal review. A local result does not erase

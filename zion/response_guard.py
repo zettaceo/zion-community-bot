@@ -1864,6 +1864,19 @@ def validate_public_response(text: str, *, official_context: str) -> ResponseChe
     for network in re.findall(_UNLISTED_NETWORKS, folded):
         if not re.search(r'\b' + re.escape(network) + r'\b', approved_folded):
             return ResponseCheck(False, 'unsupported_network')
+    # Launch-state terms are copied, never explained: "pre-launch (em fase
+    # inicial de desenvolvimento)" invents a development stage.
+    gloss = r"(?:fase inicial|em desenvolvimento|de desenvolvimento|em construcao|em testes?|quase pront[oa]s?|em finalizacao|em preparacao)"
+    for match in re.finditer(rf"\b(?:pre-?launch|coming soon|soon|beta|teaser)\b[^.!?\n]{{0,30}}?{gloss}", folded):
+        term = re.search(gloss, match.group()).group()
+        if term not in approved_folded:
+            return ResponseCheck(False, 'unsupported_status_gloss')
+    for match in re.finditer(r"\bdatas? (?:de|do|para o) lancamento\b|\blaunch dates?\b|"
+                             r"\b(?:previsao|previst[oa]) (?:de|para) (?:o )?lancamento\b", folded):
+        before = folded[max(0, match.start() - 60):match.start()]
+        if (match.group() not in approved_folded
+                and not re.search(r"\b(?:nao|nenhuma?|sem|no|without|not)\b[^.!?\n]{0,40}$", before)):
+            return ResponseCheck(False, 'unsupported_launch_dates')
     quality_rules = (
         ('best_price_guarantee', r"\b(?:garant\w*|assegur\w*)\b(?:(?!\s*,\s*mas\b)[^.!?;\n]){0,60}\bmelhor(?:es)? (?:precos?|taxas?)\b"),
         ('best_price_guarantee', r'\bmelhor(?:es)? (?:precos?|taxas?) (?:e|sao|esta)? ?garantid[ao]s?\b'),
@@ -2049,7 +2062,8 @@ def validate_public_response(text: str, *, official_context: str) -> ResponseChe
 _REPAIRABLE = frozenset({
     'unsupported_universal_secret_promise', 'unsupported_absolute_seed_promise',
     'safety_guarantee', 'absolute_safety', 'financial_return_guarantee',
-    'absolute_reliability', 'unsupported_network',
+    'absolute_reliability', 'unsupported_network', 'unsupported_status_gloss',
+    'unsupported_launch_dates',
 })
 _SECRET_REASONS = frozenset({'unsupported_universal_secret_promise',
                              'unsupported_absolute_seed_promise'})
@@ -2330,7 +2344,8 @@ def wallet_connection_triage() -> str:
 def public_fallback_for(reason: str, *, official_context: str = '', question: str = '') -> str:
     """Host-owned public reply for a few known quality failures."""
     if reason in {'unsupported_future_community_notice',
-                  'unsupported_future_status_update'}:
+                  'unsupported_future_status_update', 'unsupported_status_gloss',
+                  'unsupported_launch_dates'}:
         reply = _public_launch_status_reply(question, official_context)
         return reply if reply is not None else PUBLIC_FALLBACK
     if reason in {'unsupported_universal_swap_signature',

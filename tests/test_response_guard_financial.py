@@ -336,3 +336,41 @@ class UnlistedNetworkTests(unittest.TestCase):
         self.assertIsNotNone(repaired)
         self.assertNotIn('Bitcoin', repaired)
         self.assertTrue(repaired.startswith('O processo funciona assim:'))
+
+
+class LaunchStatusGlossTests(unittest.TestCase):
+    """Live v2-094: statuses were right, but glossed and dated without source."""
+
+    def setUp(self):
+        from zion.knowledge import KnowledgeBase as KB
+        kb = KB(ROOT / 'knowledge')
+        kb.reload()
+        self.question = 'Buy, OTC, P2P, NFT, Launchpad e Governance já estão funcionando?'
+        self.ctx = kb.render_context(self.question, agent_id='zion')
+
+    def test_invented_stage_and_dates_are_rejected(self):
+        for text, reason in (
+                ('Launchpad está em pre-launch (em fase inicial de desenvolvimento).',
+                 'unsupported_status_gloss'),
+                ('OTC está como soon (em preparação).', 'unsupported_status_gloss'),
+                ('Fique atento aos anúncios para atualizações sobre datas de lançamento.',
+                 'unsupported_launch_dates'),
+                ('A previsão de lançamento é março.', 'unsupported_launch_dates')):
+            with self.subTest(text=text):
+                self.assertEqual(validate_public_response(text, official_context=self.ctx).reason,
+                                 reason)
+
+    def test_copied_status_and_honest_absence_of_dates_pass(self):
+        for text in ('Launchpad e Governance estão como pre-launch.',
+                     'O Terminal Pro está em beta.',
+                     'Ainda não há data de lançamento divulgada.',
+                     'Não existe previsão de lançamento publicada.'):
+            with self.subTest(text=text):
+                self.assertTrue(validate_public_response(text, official_context=self.ctx).allowed)
+
+    def test_fallback_is_the_deterministic_public_status(self):
+        reply = public_fallback_for('unsupported_status_gloss', official_context=self.ctx,
+                                    question=self.question)
+        self.assertIn('soon', reply)
+        self.assertIn('pre-launch', reply)
+        self.assertTrue(validate_public_response(reply, official_context=self.ctx).allowed)
