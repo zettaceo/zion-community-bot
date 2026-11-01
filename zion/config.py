@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 import idna
@@ -82,7 +82,7 @@ def _int_set(name: str) -> frozenset[int]:
 @dataclass(frozen=True, slots=True)
 class Settings:
     root_dir: Path
-    telegram_token: str
+    telegram_token: str = field(repr=False)
     admin_user_ids: frozenset[int]
 
     db_path: Path
@@ -156,6 +156,29 @@ class Settings:
     mistral_min_request_interval_ms: int
     mistral_rate_limit_retries: int
     mistral_rate_limit_max_delay_seconds: float
+
+    def with_primary_telegram_identity(self) -> "Settings":
+        """Resolve transport credentials only, without mutating env or files.
+
+        A configured protected ZION identity takes precedence. Unsafe storage
+        never falls back to a legacy token. Legacy configuration remains usable
+        only while the primary store is absent, for a controlled future cutover.
+        """
+        from .agents import AgentId
+        from .secret_store import SecretStoreError
+        from .telegram_identity_store import TelegramIdentityStore
+        if "telegram_identity_store_inside_worktree" in self.configuration_issues():
+            raise SecretStoreError("Telegram identity store must be outside the worktree")
+        store = TelegramIdentityStore(self.telegram_identity_secret_dir)
+        status = store.status(AgentId.ZION)
+        if status == store.UNSAFE:
+            raise SecretStoreError("Primary Telegram identity store is unsafe")
+        if status == store.CONFIGURED:
+            token = store.read(AgentId.ZION)
+            if not token:
+                raise SecretStoreError("Primary Telegram identity unavailable")
+            return replace(self, telegram_token=token)
+        return self
 
     def configuration_issues(self) -> tuple[str, ...]:
         issues: list[str] = []

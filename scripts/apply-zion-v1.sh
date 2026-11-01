@@ -204,7 +204,7 @@ from zion.config import Settings
 from zion.knowledge import KnowledgeBase
 from zion.mistral import _valid_mistral_api_url
 
-settings = Settings.from_env()
+settings = Settings.from_env().with_primary_telegram_identity()
 env_path = settings.root_dir / ".env"
 
 if not env_path.is_file() or env_path.is_symlink():

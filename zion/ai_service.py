@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 import hashlib
 import logging
 import re
@@ -11,7 +12,16 @@ from .agents import AgentId
 from .config import Settings
 from .db import ZionDB
 from .knowledge import KnowledgeBase
+from .knowledge import KnowledgeClassification
+from .knowledge_tools import KnowledgeTools
+from .generation_policy import GenerationPolicy, GenerationFailure
+from .response_planner import plan_response
+from .mistral import build_answer_messages
+from .providers import CompletionProvider, MistralCompletionProvider
+from .runtime_cost import RuntimeCostBudget, RequestAdmission
+from .language_recovery import recover_language
 from .mistral import MistralClient
+from .provider_budget import ProviderTokenBudget, ProviderBudgetError
 from .models import (
     AIAnswer,
     AIClassification,
@@ -20,6 +30,10 @@ from .models import (
 )
 from .secret_store import SecretStore
 from .router import _fold
+from .response_guard import (TRANSFORMED_SCAM_NOTICE, is_broad_product_comparison,
+                             public_fallback_for, repair_public_response,
+                             scam_surface_reason,
+                             validate_public_response, wallet_connection_triage)
 
 
 logger = logging.getLogger("zion.ai")
@@ -48,6 +62,71 @@ WALLET_SECRET_INPUT_REGEX = re.compile(
 )
 
 
+def _wallet_connection_failure(canonical: str) -> bool:
+    """Only explicit wallet-connection trouble gets the fixed support intake."""
+    if len(canonical) > 180 or "\n" in canonical:
+        return False
+    if re.search(r"\b(?:api|endpoint|sdk|webhook|bot)\b", canonical):
+        return False
+    # A later swap failure must not turn an already connected wallet into a
+    # connection incident. Match trouble and wallet in the same clause.
+    clauses = re.split(r"[,;.!?]|\b(?:mas|porem)\b", canonical)
+    connection_action = r"(?:re)?conect(?:ar|a|am|ou|ando|ei|o)\b"
+    trouble = (
+        rf"\b(?:nao consigo|nao consegui|nao consegue|nao esta conseguindo|"
+        rf"nao da (?:para|pra))\b.{{0,55}}\b{connection_action}",
+        # Wallet is the grammatical subject. This excludes advice such as
+        # "por que não conectar minha carteira?" and first-person choices.
+        r"\b(?:carteira|wallet)\b.{0,45}\bnao "
+        r"(?:esta |ta |se )?(?:re)?conect(?:ar|a|am|ou|ando|ada|ado)\b",
+        rf"\b(?:erro|falha|problema|dificuldade)\b"
+        rf".{{0,45}}\b(?:{connection_action}|conex\w*\b)",
+        r"\bconex\w*\b.{0,45}\b(?:falh\w*|erro)\b",
+    )
+    for clause in clauses:
+        if not re.search(r"\b(?:carteira|wallet)\b", clause):
+            continue
+        if re.search(r"\bsem (?:erro|falha|problema|dificuldade)\b",
+                     clause):
+            continue
+        if re.search(r"\bnao (?:tenho|tem|ha|esta com|estou com|apresenta) "
+                     r"(?:nenhum )?(?:erro|falha|problema|dificuldade)\b", clause):
+            continue
+        if any(re.search(pattern, clause) for pattern in trouble):
+            return True
+    return False
+
+
+def _public_wallet_triage_context(knowledge: KnowledgeBase) -> str:
+    """Check the reviewed EIR source directly, independent of caller query."""
+    if knowledge.load_errors:
+        return ""
+    for chunk in knowledge.chunks:
+        authority = chunk.authority
+        if (
+            authority.classification is not KnowledgeClassification.PUBLIC
+            or authority.source_identity != "zswap-public-disclosure-policy"
+            or authority.source_id != "zswap-public-disclosure-policy"
+            or authority.filename != "zswap-safety-boundary.md"
+            or not authority.allows(AgentId.EIR)
+            or _fold(chunk.heading) != "seguranca de carteira"
+        ):
+            continue
+        body = _fold(chunk.text)
+        if all(term in body for term in (
+            "nunca deve pedir", "seed phrase", "chave privada", "senha da carteira"
+        )):
+            return f"[Contexto oficial: {chunk.heading}]\n{chunk.text}"
+    return ""
+
+
+_WALLET_TRIAGE_SOURCE_UNAVAILABLE = (
+    "Ainda não tenho informação oficial suficiente para orientar essa "
+    "conexão com segurança. Fale com a equipe da Z-SWAP sem compartilhar "
+    "seed phrase, chave privada ou senha da carteira."
+)
+
+
 def sanitize_for_ai(text: str) -> str:
     sanitized = TELEGRAM_TOKEN_REGEX.sub(
         "[REDACTED_TELEGRAM_TOKEN]",
@@ -73,6 +152,9 @@ class AIService:
         db: ZionDB,
         knowledge: KnowledgeBase,
         secret_store: SecretStore | None = None,
+        *, generation_policy: GenerationPolicy | None = None,
+        completion_providers: dict[tuple[str, str], CompletionProvider] | None = None,
+        runtime_cost_budget: RuntimeCostBudget | None = None,
     ):
         self.settings = settings
         self.db = db
@@ -80,7 +162,29 @@ class AIService:
         self.secret_store = secret_store or SecretStore(
             settings.mistral_secret_path
         )
-        self.client = MistralClient(settings, self.secret_store)
+        cap = max(0, settings.ai_daily_token_budget)
+        self.generation_policy = generation_policy or GenerationPolicy(
+            settings.mistral_model, min(settings.mistral_max_tokens, 4096))
+        if self.generation_policy.baseline.model != settings.mistral_model:
+            raise ValueError('baseline_policy_mismatch')
+        self.completion_providers = dict(completion_providers or {})
+        approvals = self.generation_policy.approvals
+        self.provider_token_budget = ProviderTokenBudget(db, daily_limit=cap,
+            provider_limits={name: cap for name in {'mistral', *(a.provider for a in approvals)}},
+            model_limits={name: cap for name in {settings.mistral_model, *(a.model for a in approvals)}})
+        self.runtime_cost_budget = runtime_cost_budget
+        if runtime_cost_budget is not None:
+            self.provider_token_budget = RequestAdmission(self.provider_token_budget, runtime_cost_budget)
+        for (provider, model), adapter in self.completion_providers.items():
+            if isinstance(adapter, MistralCompletionProvider):
+                if provider != 'mistral' or adapter.client.settings.mistral_model != model:
+                    raise ValueError('candidate_adapter_mismatch')
+                # Mistral retries require admission at the HTTP-attempt level,
+                # not one reservation around an entire retriable completion.
+                adapter.client.token_budget = self.provider_token_budget
+        self.client = MistralClient(settings, self.secret_store,
+                                   token_budget=self.provider_token_budget,
+                                   knowledge_tools=KnowledgeTools(knowledge))
         self._semaphore = asyncio.Semaphore(settings.ai_max_concurrency)
         self._budget_lock = threading.Lock()
         self._reserved_tokens = 0
@@ -134,6 +238,11 @@ class AIService:
 
     @property
     def accounting_healthy(self) -> bool:
+        if self._accounting_healthy:
+            try:
+                self.provider_token_budget.totals()
+            except Exception:
+                self._accounting_healthy = False
         return self._accounting_healthy
 
     def _safe_set_setting(self, key: str, value: str) -> bool:
@@ -401,7 +510,7 @@ class AIService:
             return 0
 
     def budget_remaining(self) -> int | None:
-        if not self._accounting_healthy:
+        if not self.accounting_healthy:
             return 0
 
         budget = self.settings.ai_daily_token_budget
@@ -410,6 +519,13 @@ class AIService:
 
         used = self.tokens_used_today()
         if not self._accounting_healthy:
+            return 0
+        try:
+            # The two ledgers overlap: use the larger conservative total,
+            # never sum them and double-charge successful calls.
+            used = max(used, self.provider_token_budget.totals()['total'])
+        except Exception:
+            self._accounting_healthy = False
             return 0
         return max(0, budget - used)
 
@@ -427,6 +543,56 @@ class AIService:
         return hashlib.sha256(
             text.encode("utf-8", errors="ignore")
         ).hexdigest()[:24]
+
+    async def _generate_answer(self, kwargs: dict, *, agent: AgentId,
+                               context_query: str) -> AIAnswer:
+        chunks = self.knowledge.search(context_query, agent_id=agent)
+        public_only = bool(chunks) and all(
+            c.authority.classification is KnowledgeClassification.PUBLIC for c in chunks)
+        available = frozenset(key for key, client in self.completion_providers.items()
+                              if self.runtime_cost_budget is not None and client.configured)
+        selection = self.generation_policy.select(
+            plan_response(agent_id=agent, question=kwargs['question'], has_evidence=bool(chunks)),
+            has_evidence=bool(chunks), public_only=public_only, available=available)
+        if selection.reason == 'baseline':
+            try:
+                return await self.client.answer(**kwargs)
+            except ProviderBudgetError:
+                raise
+            except Exception:
+                raise GenerationFailure('mistral', self.settings.mistral_model) from None
+        # Candidate generation gets PUBLIC-only evidence and no tool authority.
+        # No implicit retry/fallback after an uncertain request or rejection.
+        evidence = KnowledgeTools(self.knowledge).call('search_approved_knowledge',
+            {'query': context_query}, agent_id=agent).render()
+        if not evidence:
+            raise ProviderBudgetError('candidate_evidence_unavailable')
+        messages = build_answer_messages(question=kwargs['question'], context=evidence,
+            # Historical assistant output may have been grounded in CONTROLLED
+            # material. It has no public classification and cannot be exported
+            # to a new provider merely because this turn retrieves PUBLIC data.
+            conversation_context='', agent_id=agent.value)
+        import json
+        upper = 2 * len(json.dumps(messages, ensure_ascii=False).encode('utf-8')) + 4096
+        adapter = self.completion_providers[(selection.provider, selection.model)]
+        reservation = (None if isinstance(adapter, MistralCompletionProvider) else
+            self.provider_token_budget.reserve(selection.provider, selection.model,
+                upper + selection.max_output_tokens))
+        try:
+            result = await adapter.complete(messages, max_tokens=selection.max_output_tokens)
+            if result.model != selection.model:
+                raise ProviderBudgetError('unexpected_response_model')
+            if reservation is not None:
+                self.provider_token_budget.settle(reservation, result.input_tokens, result.output_tokens)
+            return AIAnswer(result.text, result.model, result.input_tokens,
+                result.output_tokens, result.latency_ms, evidence)
+        except ProviderBudgetError:
+            raise
+        except Exception:
+            raise GenerationFailure(selection.provider, selection.model) from None
+        finally:
+            if reservation is not None:
+                self.provider_token_budget.retain_uncertain(reservation)
 
     async def answer(
         self,
@@ -462,6 +628,15 @@ class AIService:
                 model=self.settings.mistral_model,
             )
 
+        interpretation = recover_language(question)
+        if not conversation_context and interpretation.clarification:
+            return AIAnswer(text=interpretation.clarification, model="zion-local")
+        if re.fullmatch(r"(?:a )?minha ordem sumiu[.!?]*", interpretation.canonical):
+            return AIAnswer(
+                text="Ela sumiu apenas da lista de ordens abertas ou também não aparece no histórico?",
+                model="zion-local",
+            )
+
         # No developer interface is explicitly approved in the current public
         # corpus. Refuse interface discovery before retrieval or history can
         # introduce private routes. Public interface publication needs review.
@@ -470,7 +645,7 @@ class AIService:
             r"desenvolvedor|desenvolvimento|integracao|integrar)\b|"
             r"\b(?:apis?|conectar)\b.*\bbot\b|"
             r"\b(?:quais|listar?|conectar|usar)\b.*\bapis?\b",
-            _fold(question),
+            recover_language(question).canonical,
         )
         if selected_agent is AgentId.MIMIR and interface_request:
             return AIAnswer(
@@ -483,7 +658,7 @@ class AIService:
             )
 
         safe_question = sanitize_for_ai(question)
-        safe_context_query = sanitize_for_ai(context_query or question)
+        safe_context_query = sanitize_for_ai(recover_language(context_query or question).canonical)
         safe_conversation_context = sanitize_for_ai(
             conversation_context or ""
         )[:6000]
@@ -491,7 +666,45 @@ class AIService:
             safe_context_query,
             agent_id=selected_agent,
         )
+        if (selected_agent is AgentId.ZION and len(safe_context_query) <= 6000
+                and is_broad_product_comparison(safe_question)):
+            # The public tool projection keeps reviewed feature-state sections
+            # together for this broad question. It is also used by the isolated
+            # generation evaluator; never substitute CONTROLLED/raw sources.
+            comparison_context = KnowledgeTools(self.knowledge).call(
+                'search_approved_knowledge', {'query': safe_context_query},
+                agent_id=selected_agent).render()
+            if comparison_context:
+                context = comparison_context
         question_hash = self._hash_text(safe_question)
+
+        if (selected_agent is AgentId.EIR
+                and _wallet_connection_failure(interpretation.canonical)):
+            wallet_context = _public_wallet_triage_context(self.knowledge)
+            local_reply = _WALLET_TRIAGE_SOURCE_UNAVAILABLE
+            template = "wallet_connection_source_unavailable"
+            if wallet_context:
+                candidate_reply = wallet_connection_triage()
+                if validate_public_response(
+                    candidate_reply, official_context=wallet_context
+                ).allowed:
+                    local_reply = candidate_reply
+                    template = "wallet_connection_triage"
+            self._record_ai_event(
+                chat_id=chat_id,
+                user_id=user_id,
+                purpose="support_answer",
+                model="zion-local",
+                success=True,
+                input_hash=question_hash,
+                metadata={
+                    "knowledge_hits": 1 if wallet_context else 0,
+                    "provider_called": False,
+                    "agent_id": selected_agent.value,
+                    "local_template": template,
+                },
+            )
+            return AIAnswer(text=local_reply, model="zion-local")
 
         canonical_answer = self.knowledge.canonical_finite_answer(
             safe_question,
@@ -608,7 +821,8 @@ class AIService:
                         client_kwargs["conversation_context"] = (
                             safe_conversation_context
                         )
-                    answer = await self.client.answer(**client_kwargs)
+                    answer = await self._generate_answer(client_kwargs, agent=selected_agent,
+                                                         context_query=safe_context_query)
             finally:
                 self._release_budget(reservation)
 
@@ -639,20 +853,50 @@ class AIService:
                     "agent_id": selected_agent.value,
                 },
             )
+            approved_response_context = context + "\n" + answer.evidence_context
+            check = validate_public_response(answer.text,
+                official_context=approved_response_context)
+            if not check.allowed:
+                repaired = repair_public_response(
+                    answer.text, official_context=approved_response_context,
+                    reason=check.reason)
+                if repaired is not None:
+                    # Audited separately: a repair is not a clean model pass.
+                    self._record_ai_event(
+                        chat_id=chat_id, user_id=user_id, purpose="response_repair",
+                        model=answer.model, success=True, input_hash=question_hash,
+                        metadata={"reason": check.reason, "agent_id": selected_agent.value},
+                    )
+                    return replace(answer, text=repaired)
+                self._record_ai_event(
+                    chat_id=chat_id, user_id=user_id, purpose="response_guard",
+                    model=answer.model, success=False, input_hash=question_hash,
+                    metadata={"reason": check.reason, "agent_id": selected_agent.value},
+                )
+                return replace(answer, text=public_fallback_for(
+                    check.reason, official_context=approved_response_context,
+                    question=safe_question))
             return answer
+
+        except ProviderBudgetError:
+            return AIAnswer(text="O limite de uso da IA está indisponível ou foi atingido. Tente novamente mais tarde.",
+                            model=self.settings.mistral_model)
 
         except Exception as exc:
             self._record_provider_failure()
             self._charge_uncertain_budget(reservation)
-            logger.warning("Falha na resposta Mistral: %s", exc)
+            failed_model = exc.model if isinstance(exc, GenerationFailure) else self.settings.mistral_model
+            failed_provider = exc.provider if isinstance(exc, GenerationFailure) else 'mistral'
+            logger.warning("Falha na geração | provider=%s | error=%s", failed_provider, type(exc).__name__)
             self._record_ai_event(
                 chat_id=chat_id,
                 user_id=user_id,
                 purpose="support_answer",
-                model=self.settings.mistral_model,
+                model=failed_model,
                 success=False,
                 input_hash=question_hash,
                 metadata={
+                    "provider": failed_provider,
                     "error_type": type(exc).__name__,
                     "budget_estimate_tokens": reservation,
                     "usage_outcome": "uncertain",
@@ -664,8 +908,27 @@ class AIService:
                     "alguns instantes; a proteção da comunidade continua "
                     "funcionando normalmente."
                 ),
-                model=self.settings.mistral_model,
+                model=failed_model,
             )
+
+    def _public_reference_context(self) -> str:
+        """Official hosts/contacts that may appear in a restated text."""
+        return '\n'.join(chunk.text for chunk in self.knowledge.chunks
+                         if chunk.authority.classification is KnowledgeClassification.PUBLIC)
+
+    def _contain_transformed_output(self, answer: AIAnswer, *, purpose: str,
+                                    chat_id, user_id, input_hash: str) -> AIAnswer:
+        try:
+            reason = scam_surface_reason(answer.text,
+                                         official_context=self._public_reference_context())
+        except Exception:
+            reason = 'guard_unavailable'
+        if reason is None:
+            return answer
+        self._record_ai_event(chat_id=chat_id, user_id=user_id, purpose="response_guard",
+            model=answer.model, success=False, input_hash=input_hash,
+            metadata={"reason": reason, "source_purpose": purpose})
+        return replace(answer, text=TRANSFORMED_SCAM_NOTICE)
 
     async def summarize(
         self,
@@ -732,7 +995,12 @@ class AIService:
                 latency_ms=answer.latency_ms,
                 input_hash=self._hash_text(safe_text),
             )
-            return answer
+            return self._contain_transformed_output(answer, purpose="summarize",
+                chat_id=chat_id, user_id=user_id, input_hash=self._hash_text(safe_text))
+        except ProviderBudgetError:
+            return AIAnswer(text="O limite de uso da IA está indisponível ou foi atingido. Tente novamente mais tarde.",
+                            model=self.settings.mistral_model)
+
         except Exception as exc:
             self._record_provider_failure()
             self._charge_uncertain_budget(reservation)
@@ -831,7 +1099,12 @@ class AIService:
                 input_hash=self._hash_text(safe_text),
                 metadata={"target_language": safe_target},
             )
-            return answer
+            return self._contain_transformed_output(answer, purpose="translate",
+                chat_id=chat_id, user_id=user_id, input_hash=self._hash_text(safe_text))
+        except ProviderBudgetError:
+            return AIAnswer(text="O limite de uso da IA está indisponível ou foi atingido. Tente novamente mais tarde.",
+                            model=self.settings.mistral_model)
+
         except Exception as exc:
             self._record_provider_failure()
             self._charge_uncertain_budget(reservation)
@@ -908,6 +1181,9 @@ class AIService:
             )
             return result
 
+        except ProviderBudgetError:
+            return None
+
         except Exception as exc:
             self._record_provider_failure()
             self._charge_uncertain_budget(reservation)
@@ -968,6 +1244,9 @@ class AIService:
                 metadata={"authority": "interpretation_only"},
             )
             return result
+        except ProviderBudgetError:
+            return None
+
         except Exception as exc:
             self._record_provider_failure()
             self._charge_uncertain_budget(reservation)

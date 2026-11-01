@@ -9,6 +9,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 
 from zion.knowledge import KnowledgeBase
+from zion.knowledge_tools import KnowledgeTools
 
 
 def write_manifest(
@@ -48,6 +49,53 @@ def write_manifest(
 
 
 class KnowledgeTests(unittest.TestCase):
+    def test_natural_charging_question_retrieves_published_fee_policy(self):
+        kb = KnowledgeBase(ROOT / "knowledge")
+        for question in (
+            "Vocês cobram mais?",
+            "Uniswap faz isso. Binance também. Vocês cobram mais?",
+        ):
+            with self.subTest(question=question):
+                context = kb.render_context(question, agent_id="zion")
+                self.assertIn("platform fee", context)
+                self.assertIn("EVM", context)
+                tool_context = KnowledgeTools(kb).call(
+                    "search_approved_knowledge", {"query": question},
+                    agent_id="zion",
+                ).render()
+                self.assertIn("platform fee", tool_context)
+                self.assertIn("EVM", tool_context)
+
+    def test_solana_fees_retrieve_current_qualified_policy_for_every_agent(self):
+        kb = KnowledgeBase(ROOT / "knowledge")
+        for agent in ("zion", "mimir", "eir", "freyr"):
+            with self.subTest(agent=agent):
+                rendered = " ".join(kb.render_context(
+                    "Quais as taxas Solana Jupiter LI.FI?", agent_id=agent,
+                ).split())
+                for fact in (
+                    "Free/Thrall 1,00%", "Pro/Drengr 0,50%",
+                    "Trader/Berserkr 0,25%", "Pilot/Einherjar 0,10%",
+                    "USDC ou SOL", "Na Jupiter, outros pares Solana não têm",
+                    "LI.FI saindo da Solana são tratadas separadamente",
+                    "LI.FI saindo da Solana", "swap prossegue sem",
+                ):
+                    self.assertIn(fact, rendered)
+                self.assertNotIn("platform fee da Z-SWAP está atualmente desabilitada", rendered)
+
+    def test_partnership_pricing_criticism_prioritizes_business_scope(self):
+        kb = KnowledgeBase(ROOT / 'knowledge')
+        hits = kb.search('A parceria está cara, concorrentes fazem a mesma coisa', agent_id='freyr')
+        self.assertEqual(hits[0].heading, 'Comunidade e parcerias')
+        self.assertIn('Uma conversa não equivale', hits[0].text)
+        self.assertNotIn('taxa', hits[0].text.casefold())
+
+    def test_exact_competitive_objection_retrieves_institutional_value_before_market_data(self):
+        kb = KnowledgeBase(ROOT / 'knowledge')
+        hits = kb.search('Concerteza deve ter plataformas mais baratas, que oferecem a mesma coisa que a zswap e já consolidadas no mercado', agent_id='zion')
+        self.assertIn('Posicionamento institucional', hits[0].heading)
+        self.assertIn('produto antes de promessa', {h.heading.casefold() for h in hits})
+
     def test_retrieval(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -347,7 +395,8 @@ class KnowledgeTests(unittest.TestCase):
             "platform fee EVM pública é 0,50%",
             "platform fee EVM pública é 0,25%",
             "platform fee EVM pública é 0,10%",
-            "platform fee da Z-SWAP está atualmente desabilitada",
+            "Na Jupiter, outros pares Solana não têm platform fee da Z-SWAP",
+            "não seguem essa condição de par",
             "exatamente 36 meses de Premium",
             "A venda não está aberta",
             "preços públicos finais ainda não foram anunciados",
@@ -604,6 +653,52 @@ class ZSwapKnowledgeCorpusTests(unittest.TestCase):
         for literal in forbidden:
             with self.subTest(literal=literal):
                 self.assertNotIn(literal, corpus)
+
+    def test_quote_sources_are_scoped_and_cow_is_not_a_quote_source(self):
+        kb = KnowledgeBase(ROOT / "knowledge")
+        for agent in ("zion", "mimir"):
+            context = kb.render_context("Quais fontes de cotação e roteamento de swap são usadas?", agent_id=agent)
+            with self.subTest(agent=agent):
+                self.assertIn("0x", context)
+                self.assertIn("Jupiter", context)
+                self.assertIn("LI.FI", context)
+                self.assertIn("CoW Protocol", context)
+                self.assertIn("não uma fonte de cotação", context)
+                self.assertIn("mesma rede", context)
+
+    def test_generic_swap_questions_preserve_selected_source_scope(self):
+        for agent in ("zion", "mimir"):
+            for question in ("Swaps e pontes", "O que é possível fazer na Z-SWAP?"):
+                with self.subTest(agent=agent, question=question):
+                    context = self.kb.render_context(question, agent_id=agent)
+                    self.assertIn("fonte", context)
+                    self.assertIn("todas as fontes em cada pedido", context)
+                    self.assertNotIn("compara as cotações disponíveis", context)
+                    self.assertNotIn("comparar cotações de diferentes fontes", context)
+
+    def test_portfolio_question_preserves_unknown_value_and_partial_total(self):
+        for agent in ("zion", "mimir", "eir"):
+            with self.subTest(agent=agent):
+                chunks = self.kb.search(
+                    "Portfolio saldo indisponível preço desconhecido", agent_id=agent
+                )
+                self.assertTrue(chunks)
+                self.assertEqual(chunks[0].heading, "Portfolio")
+                context = chunks[0].text
+                self.assertIn("não devem ser tratados como", context)
+                self.assertIn("zero", context)
+                self.assertIn("total parcial", context)
+                self.assertIn("não comprova o patrimônio", context)
+                self.assertNotIn("indistinguível de saldo vazio", context)
+
+    def test_loaded_corpus_content_does_not_embed_repository_or_commit_provenance(self):
+        import re
+        kb = KnowledgeBase(ROOT / "knowledge")
+        for chunk in kb.chunks:
+            with self.subTest(heading=chunk.heading):
+                self.assertNotIn("zetta-world/swap-z-app", chunk.text)
+                self.assertNotIn("zettaceo/zion-community-bot", chunk.text)
+                self.assertIsNone(re.search(r"\b[a-f0-9]{40}\b", chunk.text))
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,3 +1,103 @@
+## Current cognitive-v2 handoff — 2026-11-01
+
+Branch `codex/multi-agent-cognitive-v2`, worktree
+`/home/zetta/.codex/worktrees/zion-cognitive-v2`, draft PR #66. Read
+`docs/COGNITIVE-V2-PROMOTION-RUNBOOK.md` first: it lists what changes in
+production, the gate states and the exact promotion/rollback sequence.
+Since 2026-10-29 the output guard was hardened against financial promises,
+investment advice, phishing and DM-support scams, `/summary`/`/translate`
+gained phishing containment, and the delivery probe gained a
+production-model mode. Live provider runs need explicit owner authorization
+(spend); none were made. Production remains `472a4b3`, unchanged.
+
+## Current cognitive-v2 handoff — 2026-10-26
+
+The active isolated candidate is `codex/multi-agent-cognitive-v2` in
+`/home/zetta/.codex/worktrees/zion-cognitive-v2`. Its last committed HEAD before
+this handoff update is `9926cc959033b8d2d857fda077eab50779f55075`;
+exact-SHA CI run `40298660922` succeeded. The newer local comparison-context
+refinement passed 895 tests, `SECRET SCAN: OK` and `ZION VALIDATION: OK`, but
+requires its own commit and exact-SHA CI. Draft PR #66 targets `zion-v1.1-dev`.
+
+The operator privately provisioned Kimi through a hidden local terminal prompt.
+Registration passed metadata-only validation, but Kimi remains inactive in
+Telegram. Bounded synthetic/PUBLIC provider trials have **not** established a
+winner: the latest K3 12-turn debate stopped at turn 1 on
+`missing_feature_status`; later turns and three other scenarios were not run.
+The delivery fallback is local deterministic containment, not model-quality
+acceptance. The details, costs and earlier human findings are in
+`COGNITIVE-V2-QUALITY-FINDINGS.md`.
+
+Production checkout/runtime remain at
+`472a4b3f0ce73a8635d400c0073701013c357b92`; a read-only check on
+2026-10-26 found `zion.service` active/running, NRestarts 0. The current
+candidate has not been promoted. An independent v2 release audit, provider
+quality/privacy decision, new production approval, pinned cutover and real
+Telegram acceptance are still required. See the top of
+`MULTI-AGENT-IMPLEMENTATION-PLAN.md` for the active phase status. Older entries
+below are historical checkpoints, not current acceptance.
+
+## Historical implementation evidence — 2026-10-19
+
+774/774 tests PASS, SECRET SCAN OK, ZION VALIDATION OK. Added private provider
+panel, 24-turn context regression, safety-guarantee filtering and an allowlisted
+stronger Mistral evaluation candidate. Mistral baseline's five-case smoke needed
+review; v2-001 made a safety guarantee, now covered by rejection regression.
+Large 3 smoke stopped on HTTP 403; no quality result or winner. Kimi is deferred
+until operator provisioning after a scoped release. Production remains unchanged.
+See the active plan for evidence paths and remaining gates.
+
+## Operator preference update — Kimi credential
+
+The operator now explicitly requests provisioning through the private ZION chat,
+not terminal input. `/setkimikey`, `/cancelkimikey`, `/kimistatus` and an early
+private capture handler have been implemented in the isolated branch. Do not
+ask the operator to run the earlier terminal command or send a key until the
+new DM flow is actually included in an approved production release.
+No real Kimi key was received or provisioned during implementation.
+
+## Active v2 recovery checkpoint — 2026-10-19
+
+Worktree: `/home/zetta/.codex/worktrees/zion-cognitive-v2`, branch
+`codex/multi-agent-cognitive-v2`. The former temporary worktree disappeared;
+commits were preserved and recorded source edits restored. Recovery: 754 tests PASS. Subsequent knowledge-tool/planner increment:
+763 tests, secret scan and normal validation PASS. Full recovery log:
+`/home/zetta/.codex/worktrees/zion-cognitive-recovery-validation.log`.
+
+Kimi provisioning command now uses this persistent path:
+`PYTHONDONTWRITEBYTECODE=1 /home/zetta/.local/share/zion-community-bot/runtimes/current/bin/python /home/zetta/.codex/worktrees/zion-cognitive-v2/scripts/provision-kimi.py`.
+Only hidden local terminal input; never paste credentials into chat.
+Credential has NOT been confirmed. Provider evaluation is synthetic/public only.
+No production activation or full-mission acceptance is claimed.
+Mistral synthetic smoke stopped on absolute_safety at v2-031; no benchmark
+acceptance. Prompt changed afterward, so a new common-input baseline is needed.
+Remaining work is tracked at the top of MULTI-AGENT-IMPLEMENTATION-PLAN.md.
+
+---
+
+# 2026-10-18 — Cognitive v2 initial checkpoint (development only)
+
+The active mission is Cognitive Architecture v2. See the current section at the
+top of `MULTI-AGENT-IMPLEMENTATION-PLAN.md`; historical readiness statements below
+must not be interpreted as current host or v2 completion evidence.
+
+- Feature: `codex/multi-agent-cognitive-v2`, isolated `/tmp/zion-cognitive-v2`.
+- Base dev: `57a10444422373271fbd602acc083199346b5031`.
+- First increment: `1c0cff7ae5c318eb96c3d67a747e1c29eb9dc4b9`.
+- Fresh baseline 724 PASS; increment full suite 727 PASS; secret scan/validation OK.
+- Fix: explicit topic switches do not inherit previous retrieval/history merely
+  because they begin with a follow-up conjunction. Six paired scenarios pass;
+  five failed before the fix. This is not complete semantic language recovery.
+- Public Solana fee policy reconciled against Z-SWAP `986ae759...`; current
+  projection corrected, APN archival text preserved with supersession notice.
+- Provider research started; no Kimi implementation, paid requests or credentials.
+- Measured production remains `472a4b3f0ce73a8635d400c0073701013c357b92`, active,
+  PID 534477/NRestarts 0. No production mutation in this increment.
+- Full v2 implementation, official provider review, secure provisioning, benchmark,
+  release audit, promotion and live Telegram acceptance remain pending.
+
+---
+
 # ZION — CHAT HANDOFF / CURRENT STATE
 
 Date: 2026-09-20  

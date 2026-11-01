@@ -35,10 +35,11 @@ PHRASES = (
 
 class FinalAcceptanceTests(unittest.TestCase):
     def test_short_questions_route_without_history(self):
-        for phrase in PHRASES:
+        for index, phrase in enumerate(PHRASES):
             with self.subTest(phrase=phrase):
                 route = IntentRouter().route_group(phrase)
-                self.assertEqual(route.intent, ConversationIntent.TECHNICAL)
+                self.assertEqual(route.intent, ConversationIntent.TECHNICAL if index < 6
+                                 else ConversationIntent.API_INTEGRATION)
                 self.assertEqual(route.speaker.agent_id, AgentId.MIMIR)
 
     def test_real_handler_selects_one_mimir_without_history(self):
@@ -91,6 +92,14 @@ class FinalAcceptanceTests(unittest.TestCase):
         system = self._system_prompt('Todos os swaps usam smart contracts?')
         self.assertIn('Não afirme que todos os swaps', system)
         self.assertIn('rota, rede e provedor autorizados', system)
+
+    def test_public_snapshot_and_solana_fee_scope_are_in_provider_contract(self):
+        system = self._system_prompt('Quais são as taxas na Solana hoje?')
+        self.assertIn('explicitamente vinculada às rotas Jupiter', system)
+        self.assertIn('rotas LI.FI que saem da Solana', system)
+        self.assertIn('Terminal Pro beta e Portfolio/Orders parciais', system)
+        self.assertIn('snapshots públicos revisados', system)
+        self.assertIn('não uma consulta ao produto neste instante', system)
 
     def test_absolute_safety_is_prohibited_in_provider_contract(self):
         system = self._system_prompt('É seguro usar a Z-SWAP?')
