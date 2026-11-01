@@ -95,7 +95,24 @@ checklists remain historical evidence, not proof of v2 completion.
   warnings and refusals stay accepted. 25 scam and 26 safe regressions;
   official corpus and the 164-output replay unchanged. Local validation
   970/970, secret scan, ZION validation OK.
-- [ ] Owner-authorized live runs: production-baseline smoke (estimated well
+- [x] Owner authorized the production-baseline smoke on 2026-11-01. First
+  case v2-001 on `c99cdc3` (1 provider call, 717 micro-USD): the swap flow
+  matched `z-swap.md` (source chosen by network, no all-source comparison,
+  fee/impact/minimum shown), but the answer ended with "garantindo que você
+  mantenha o controle total sobre seus fundos" — a guarantee beyond the
+  source ("a carteira continua sob controle do próprio usuário"). Review:
+  **FAIL**; stop-on-first-fatal applied, remaining cases not run on that SHA.
+  Forward-fix: `controle total` joins `safety_guarantee`; present-tense
+  promises about *people* ("a equipe nunca pede") join
+  `unsupported_universal_secret_promise` while product statements ("a
+  Z-SWAP não pede sua senha", reviewed in c4d1f36) stay allowed; and
+  `repair_public_response` drops at most two reassurance-type overclaim
+  sentences when the rest keeps ≥60% of the answer and re-passes the full
+  guard, appending the normative secret instruction when a secret promise
+  was dropped. Repairs are audited as `response_repair` and flagged
+  `repaired` in delivery evidence — never a clean pass. Every other guard
+  failure keeps the whole-answer fallback. Local validation 977/977.
+- [ ] Production-baseline smoke on the forward-fix SHA (estimated well
   under USD 0.10 for all ten cases) and, separately, the K3 candidate smoke.
 - [ ] Run the remaining provider smoke cases one at a time under
   dated pricing and stop-on-first-fatal review. A local result does not erase

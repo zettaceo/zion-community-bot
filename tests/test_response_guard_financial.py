@@ -10,7 +10,8 @@ import re
 import unittest
 
 from zion.knowledge import KnowledgeBase
-from zion.response_guard import public_fallback_for, validate_public_response
+from zion.response_guard import (public_fallback_for, repair_public_response,
+                                 validate_public_response)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -231,3 +232,72 @@ class ScamSurfaceGuardTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+SWAP_ANSWER = (
+    'Os swaps na Z-SWAP funcionam assim: você escolhe o ativo e a rede, e a '
+    'plataforma seleciona uma fonte de cotação conforme as redes envolvidas e '
+    'mostra a rota com taxa, impacto no preço e valor mínimo esperado.\n\n'
+    'Antes de confirmar, verifique o ativo, a rede de origem, a rede de destino, '
+    'o endereço de recebimento e os valores.\n\n'
+    'A Z-SWAP não pede sua seed phrase ou chave privada em nenhum momento do processo. '
+    'A confirmação da transação é feita pela sua carteira, garantindo que você mantenha '
+    'o controle total sobre seus fundos.'
+)
+
+
+class SentenceRepairTests(unittest.TestCase):
+    """Found by the first live production-model case (v2-001, 2026-11-01)."""
+
+    def test_present_tense_secret_promise_is_categorical(self):
+        for text in ('A equipe nunca pede sua chave privada.',
+                     'O suporte da Z-SWAP não pede sua seed phrase.',
+                     'Os administradores não pedem sua senha.',
+                     'O time não pede sua seed phrase.'):
+            with self.subTest(text=text):
+                self.assertEqual(validate_public_response(text, official_context='').reason,
+                                 'unsupported_universal_secret_promise')
+        # Product statements about a non-custodial platform stay allowed.
+        for text in ('A Z-SWAP nunca deve pedir seed phrase ou chave privada.',
+                     'Não compartilhe seed phrase: a Z-SWAP nunca deve pedir esses dados.',
+                     'A Z-SWAP não pede sua senha da carteira.',
+                     'Modelo não custodial: a Z-SWAP não pede seed phrase.'):
+            with self.subTest(text=text):
+                self.assertTrue(validate_public_response(text, official_context='').allowed)
+
+    def test_guaranteed_full_control_is_a_safety_guarantee(self):
+        self.assertEqual(validate_public_response(
+            'A confirmação é feita pela sua carteira, garantindo que você mantenha '
+            'o controle total sobre seus fundos.', official_context='').reason,
+            'safety_guarantee')
+
+    def test_reassurance_sentences_are_dropped_and_replaced_by_the_norm(self):
+        check = validate_public_response(SWAP_ANSWER, official_context='')
+        self.assertFalse(check.allowed)
+        repaired = repair_public_response(SWAP_ANSWER, official_context='', reason=check.reason)
+        self.assertIsNotNone(repaired)
+        self.assertIn('fonte de cotação conforme as redes', repaired)
+        self.assertNotIn('garantindo', repaired)
+        self.assertIn('A Z-SWAP não pede sua seed phrase', repaired)
+        self.assertTrue(validate_public_response(repaired, official_context='').allowed)
+
+    def test_non_repairable_failures_keep_the_whole_answer_fallback(self):
+        text = SWAP_ANSWER + ' Acesse claim-zswap.xyz para bônus.'
+        reason = validate_public_response(text, official_context='').reason
+        self.assertIsNone(repair_public_response(text, official_context='', reason=reason))
+        self.assertIsNone(repair_public_response(SWAP_ANSWER, official_context='',
+                                                 reason='unapproved_url'))
+
+    def test_answer_that_is_mostly_overclaim_is_not_repaired(self):
+        text = ('A equipe nunca pede sua seed phrase. A plataforma é totalmente segura. '
+                'Use a carteira.')
+        self.assertIsNone(repair_public_response(text, official_context='',
+                                                 reason='unsupported_universal_secret_promise'))
+
+    def test_dropped_people_promise_is_replaced_by_the_norm(self):
+        text = SWAP_ANSWER.replace('A Z-SWAP não pede', 'A equipe nunca pede')
+        reason = validate_public_response(text, official_context='').reason
+        repaired = repair_public_response(text, official_context='', reason=reason)
+        self.assertIsNotNone(repaired)
+        self.assertNotIn('nunca pede', repaired)
+        self.assertTrue(repaired.endswith('Não compartilhe seed phrase, chave privada ou senha.'))

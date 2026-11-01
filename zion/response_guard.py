@@ -661,6 +661,8 @@ def _universal_secret_request_promise(text: str) -> bool:
                  r'representante|pessoa|agente|funcionario))' + affiliation)
     organization = (r'(?:a z[\s-]?swap|o zion|a equipe|nossa equipe|o suporte|'
                     r'os administradores|nos)' + affiliation)
+    people = (r'(?:a equipe|nossa equipe|o suporte|os administradores|os admins|'
+              r'os moderadores|nos|o time)' + affiliation)
     future_request = (r'(?:(?:te\s+|lhe\s+)?'
                       r'(?:(?:vai|ira|vamos|iremos|vao|irao)\s+)'
                       r'(?:te\s+|lhe\s+)?'
@@ -672,6 +674,11 @@ def _universal_secret_request_promise(text: str) -> bool:
         rf'\b(?:{requester}\s+(?:nunca\s+|jamais\s+)?'
         rf'(?:{future_request}|pede|solicita|exige)'
         rf'|{organization}\s+(?:nao|nunca|jamais)\s+{future_request}'
+        # Present tense about *people* is the same categorical promise as the
+        # future ("a equipe nunca pede"). A product statement such as "a
+        # Z-SWAP não pede sua senha" stays allowed (reviewed in c4d1f36).
+        rf'|{people}\s+(?:nao|nunca|jamais)\s+(?:te\s+|lhe\s+)?'
+        r'(?:pede|pedem|solicita|solicitam|exige|exigem)'
         r'|(?:nao|nunca|jamais)\s+(?:(?:vamos|iremos)\s+'
         r'(?:pedir|solicitar|exigir)|pediremos|solicitaremos|exigiremos)'
         r'|(?:no one|nobody)(?:\s+(?:at|from)\s+z[\s-]?swap|\s+on our team)?'
@@ -1847,7 +1854,7 @@ def validate_public_response(text: str, *, official_context: str) -> ResponseChe
         ('best_price_guarantee', r'\bmelhor(?:es)? (?:precos?|taxas?) (?:e|sao|esta)? ?garantid[ao]s?\b'),
         ('best_price_guarantee', r'\b(?:oferece|oferecemos|entrega|entregamos|obtem|obtemos) sempre (?:o|a) melhor(?:es)? (?:precos?|taxas?)\b|\b(?:menor|mais baixa) taxa (?:do mercado )?(?:e|esta)? ?garantid[ao]\b'),
         ('universal_swap_execution', r"\btodos os swaps (?:sao (?:sempre )?(?:executados|realizados|processados) (?:por|via|em)|usam) (?:smart contracts?|contratos? inteligentes?)\b"),
-        ('safety_guarantee', r'\b(?:garant\w*|assegur\w*)\b(?:(?!\s*,\s*mas\b)[^.!?;\n]){0,80}\b(?:seguranca|segur[oa]s?|protecao total)\b'),
+        ('safety_guarantee', r'\b(?:garant\w*|assegur\w*)\b(?:(?!\s*,\s*mas\b)[^.!?;\n]){0,80}\b(?:seguranca|segur[oa]s?|protecao total|controle total)\b'),
         ('safety_guarantee', r'\bseguranca(?: da (?:operacao|transacao))?\s+(?:esta|e)\s+(?:(?:plenamente|totalmente|completamente|100%)\s+)?garantid[ao]s?\b'),
         ('execution_guarantee', r'\b(?:garant\w*|assegur\w*)\b[^.!?\n]{0,70}\b(?:transacao|ordem|swap|operacao)\b[^.!?\n]{0,50}\b(?:executad[oa]|concluid[oa]|bem.sucedid[oa])\b|\b(?:garant\w*|assegur\w*)\b[^.!?\n]{0,30}\bexecucao (?:da|do|de) (?:sua |seu |uma |um )?(?:transacao|ordem|swap|operacao)\b'),
         ('absolute_safety', r"\b(?:e segur[oa](?: para usar)?|(?:100%|totalmente|completamente) segur[oa]|livre de riscos?|seguranca total|risco zero|nao (?:tem|corre|existe) riscos?)\b"),
@@ -2019,6 +2026,54 @@ def validate_public_response(text: str, *, official_context: str) -> ResponseChe
         if url.rstrip('.,);') not in {u.rstrip('.,);') for u in approved_urls}:
             return ResponseCheck(False, 'unapproved_url')
     return ResponseCheck(True, 'accepted')
+
+
+# Reassurance-style overclaims that are usually one appended sentence. Only
+# these may be repaired by dropping the sentence; every other failure keeps
+# the whole-answer fallback.
+_REPAIRABLE = frozenset({
+    'unsupported_universal_secret_promise', 'unsupported_absolute_seed_promise',
+    'safety_guarantee', 'absolute_safety', 'financial_return_guarantee',
+    'absolute_reliability',
+})
+_SECRET_REASONS = frozenset({'unsupported_universal_secret_promise',
+                             'unsupported_absolute_seed_promise'})
+_SECRET_NORM = 'Não compartilhe seed phrase, chave privada ou senha.'
+
+
+def repair_public_response(text: str, *, official_context: str, reason: str) -> str | None:
+    """Drop at most two overclaiming sentences when the rest stands on its own.
+
+    Each dropped sentence must fail on its own with a repairable reason; the
+    remainder must keep most of the answer and pass the full guard again. A
+    dropped secret promise is replaced by the normative instruction the
+    PUBLIC source actually supports. Anything else returns None (fallback).
+    """
+    if reason not in _REPAIRABLE or not isinstance(text, str):
+        return None
+    pieces = re.findall(r'[^.!?\n]+(?:[.!?]+|$)[ \t]*|\n+', text)
+    if ''.join(pieces) != text:
+        return None
+    kept, dropped = [], set()
+    for piece in pieces:
+        check = validate_public_response(piece, official_context=official_context) \
+            if piece.strip() else None
+        if check is not None and not check.allowed:
+            if check.reason not in _REPAIRABLE:
+                return None
+            dropped.add(check.reason)
+            continue
+        kept.append(piece)
+    if not dropped or len(pieces) - len(kept) > 2:
+        return None
+    result = re.sub(r'\n{3,}', '\n\n', ''.join(kept)).strip()
+    if len(result) < 80 or len(result) < 0.6 * len(text.strip()):
+        return None
+    if dropped & _SECRET_REASONS and 'seed phrase' not in _fold(result):
+        result += '\n\n' + _SECRET_NORM
+    if not validate_public_response(result, official_context=official_context).allowed:
+        return None
+    return result
 
 
 PUBLIC_FALLBACK = (

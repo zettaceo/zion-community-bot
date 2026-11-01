@@ -31,7 +31,8 @@ from .models import (
 from .secret_store import SecretStore
 from .router import _fold
 from .response_guard import (TRANSFORMED_SCAM_NOTICE, is_broad_product_comparison,
-                             public_fallback_for, scam_surface_reason,
+                             public_fallback_for, repair_public_response,
+                             scam_surface_reason,
                              validate_public_response, wallet_connection_triage)
 
 
@@ -856,6 +857,17 @@ class AIService:
             check = validate_public_response(answer.text,
                 official_context=approved_response_context)
             if not check.allowed:
+                repaired = repair_public_response(
+                    answer.text, official_context=approved_response_context,
+                    reason=check.reason)
+                if repaired is not None:
+                    # Audited separately: a repair is not a clean model pass.
+                    self._record_ai_event(
+                        chat_id=chat_id, user_id=user_id, purpose="response_repair",
+                        model=answer.model, success=True, input_hash=question_hash,
+                        metadata={"reason": check.reason, "agent_id": selected_agent.value},
+                    )
+                    return replace(answer, text=repaired)
                 self._record_ai_event(
                     chat_id=chat_id, user_id=user_id, purpose="response_guard",
                     model=answer.model, success=False, input_hash=question_hash,

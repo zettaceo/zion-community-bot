@@ -78,3 +78,32 @@ class TransformedOutputGuardTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class DeliveredRepairTests(unittest.TestCase):
+    def test_repair_is_delivered_and_audited_as_repair_not_pass(self):
+        from tests.test_response_guard_financial import SWAP_ANSWER
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        settings = replace(make_settings(Path(temp.name)), ai_enabled=True)
+        db = ZionDB(settings.db_path)
+        db.initialize()
+        self.addCleanup(db.close)
+        ai = AIService(settings, db, KnowledgeBase(ROOT / 'knowledge'))
+
+        class Client:
+            configured = True
+
+            async def answer(self, **_kwargs):
+                return AIAnswer(text=SWAP_ANSWER, model='test', input_tokens=10,
+                                output_tokens=10, latency_ms=1)
+
+        ai.client = Client()
+        answer = asyncio.run(ai.answer(chat_id=1, user_id=2,
+                                       question='Como funciona os swaps?', agent_id='mimir'))
+        self.assertIn('fonte de cotação conforme as redes', answer.text)
+        self.assertNotIn('garantindo', answer.text)
+        rows = db._conn.execute(
+            "SELECT purpose, success FROM ai_events WHERE purpose IN ('response_repair','response_guard')"
+        ).fetchall()
+        self.assertEqual([(r['purpose'], r['success']) for r in rows], [('response_repair', 1)])

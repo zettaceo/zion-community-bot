@@ -307,6 +307,8 @@ async def evaluate_delivery_case(case: dict, *, service: DeliveryEvaluationServi
                           else 'settled' if calls else 'no_provider'),
         'human_review': 'PENDING', 'scope': 'delivery_simulation_synthetic_public',
         'error_type': service.last_error_type,
+        # A sentence-level repair is delivered, but it is not a clean pass.
+        'repaired': any(purpose == 'response_repair' for purpose, _, _, _ in events),
         'event_statuses': [{'purpose': purpose, 'model': model, 'success': success}
                            for purpose, model, success, _ in events],
     }
