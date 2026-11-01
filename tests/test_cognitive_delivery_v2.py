@@ -32,7 +32,11 @@ class CognitiveDeliveryTests(unittest.TestCase):
                     return httpx.Response(200, json={'model': settings.mistral_model,
                         'usage': {'prompt_tokens': 10, 'completion_tokens': 5},
                         'choices': [{'message': message, 'finish_reason': finish}]})
+                # One community triage reading (duplicate intake is read once),
+                # then the two-request native answer.
                 http = SequenceAsyncClient([
+                    response({'content': '{"addressed": true, "intent": "technical", "risks": [], '
+                              '"language": "pt", "confidence": 0.9}'}, 'stop'),
                     response({'content': None, 'tool_calls': [{'id': 'call00001', 'type': 'function',
                         'function': {'name': 'get_supported_networks', 'arguments': '{}'}}]}, 'tool_calls'),
                     response({'content': 'Ethereum é uma rede suportada.'}, 'stop')])
@@ -42,9 +46,9 @@ class CognitiveDeliveryTests(unittest.TestCase):
                         for _ in range(2)])
                 with patch('zion.mistral.httpx.AsyncClient', return_value=http):
                     asyncio.run(run())
-                self.assertEqual(len(http.calls), 2)
+                self.assertEqual(len(http.calls), 3)
                 rt.multi_agent_transport.send_message.assert_awaited_once()
-                self.assertEqual(rt.ai.provider_token_budget.totals()['total'], 30)
-                self.assertEqual(rt.ai.tokens_used_today(), 30)
+                self.assertEqual(rt.ai.provider_token_budget.totals()['total'], 45)
+                self.assertEqual(rt.ai.tokens_used_today(), 45)
             finally:
                 rt.close()
