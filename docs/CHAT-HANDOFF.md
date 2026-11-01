@@ -1,3 +1,15 @@
+## Current cognitive-v2 handoff — 2026-11-01
+
+Branch `codex/multi-agent-cognitive-v2`, worktree
+`/home/zetta/.codex/worktrees/zion-cognitive-v2`, draft PR #66. Read
+`docs/COGNITIVE-V2-PROMOTION-RUNBOOK.md` first: it lists what changes in
+production, the gate states and the exact promotion/rollback sequence.
+Since 2026-10-29 the output guard was hardened against financial promises,
+investment advice, phishing and DM-support scams, `/summary`/`/translate`
+gained phishing containment, and the delivery probe gained a
+production-model mode. Live provider runs need explicit owner authorization
+(spend); none were made. Production remains `472a4b3`, unchanged.
+
 ## Current cognitive-v2 handoff — 2026-10-26
 
 The active isolated candidate is `codex/multi-agent-cognitive-v2` in

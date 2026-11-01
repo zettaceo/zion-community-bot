@@ -1,5 +1,26 @@
 # ZION Multi-Agent Command System - Release Audit
 
+## Cognitive v2 preproduction checkpoint — 2026-11-01, guard hardening
+
+**Verdict: NOT RELEASE CERTIFIED.** The delivered v2-041 answer on
+`873ce55` (local, zero provider calls) passed independent review; human
+review is pending. The delivery probe now also exercises the model
+production actually serves (`ministral-8b-2512` through the unchanged
+`AIService`/`MistralClient` path, per-attempt currency admission). Its
+tests exposed that the output guard — which the running production
+commit `472a4b3` does not have at all — accepted profit/return guarantees,
+"swaps nunca falham", buy/sell advice, price forecasts, seed/key/password
+requests, fund solicitation, unofficial addresses, scheme-less phishing
+hosts, unknown handles, DM-support and fund-recovery scams; `/summary` and
+`/translate` had no guard. All are now contained with PT/EN regressions,
+zero official-corpus false positives and no verdict change across 164
+stored model outputs. Local validation 970/970, secret scan and ZION
+validation OK; exact-SHA CI green on every pushed commit. Remaining gates
+and the promotion and rollback sequence are in
+`COGNITIVE-V2-PROMOTION-RUNBOOK.md`: owner-authorized live smoke,
+human review, disposable DB rehearsal at the production SHA, controlled
+Telegram acceptance. Kimi inactive; production unchanged.
+
 ## Cognitive v2 latest preproduction checkpoint — 2026-10-29, 4271c98
 
 **Verdict: NOT RELEASE CERTIFIED.** Candidate
