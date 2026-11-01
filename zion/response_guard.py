@@ -673,7 +673,7 @@ def _universal_secret_request_promise(text: str) -> bool:
     claim = re.compile(
         rf'\b(?:{requester}\s+(?:nunca\s+|jamais\s+)?'
         rf'(?:{future_request}|pede|solicita|exige)'
-        rf'|{organization}\s+(?:nao|nunca|jamais)\s+{future_request}'
+        rf'|{organization}\b[^.!?;\n]{{0,40}}?\b(?:nao|nunca|jamais)\s+{future_request}'
         # Present tense about *people* is the same categorical promise as the
         # future ("a equipe nunca pede"). A product statement such as "a
         # Z-SWAP não pede sua senha" stays allowed (reviewed in c4d1f36).

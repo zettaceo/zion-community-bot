@@ -91,6 +91,7 @@ ADMIN_STATUSES = {
 }
 
 GROUP_CONVERSATION_TTL_SECONDS = 10 * 60
+GROUP_MEMBER_CONTINUITY_SECONDS = 3 * 60
 GROUP_CONVERSATION_MAX_SESSIONS = 2048
 GROUP_CONVERSATION_CONTEXT_MAX_CHARS = 3000
 GROUP_CONVERSATION_QUERY_MAX_CHARS = 3000
@@ -266,6 +267,8 @@ class Runtime:
             self.delivery_health_blocked = False
             self.delivery_health_block_reasons: tuple[str, ...] = ()
             self.kimi_secret_captures: dict[tuple[int, int], float] = {}
+            # Ephemeral (chat, user) -> monotonic time of the last seed warning.
+            self.wallet_secret_warnings: dict[tuple[int, int], float] = {}
             self.kimi_secret_store = ProviderSecretStore(settings.mistral_secret_path.parent / "providers").for_provider("kimi")
             self.kimi_provisioning_client = KimiCompletionProvider(self.kimi_secret_store, model="kimi-k3")
             self.mistral_secret_captures: dict[
@@ -608,6 +611,7 @@ def _looks_like_high_confidence_actionable_intent(value: str) -> bool:
             r"fundos? sumiu|saldo sumiu|carteira nao conectar|wallet nao "
             r"conectar|nao consigo conectar carteira|(?:swap|bridge|ordem) (?:falhou|travou|esta pendente|deu erro)|"
             r"quero (?:(?:propor|fazer) (?:uma )?)?parceria|proposta de parceria|"
+            r"(?:quero|quiser|queria|gostaria de) ser parceir[oa]|virar parceir[oa]|"
             r"nossa empresa quer (?:integrar|uma parceria))\b",
             folded,
         )
@@ -730,6 +734,21 @@ def natural_conversation_question(
     interpreted_request = bool(re.search(
         r"\b(?:z-swap e segur[oa]|uniswap nao faz igual|isso ai ja existe|"
         r"por que eu pagaria|e no pro)\b", folded))
+    # Live acceptance 2026-11-01: after a reply, the same member's next short
+    # turns ("Posso mandar ?") were ignored. A member the bot just answered is
+    # still talking to it, unless they are replying to somebody else.
+    replying_to_other = bool(
+        replied_user is not None and not is_reply
+        and getattr(replied_user, "id", None) != getattr(update.effective_user, "id", None)
+    )
+    continuing_member = bool(
+        active_session is not None
+        and question_like
+        and not replying_to_other
+        and active_session.last_user_id is not None
+        and active_session.last_user_id == getattr(update.effective_user, "id", None)
+        and time.monotonic() - active_session.last_reply_at <= GROUP_MEMBER_CONTINUITY_SECONDS
+    )
 
     if not (
         is_reply
@@ -741,6 +760,7 @@ def natural_conversation_question(
         or actionable_intent
         or interpreted_request
         or recent_follow_up
+        or continuing_member
     ):
         return None
 
@@ -892,9 +912,14 @@ def conversation_route(
     ):
         return ConversationRoute.MODERATE_ONLY
 
+    if _wallet_secret_sharing_reply(raw) is not None:
+        _remember_wallet_secret_warning(update, context)
+        return ConversationRoute.LOCAL_HELP
     if (
-        _security_refusal_reply(raw) is not None
+        _wallet_secret_follow_up_reply(update, context, raw) is not None
+        or _security_refusal_reply(raw) is not None
         or _community_help_reply(raw) is not None
+        or _service_complaint_reply(raw) is not None
         or _casual_conversation_reply(raw) is not None
     ):
         return ConversationRoute.LOCAL_HELP
@@ -910,6 +935,107 @@ def conversation_route(
     ):
         return ConversationRoute.FOLLOW_UP
     return ConversationRoute.AI_SUPPORT
+
+
+_WALLET_SECRET_NOUN = re.compile(
+    r"\b(?:(?:12|24|18|15|doze|vinte e quatro|dezoito|quinze)\s+palavras"
+    r"|palavras?\s+(?:secretas?|de recuperacao|de seguranca|que (?:recebi|ganhei|"
+    r"apareceram|vieram|anotei|salvei))"
+    r"|seed(?:\s*phrase)?|frase\s+(?:semente|secreta|de recuperacao|de seguranca)"
+    r"|mnemonic\w*|recovery\s+phrase|secret\s+phrase|chave\s+privada|private\s+key"
+    r"|senha\s+da\s+(?:minha\s+)?carteira)\b"
+)
+_WALLET_SECRET_SHARE = re.compile(
+    r"\b(?:mand\w*|envi\w*|pass\w*|col(?:o|ar|ei|a)\b|compartilh\w*|digit\w*|mostr\w*|"
+    r"post\w*|escrev\w*|te dar|dar pra|dar para|send\w*|shar\w*|paste\w*|"
+    r"posso|devo|precis\w*|ped\w*|qu(?:er|ere)\w*|verific\w*|confer\w*)\b"
+)
+
+
+def _wallet_secret_sharing_reply(question: str) -> str | None:
+    """Stop a member *before* they paste a recovery phrase.
+
+    Live acceptance 2026-11-01: "Vou mandar aqui unas 12 palavras que recebi
+    quando criei a carteira. Posso mandar?" got silence. Many members do not
+    know those words are the seed, so the reply explains it plainly and gives
+    the safe next step. No promise about anyone's behaviour is made.
+    """
+    folded = _fold_conversation_text(question)
+    if not (_WALLET_SECRET_NOUN.search(folded) and _WALLET_SECRET_SHARE.search(folded)):
+        return None
+    return (
+        "⚠️ Não mande! Essas palavras que você recebeu ao criar a carteira "
+        "(normalmente 12 ou 24) são a sua seed phrase, a frase de recuperação. "
+        "Quem tiver essas palavras controla a sua carteira e pode levar todos os "
+        "seus fundos. Não compartilhe com ninguém: nem aqui no grupo, nem no "
+        "privado, nem com quem disser que é da equipe ou do suporte. Para ajudar "
+        "com a conexão, eu só preciso saber qual carteira e rede você usa e qual "
+        "mensagem de erro aparece."
+    )
+
+
+_SECRET_PERMISSION_FOLLOW_UP = re.compile(
+    r"^\s*(?:e\s+)?(?:(?:entao\s+)?posso|pode|devo|mando|envio|passo|colo|"
+    r"(?:pode|posso)\s+ser|tudo\s+bem\s+(?:mandar|enviar)|e\s+seguro)\b"
+    r"[^.!?\n]{0,40}\??\s*$"
+)
+WALLET_SECRET_WARNING_SECONDS = 3 * 60
+
+
+def _wallet_secret_warning_key(update) -> tuple[int, int] | None:
+    chat, user = update.effective_chat, update.effective_user
+    if chat is None or user is None:
+        return None
+    return int(chat.id), int(user.id)
+
+
+def _wallet_secret_follow_up_reply(update, context, question: str) -> str | None:
+    """"Posso mandar?" right after a seed warning must never reach the model."""
+    key = _wallet_secret_warning_key(update)
+    warned_at = runtime(context).wallet_secret_warnings.get(key) if key else None
+    if warned_at is None or time.monotonic() - warned_at > WALLET_SECRET_WARNING_SECONDS:
+        return None
+    if (not _SECRET_PERMISSION_FOLLOW_UP.search(_fold_conversation_text(question))
+            or explicit_topic(question) is not None):
+        return None
+    return (
+        "Não, não mande essas palavras aqui nem para ninguém. Elas dão acesso "
+        "total à sua carteira. Guarde-as só com você, offline. Para resolver a "
+        "conexão, me diga qual carteira e rede você usa e qual erro aparece."
+    )
+
+
+def _remember_wallet_secret_warning(update, context) -> None:
+    key = _wallet_secret_warning_key(update)
+    if key is None:
+        return
+    warnings = runtime(context).wallet_secret_warnings
+    now = time.monotonic()
+    for stale in [k for k, t in warnings.items() if now - t > WALLET_SECRET_WARNING_SECONDS]:
+        warnings.pop(stale, None)
+    if len(warnings) < 4096:
+        warnings[key] = now
+
+
+_SERVICE_COMPLAINT = re.compile(
+    r"\b(?:atendimento\s+(?:horrivel|pessimo|ruim|lixo|fraco|uma merda)"
+    r"|(?:suporte|bot|zion)\s+(?:horrivel|pessimo|lixo|inutil)"
+    r"|ninguem\s+(?:me\s+)?(?:responde|respondeu|ajuda|ajudou)"
+    r"|(?:fic(?:ou|aram|a)|fico)\s+em\s+silencio|nao\s+(?:me\s+)?respond(?:eu|e|eram|em)"
+    r"|(?:me\s+)?ignor(?:ou|aram|ando|a)\b|cade\s+(?:a\s+)?(?:resposta|ajuda)"
+    r"|agora\s+(?:voce|vc|tu)\s+responde)"
+)
+
+
+def _service_complaint_reply(question: str) -> str | None:
+    """A frustrated member gets an apology and a way forward, never silence."""
+    if not _SERVICE_COMPLAINT.search(_fold_conversation_text(question)):
+        return None
+    return (
+        "Desculpe pela experiência, você tem razão em cobrar. Estou aqui agora: "
+        "me diga em uma frase o que você precisa resolver (por exemplo, conexão "
+        "da carteira, swap ou parceria) que eu sigo com você."
+    )
 
 
 def _casual_conversation_reply(question: str) -> str | None:
@@ -1236,8 +1362,11 @@ async def answer_natural_conversation(
 
     if route == ConversationRoute.LOCAL_HELP:
         local_reply = (
-            _security_refusal_reply(raw_question)
+            _wallet_secret_sharing_reply(raw_question)
+            or _wallet_secret_follow_up_reply(update, context, raw_question)
+            or _security_refusal_reply(raw_question)
             or _community_help_reply(raw_question)
+            or _service_complaint_reply(raw_question)
             or _casual_conversation_reply(raw_question)
         )
         if local_reply is None:
