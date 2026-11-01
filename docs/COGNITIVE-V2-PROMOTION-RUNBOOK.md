@@ -25,8 +25,8 @@ provider store directories `0700`, files `0600`.
 | --- | --- |
 | Exact-SHA CI on the candidate | PASS on every pushed commit; record the final SHA's run |
 | Local validation (tests, shell, sensitive files, secret scan) | PASS, 988/988 |
-| v2-041 delivered answer, local, zero provider calls | Independent review PASS; **human review PENDING (OWNER)** |
-| Production-baseline delivery smoke, `ministral-8b-2512`, 10 cases | Authorized and run 2026-11-01 (four rounds, about USD 0.016). Last round `08a312b`: 6 PASS (3 local), 3 contained by deterministic replies, v2-001 mild embellishment. Every overclaim found was turned into a guard rule. **Human review of the evidence PENDING (OWNER)** |
+| v2-041 delivered answer, local, zero provider calls | Independent review PASS; human review APPROVED 2026-11-01 |
+| Production-baseline delivery smoke, `ministral-8b-2512`, 10 cases | Authorized and run 2026-11-01 (four rounds, about USD 0.016). Last round `08a312b`: 6 PASS (3 local), 3 contained by deterministic replies, v2-001 mild embellishment. Every overclaim found was turned into a guard rule. Human review: **APPROVED by the owner 2026-11-01** (`COGNITIVE-V2-HUMAN-REVIEW-2026-11-01.md`) |
 | K3 candidate smoke | Optional for this release; Kimi stays inactive |
 | Full 108-case benchmark and four 12-turn conversations | NOT RUN; requires the same spend authorization |
 | Independent security review of the diff | Guard red-team done in this branch (financial promises, advice, phishing, DM scams, `/summary`/`/translate`); a separate reviewer is still recommended |
@@ -54,7 +54,7 @@ official page and update `zion/evaluation_budget.py` first.
 
 ## Promotion
 
-1. **OWNER** — merge draft PR #66 into `zion-v1.1-dev` after its CI passes.
+1. **OWNER** — merge PR #66 into `zion-v1.1-dev` after its CI passes (authorized 2026-11-01).
 2. **OWNER** — open and approve the production PR `zion-v1.1-dev` → `zion-v1`.
    Record the merge SHA as `ZION_DEPLOY_COMMIT` and the current production
    SHA `472a4b3f0ce73a8635d400c0073701013c357b92` as `ZION_PREVIOUS_COMMIT`.
