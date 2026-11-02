@@ -2058,6 +2058,20 @@ def validate_public_response(text: str, *, official_context: str) -> ResponseChe
     for network in re.findall(_UNLISTED_NETWORKS, folded):
         if not re.search(r'\b' + re.escape(network) + r'\b', approved_folded):
             return ResponseCheck(False, 'unsupported_network')
+    # Live acceptance 2026-11-02: "posso levantar com o time as informações
+    # reais ... Quer que eu faça isso?" offers a channel the bot does not have.
+    for offer in re.finditer(
+            r"\b(?:vou|posso|irei|podemos|vamos|eu)\s+(?:\w+\s+){0,2}(?:levantar|consultar|verificar|"
+            r"checar|perguntar|encaminhar|repassar|escalar|acionar|confirmar)\b[^.!?\n]{0,60}\b"
+            r"(?:com|para|ao|a|junto ao|junto a)\s+(?:o |a |nosso |nossa )?(?:time|equipe|suporte|"
+            r"desenvolvedores|devs|responsaveis|team)\b"
+            r"|\b(?:a comunidade|voces|todos|os membros) (?:sera|serao) (?:avisad|notificad|informad)\w*",
+            folded):
+        # Only a negation right before this offer ("não posso consultar a
+        # equipe") excuses it; "não vou te convencer, mas posso levantar com
+        # o time" is still an offer.
+        if not re.search(r"\b(?:nao|nunca)\s+(?:\w+\s+){0,1}$", folded[max(0, offer.start() - 20):offer.start()]):
+            return ResponseCheck(False, 'unsupported_team_handoff')
     # Live acceptance 2026-11-02: "a infraestrutura é construída com práticas
     # de segurança ... como auditorias e protocolos descentralizados" was
     # invented. Security assurances pass only when the official context has them.
@@ -2123,6 +2137,7 @@ _REPAIRABLE = frozenset({
     'absolute_reliability', 'unsupported_network', 'unsupported_status_gloss',
     'unsupported_launch_dates', 'unsupported_partnership_fee_policy',
     'unsupported_wallet_inference', 'unsupported_security_claim',
+    'unsupported_team_handoff',
     'unsupported_route_criteria',
 })
 _SECRET_REASONS = frozenset({'unsupported_universal_secret_promise',
@@ -2499,6 +2514,17 @@ def public_fallback_for(reason: str, *, official_context: str = '', question: st
         reply = _public_broad_comparison_reply(question, official_context)
         if reply is not None:
             return reply
+        if re.search(r'\b(?:barat\w*|car[oa]s?|cobr\w*|taxas?|custos?|preco\w*)\b',
+                     _fold(question)):
+            # A cost objection answered with a feature-status list read as a
+            # canned, off-topic reply in live acceptance (2026-11-02).
+            reply = ('Sem uma comparação oficial, não posso afirmar que outras '
+                     'plataformas cobram menos nem que a Z-SWAP é mais barata. '
+                     'Vale comparar o custo total de cada operação (taxa da '
+                     'plataforma, rede, DEX e ponte) e os recursos de que você '
+                     'precisa antes de decidir.')
+            if validate_public_response(reply, official_context=official_context).allowed:
+                return reply
         reply = _public_feature_status_reply(official_context)
         if reply is not None:
             return reply

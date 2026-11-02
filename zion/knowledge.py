@@ -30,6 +30,8 @@ STOPWORDS = {
     "dos", "e", "em", "esta", "este", "eu", "isso", "isto", "na", "nas",
     "no", "nos", "o", "os", "ou", "para", "por", "que", "qual", "quais",
     "se", "sem", "ser", "sobre", "um", "uma",
+    # Chat fillers: "então manda aí as rotas" ranked "ZION AI" first.
+    "entao", "manda", "mande", "ai", "pq", "vc", "tipo", "ne",
     "a", "an", "and", "are", "as", "at", "be", "by", "for", "from",
     "how", "in", "is", "it", "of", "on", "or", "that", "the", "this",
     "to", "what", "when", "where", "which", "who", "why", "with",
@@ -41,6 +43,7 @@ STOPWORDS = {
 # member says "plano profissional", retrieval must reach the same approved
 # facts as "plano Pro", while unrelated words are left untouched.
 TOKEN_ALIASES = (
+    frozenset({"founder", "fundador", "fundadores", "founders"}),
     frozenset({"parceria", "parcerias", "parceiro", "parceiros", "partnership", "comercial"}),
     frozenset({"concorrente", "concorrentes", "concorrencia", "consolidada", "consolidadas"}),
     frozenset({"plano", "planos", "tier", "tiers", "nivel", "niveis"}),
@@ -118,10 +121,15 @@ def _agent_id_or_none(agent_id: AgentId | str) -> AgentId | None:
         return None
 
 
+# Members write the product name every way; "zswap" found nothing before
+# 2026-11-02. Normalising (not expanding) keeps ranking identical for "Z-SWAP".
+_NAME_VARIANTS = {"ox": "0x", "zerox": "0x", "zswap": "z-swap", "swapz": "z-swap", "swap-z": "z-swap", "zetaswap": "z-swap"}
+
+
 def _base_tokens(text: str) -> set[str]:
     tokens = {
-        _normalize(match.group(0))
-        for match in WORD_REGEX.finditer(text or "")
+        _NAME_VARIANTS.get(token, token)
+        for token in (_normalize(match.group(0)) for match in WORD_REGEX.finditer(text or ""))
     }
     return {
         token
