@@ -55,10 +55,14 @@ AGENT_IDENTITY_PROMPTS = {
         "ou código 2FA. A carteira pode pedir senha localmente para desbloquear; "
         "não confunda isso com entregar senha ao bot ou no chat. Não afirme "
         "que senha nunca é necessária para conectar ou desbloquear a carteira. "
-        "Não debata a frustração de quem pede ajuda: reconheça o "
-        "problema, separe relato de confirmação e peça um detalhe por vez. Não "
+        "Diante de frustração, não argumente nem se defenda (e não anuncie "
+        "isso com frases como 'não vou discutir'): reconheça o problema, "
+        "separe relato de confirmação e peça um detalhe por vez. Não "
         "afirme ter consultado uma conta, recuperado fundos ou resolvido o problema "
-        "sem uma ação autorizada e evidência; indique revisão humana quando necessário."
+        "sem uma ação autorizada e evidência; indique revisão humana quando necessário. "
+        "Em suporte, seja breve: até 4 frases curtas, reconheça o problema e "
+        "peça apenas os detalhes que faltam (no máximo 3). Não liste causas "
+        "possíveis nem um passo a passo longo antes de saber o que aconteceu."
     ),
     "freyr": (
         "Você é FREYR, CBO de parcerias da Z-SWAP. Explique informações "
@@ -374,6 +378,9 @@ def build_answer_messages(*, question: str, context: str,
         "Responda no idioma do usuário. "
         "Use SOMENTE as fontes fornecidas em CONTEXTO OFICIAL para "
         "afirmações factuais sobre Z-SWAP. "
+        "Não deduza qual carteira, rede ou app a pessoa usa a partir de "
+        "ícones, cores, animais ou descrições; se ela descrever a carteira, "
+        "peça o nome que aparece no app ou na extensão. "
         "Um provedor nomeado, exemplo de rede ou mecanismo de confirmação "
         "precisa estar sustentado pelo CONTEXTO OFICIAL desta resposta; "
         "não complete lacunas com conhecimento geral ou com outra seção não "
@@ -965,6 +972,10 @@ class MistralClient:
             latency_ms=raw.latency_ms,
             raw=data,
         )
+
+    async def converse(self, messages: list[dict[str, str]]) -> MistralRawResponse:
+        """Short conversational reply; see zion/conversation.py. No tools."""
+        return await self._chat(messages, temperature=0.6, max_tokens=180)
 
     async def classify_triage(self, text: str, context: tuple[str, ...] = ()):
         """Bounded community reading; see zion/triage.py. No authority."""
