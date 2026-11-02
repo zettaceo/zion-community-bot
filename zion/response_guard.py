@@ -2074,11 +2074,18 @@ def validate_public_response(text: str, *, official_context: str) -> ResponseChe
     # Live acceptance 2026-11-01: "a carteira com uma raposa indica que está
     # conectada à Solana" (wrong, and unsourced). No network or wallet is ever
     # inferred from an icon or description.
-    if re.search(r"\b(?:icone|simbolo|logo|logotipo|raposa|fantasma|cor|desenho|emoji|icon|symbol|fox|ghost)\b"
-                 r"[^.!?\n]{0,80}\b(?:indica|significa|mostra|quer dizer|e da|e de|means|indicates|shows)\b"
-                 r"[^.!?\n]{0,40}\b(?:solana|ethereum|bnb|polygon|base|arbitrum|optimism|avalanche|"
-                 r"metamask|phantom|trust wallet|rede|network|carteira)\b", folded):
-        return ResponseCheck(False, 'unsupported_wallet_inference')
+    for inference in re.finditer(
+            r"\b(icone|simbolo|logo|logotipo|raposa|fantasma|escudo|cor|desenho|emoji|icon|symbol|fox|ghost|shield)\b"
+            r"[^.!?\n]{0,80}\b(?:indica|significa|mostra|quer dizer|e da|e de|e a|e o|means|indicates|shows|is)\b"
+            r"[^.!?\n]{0,40}\b(solana|ethereum|bnb|polygon|base|arbitrum|optimism|avalanche|"
+            r"metamask|phantom|trust wallet|rede|network|carteira)\b", folded):
+        # Allowed only when the official context itself ties that sign to that
+        # wallet ("A MetaMask tem o ícone de uma raposa"); never a network.
+        icon, target = inference.group(1), inference.group(2)
+        tied = re.search(rf"\b{re.escape(target)}\b[^.\n]{{0,60}}\b{re.escape(icon)}\b", approved_folded)
+        if not tied or target in ('solana', 'ethereum', 'bnb', 'polygon', 'base', 'arbitrum',
+                                  'optimism', 'avalanche', 'rede', 'network'):
+            return ResponseCheck(False, 'unsupported_wallet_inference')
     # Launch-state terms are copied, never explained: "pre-launch (em fase
     # inicial de desenvolvimento)" invents a development stage.
     gloss = r"(?:fase inicial|em desenvolvimento|de desenvolvimento|em construcao|em testes?|quase pront[oa]s?|em finalizacao|em preparacao)"

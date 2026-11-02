@@ -794,8 +794,11 @@ class ResponseGuardTests(unittest.TestCase):
             Path(__file__).resolve().parents[1] / 'knowledge')).call(
                 'search_approved_knowledge',
                 {'query': 'n consigo conecta carteira'}, agent_id='eir').render()
+        from zion.response_guard import _approved_wallet_brand
         for brand in ('MetaMask', 'Phantom', 'Rabby'):
-            self.assertNotIn(brand.casefold(), context.casefold())
+            # The recognition guide may name a wallet; naming is not approval
+            # of Z-SWAP support, so examples and support claims stay rejected.
+            self.assertFalse(_approved_wallet_brand(brand.casefold(), context))
             answer = f'Qual carteira você está tentando conectar (por exemplo {brand})?'
             with self.subTest(brand=brand):
                 self.assertEqual(validate_public_response(

@@ -231,6 +231,28 @@ model context is built.
       "freshness": "snapshot_only",
       "valid_until": null,
       "notes": "Versioned approved projection; snapshot is not proof of current deployed behavior. Source changes require explicit reconciliation. Routing paragraphs reconciled on 2026-10-20 against source 986ae759 and controlled paper matrices 76-78. Other sections retain their dated snapshot; no live availability or broader classification change."
+    },
+    {
+      "file": "wallet-guide.md",
+      "classification": "PUBLIC",
+      "status": "CURRENT",
+      "version": "2026-11-02",
+      "source_identity": "zion-wallet-recognition-guide",
+      "allowed_agents": [
+        "zion",
+        "mimir",
+        "eir"
+      ],
+      "id": "zion-wallet-recognition-guide",
+      "title": "Carteiras comuns e como reconhecê-las",
+      "source_type": "curated_local_projection",
+      "snapshot_date": "2026-11-02",
+      "authority": "zion-wallet-recognition-guide",
+      "supersedes": [],
+      "superseded_by": null,
+      "freshness": "snapshot_only",
+      "valid_until": null,
+      "notes": "Owner-approved 2026-11-02 recognition guide for third-party wallets; not a compatibility list. Recheck icons and names when wallets rebrand."
     }
   ]
 }
