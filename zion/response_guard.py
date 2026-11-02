@@ -678,7 +678,8 @@ def _universal_secret_request_promise(text: str) -> bool:
         # future ("a equipe nunca pede"). A product statement such as "a
         # Z-SWAP não pede sua senha" stays allowed (reviewed in c4d1f36).
         rf'|{people}\s+(?:nao|nunca|jamais)\s+(?:te\s+|lhe\s+)?'
-        r'(?:pede|pedem|solicita|solicitam|exige|exigem)'
+        r'(?:pede|pedem|pedimos|solicita|solicitam|solicitamos|exige|exigem|exigimos)'
+        r'|(?:nao|nunca|jamais)\s+(?:te\s+|lhe\s+)?(?:pedimos|solicitamos|exigimos)'
         r'|(?:nao|nunca|jamais)\s+(?:(?:vamos|iremos)\s+'
         r'(?:pedir|solicitar|exigir)|pediremos|solicitaremos|exigiremos)'
         r'|(?:no one|nobody)(?:\s+(?:at|from)\s+z[\s-]?swap|\s+on our team)?'
@@ -1867,6 +1868,7 @@ def validate_public_response(text: str, *, official_context: str) -> ResponseChe
         ('universal_swap_execution', r"\btodos os swaps (?:sao (?:sempre )?(?:executados|realizados|processados) (?:por|via|em)|usam) (?:smart contracts?|contratos? inteligentes?)\b"),
         ('safety_guarantee', r'\b(?:garant\w*|assegur\w*)\b(?:(?!\s*,\s*mas\b)[^.!?;\n]){0,80}\b(?:seguranca|segur[oa]s?|protecao total|controle total)\b'),
         ('safety_guarantee', r'\bseguranca(?: da (?:operacao|transacao))?\s+(?:esta|e)\s+(?:(?:plenamente|totalmente|completamente|100%)\s+)?garantid[ao]s?\b'),
+        ('safety_guarantee', r'\b(?:nunca|jamais)\s+(?:perde|vai perder|perdera|perderia)\s+(?:o\s+)?(?:controle|acesso)\b|\bnever\s+lose\s+control\b'),
         ('execution_guarantee', r'\b(?:garant\w*|assegur\w*)\b[^.!?\n]{0,70}\b(?:transacao|ordem|swap|operacao)\b[^.!?\n]{0,50}\b(?:executad[oa]|concluid[oa]|bem.sucedid[oa])\b|\b(?:garant\w*|assegur\w*)\b[^.!?\n]{0,30}\bexecucao (?:da|do|de) (?:sua |seu |uma |um )?(?:transacao|ordem|swap|operacao)\b'),
         ('absolute_safety', r"\b(?:e segur[oa](?: para usar)?|(?:100%|totalmente|completamente) segur[oa]|livre de riscos?|seguranca total|risco zero|nao (?:tem|corre|existe) riscos?)\b"),
         ('absolute_safety', r"\b(?:risk[- ]free|no risk|zero risk|(?:100%|completely|totally) safe)\b"),
@@ -2056,6 +2058,14 @@ def validate_public_response(text: str, *, official_context: str) -> ResponseChe
     for network in re.findall(_UNLISTED_NETWORKS, folded):
         if not re.search(r'\b' + re.escape(network) + r'\b', approved_folded):
             return ResponseCheck(False, 'unsupported_network')
+    # Live acceptance 2026-11-01: "a carteira com uma raposa indica que está
+    # conectada à Solana" (wrong, and unsourced). No network or wallet is ever
+    # inferred from an icon or description.
+    if re.search(r"\b(?:icone|simbolo|logo|logotipo|raposa|fantasma|cor|desenho|emoji|icon|symbol|fox|ghost)\b"
+                 r"[^.!?\n]{0,80}\b(?:indica|significa|mostra|quer dizer|e da|e de|means|indicates|shows)\b"
+                 r"[^.!?\n]{0,40}\b(?:solana|ethereum|bnb|polygon|base|arbitrum|optimism|avalanche|"
+                 r"metamask|phantom|trust wallet|rede|network|carteira)\b", folded):
+        return ResponseCheck(False, 'unsupported_wallet_inference')
     # Launch-state terms are copied, never explained: "pre-launch (em fase
     # inicial de desenvolvimento)" invents a development stage.
     gloss = r"(?:fase inicial|em desenvolvimento|de desenvolvimento|em construcao|em testes?|quase pront[oa]s?|em finalizacao|em preparacao)"
@@ -2092,6 +2102,7 @@ _REPAIRABLE = frozenset({
     'safety_guarantee', 'absolute_safety', 'financial_return_guarantee',
     'absolute_reliability', 'unsupported_network', 'unsupported_status_gloss',
     'unsupported_launch_dates', 'unsupported_partnership_fee_policy',
+    'unsupported_wallet_inference',
     'unsupported_route_criteria',
 })
 _SECRET_REASONS = frozenset({'unsupported_universal_secret_promise',

@@ -130,9 +130,10 @@ class TriageIntegrationTests(unittest.TestCase):
         self.assertEqual(self.send('qualquer coisa sem sentido aqui'), ([], False))
 
     def test_chatter_is_not_triaged_more_than_the_rate_limit(self):
-        for i in range(12):
+        from zion.telegram_app import TRIAGE_REQUESTS_PER_MINUTE
+        for i in range(TRIAGE_REQUESTS_PER_MINUTE + 5):
             self.send(f'conversa paralela numero {i}', user_id=88)
-        self.assertLessEqual(self.runtime.ai.classify_triage.await_count, 8)
+        self.assertEqual(self.runtime.ai.classify_triage.await_count, TRIAGE_REQUESTS_PER_MINUTE)
 
 
 if __name__ == '__main__':

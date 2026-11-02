@@ -156,6 +156,12 @@ class Settings:
     mistral_min_request_interval_ms: int
     mistral_rate_limit_retries: int
     mistral_rate_limit_max_delay_seconds: float
+    # Kimi K3 escalation for hard PUBLIC-evidence turns (objection,
+    # comparison, complex). Off unless the owner enables it with an expiring
+    # approval date; ai_daily_usd_cap bounds all provider spend per UTC day.
+    kimi_escalation_enabled: bool = False
+    kimi_approval_until: str = ""
+    ai_daily_usd_cap: float = 2.0
 
     def with_primary_telegram_identity(self) -> "Settings":
         """Resolve transport credentials only, without mutating env or files.
@@ -502,4 +508,7 @@ class Settings:
                 5.0,
                 0.1,
             ),
+            kimi_escalation_enabled=_bool("ZION_KIMI_ESCALATION", False),
+            kimi_approval_until=os.getenv("ZION_KIMI_APPROVAL_UNTIL", "").strip(),
+            ai_daily_usd_cap=_float("ZION_AI_DAILY_USD_CAP", 2.0, 0.01),
         )

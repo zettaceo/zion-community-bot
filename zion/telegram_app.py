@@ -43,6 +43,7 @@ from .ai_service import AIService, sanitize_for_ai
 from .triage import decide_action
 from .provider_secrets import ProviderSecretStore
 from .providers import KimiCompletionProvider
+from .escalation import build_ai_composition, escalation_status
 from .kimi_provisioning import (set_kimi_key_command, kimi_secret_capture_handler,
                                 cancel_kimi_key_command, kimi_status_command)
 from .config import Settings
@@ -224,12 +225,16 @@ class Runtime:
                 logger.warning(
                     "Cofre Mistral inseguro no startup; provider bloqueado."
                 )
+            escalation_store = ProviderSecretStore(
+                settings.mistral_secret_path.parent / "providers").for_provider("kimi")
             self.ai = AIService(
                 settings,
                 self.db,
                 self.knowledge,
                 self.secret_store,
+                **build_ai_composition(settings, self.db, escalation_store),
             )
+            self.kimi_escalation_status = escalation_status(settings, escalation_store)
             self.health = HealthService(
                 settings,
                 self.db,
@@ -275,6 +280,7 @@ class Runtime:
             self.prompt_attack_attempts: dict[tuple[int, int], list[float]] = {}
             self.triage_limiter = AskRateLimiter(TRIAGE_REQUESTS_PER_MINUTE)
             self.triaged_updates: dict[tuple[int, int], float] = {}
+            self.member_bot_replies: dict[tuple[int, int], list[tuple[float, str]]] = {}
             self.kimi_secret_store = ProviderSecretStore(settings.mistral_secret_path.parent / "providers").for_provider("kimi")
             self.kimi_provisioning_client = KimiCompletionProvider(self.kimi_secret_store, model="kimi-k3")
             self.mistral_secret_captures: dict[
@@ -1047,7 +1053,7 @@ def _service_complaint_reply(question: str) -> str | None:
     )
 
 
-TRIAGE_REQUESTS_PER_MINUTE = 8
+TRIAGE_REQUESTS_PER_MINUTE = 15
 TRIAGE_CONTEXT_SECONDS = 10 * 60
 PROMPT_ATTACK_WINDOW_SECONDS = 24 * 3600
 PROMPT_ATTACK_MUTE_AFTER = 3
@@ -1194,6 +1200,41 @@ def _triage_eligible(update, rt, text: str) -> bool:
     )
 
 
+def _member_bot_replies(rt, update) -> tuple[str, ...]:
+    key = _member_key(update)
+    now = time.monotonic()
+    return tuple(t for at, t in rt.member_bot_replies.get(key, [])
+                 if now - at <= TRIAGE_CONTEXT_SECONDS)[-3:] if key else ()
+
+
+def _remember_bot_reply(rt, update, reply: str) -> None:
+    key = _member_key(update)
+    if key is None or not reply:
+        return
+    now = time.monotonic()
+    replies = [(at, t) for at, t in rt.member_bot_replies.get(key, [])
+               if now - at <= TRIAGE_CONTEXT_SECONDS]
+    replies.append((now, reply[:400]))
+    rt.member_bot_replies[key] = replies[-3:]
+    if len(rt.member_bot_replies) > 4096:
+        for stale in sorted(rt.member_bot_replies,
+                            key=lambda k: rt.member_bot_replies[k][-1][0])[:1024]:
+            rt.member_bot_replies.pop(stale, None)
+
+
+async def _natural(rt, update, situation: str, text: str, recent, language: str) -> str | None:
+    """A guarded, non-repeating conversational reply, or None for the fixed text."""
+    try:
+        reply = await rt.ai.converse(situation=situation, agent_id=AgentId.ZION, text=text,
+                                     member_turns=tuple(recent),
+                                     bot_replies=_member_bot_replies(rt, update),
+                                     language=language or 'pt')
+        return telegram_ai_reply_text(reply) if reply else None
+    except Exception as exc:
+        logger.warning("Resposta conversacional indisponível: %s", type(exc).__name__)
+        return None
+
+
 async def _apply_prompt_attack_policy(update, context, rt) -> str:
     """Refuse every attempt; repeated attempts earn a short, audited mute.
 
@@ -1266,13 +1307,16 @@ async def _triage_member_turn(update, context, rt, text: str, recent: tuple[str,
     if action == 'refuse_attack':
         reply = await _apply_prompt_attack_policy(update, context, rt)
         if reply == _ATTACK_REFUSAL:
-            reply = _localized('refuse_attack', _ATTACK_REFUSAL, reading.language)
+            reply = (await _natural(rt, update, 'refuse_attack', text, recent, reading.language)
+                     or _localized('refuse_attack', _ATTACK_REFUSAL, reading.language))
         return reply, None
     if action == 'respect_notice':
-        return _localized('respect_notice', _RESPECT_NOTICE, reading.language), None
+        return (await _natural(rt, update, 'respect_notice', text, recent, reading.language)
+                or _localized('respect_notice', _RESPECT_NOTICE, reading.language)), None
     if action == 'answer':
-        if reading.intent == 'complaint':
-            return _localized('complaint', _COMPLAINT_REPLY, reading.language), None
+        if reading.intent in ('complaint', 'trust_concern'):
+            return (await _natural(rt, update, reading.intent, text, recent, reading.language)
+                    or _localized('complaint', _COMPLAINT_REPLY, reading.language)), None
         target = _TRIAGE_AGENT.get(reading.intent)
         if target is not None:
             return None, target
@@ -1494,7 +1538,9 @@ async def answer_natural_conversation(
                 addressed_agent=addressed_agent,
             )
             if triage_target is not None and (
-                    triage_overrides_router or decision.speaker is None):
+                    triage_overrides_router or decision.speaker is None
+                    or (triage_target[1] is ConversationIntent.SUPPORT
+                        and decision.intent is not ConversationIntent.SUPPORT)):
                 decision = RouteDecision(
                     intent=triage_target[1],
                     speaker=DEFAULT_AGENT_REGISTRY.get(triage_target[0]),
@@ -1544,6 +1590,7 @@ async def answer_natural_conversation(
 
     async def deliver(reply: str) -> bool:
         nonlocal delivery_succeeded
+        _remember_bot_reply(rt, update, reply)
         if speaker_claim is None:
             await update.effective_message.reply_text(reply)
             delivery_succeeded = True
@@ -1630,9 +1677,18 @@ async def answer_natural_conversation(
             triage_local_reply
             or _wallet_secret_sharing_reply(raw_question)
             or _wallet_secret_follow_up_reply(update, context, raw_question)
-            or _security_refusal_reply(raw_question)
+        )
+        if local_reply is None and _security_refusal_reply(raw_question) is not None:
+            local_reply = (await _natural(rt, update, 'refuse_attack', raw_question,
+                                          member_context, 'pt')
+                           or _security_refusal_reply(raw_question))
+        if local_reply is None and _service_complaint_reply(raw_question) is not None:
+            local_reply = (await _natural(rt, update, 'complaint', raw_question,
+                                          member_context, 'pt')
+                           or _service_complaint_reply(raw_question))
+        local_reply = (
+            local_reply
             or _community_help_reply(raw_question)
-            or _service_complaint_reply(raw_question)
             or _casual_conversation_reply(raw_question)
         )
         if local_reply is None:
@@ -2609,7 +2665,10 @@ def _control_center_view(
             f"Runtime currency policy: {cost_status}\n"
             f"Accounting: {'OK' if rt.ai.accounting_healthy else 'FAIL-CLOSED'}\n"
             f"Kimi store: {rt.kimi_secret_store.status()}\n"
-            "Kimi activation: BLOCKED — benchmark/policy acceptance pending\n"
+            f"Kimi activation: {'ACTIVE' if rt.kimi_escalation_status == 'active' else 'BLOCKED'}"
+            f" ({rt.kimi_escalation_status}"
+            + (f", até {rt.settings.kimi_approval_until}, teto US$ {rt.settings.ai_daily_usd_cap:.2f}/dia"
+               if rt.kimi_escalation_status == 'active' else '') + ")\n"
             "Kimi registration: /setkimikey (private operator chat only)\n"
             f"Provider ready: {rt.ai.enabled}\n"
             f"Circuit: {'OPEN' if rt.ai.circuit_open() else 'CLOSED'}\n"

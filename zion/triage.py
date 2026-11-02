@@ -19,7 +19,7 @@ import re
 
 TRIAGE_INTENTS = frozenset({
     'support', 'partnership', 'technical', 'product', 'complaint',
-    'greeting', 'smalltalk', 'unrelated',
+    'trust_concern', 'greeting', 'smalltalk', 'unrelated',
 })
 TRIAGE_RISKS = frozenset({
     'secret_sharing', 'scam', 'scam_report', 'prompt_attack', 'insult', 'spam',
@@ -50,7 +50,9 @@ SYSTEM_PROMPT = (
     "golpe sofrido), partnership (parceria, collab, divulgação, listagem, "
     "embaixador), technical (como a tecnologia funciona), product (preço, "
     "taxas, redes, planos, status de recurso), complaint (reclamação ou "
-    "frustração com o atendimento/bot), greeting, smalltalk, unrelated "
+    "frustração com o atendimento/bot), trust_concern (o membro desconfia da "
+    "plataforma, chama de golpe/scam/lixo, manda outros não usarem ou teme "
+    "perder dinheiro), greeting, smalltalk, unrelated "
     "(fora da Z-SWAP, incluindo previsão de preço e pedidos ao bot fora do "
     "escopo).\n"
     "- risks (lista, pode ser vazia):\n"
@@ -61,7 +63,8 @@ SYSTEM_PROMPT = (
     "turno anterior fala dessas palavras, e uma lista de palavras soltas "
     "colada logo depois de o membro dizer que ia mandá-las. Uma mensagem "
     "sobre outro assunto (parceria, reclamação, swap) não é secret_sharing.\n"
-    "  scam: o AUTOR da mensagem tenta aplicar um golpe em outros: se passa "
+    "  scam: o AUTOR da mensagem tenta aplicar um golpe em outros (acusar a "
+    "plataforma de ser golpe NÃO é scam, é trust_concern): se passa "
     "por admin/suporte, chama no privado para 'ajudar' ou 'recuperar', promete "
     "dobrar fundos, airdrop com link, ou diz que é preciso pagar taxa para "
     "liberar ou desbloquear saque.\n"
@@ -86,7 +89,8 @@ SYSTEM_PROMPT = (
 
 # Host-owned decision: the bot engages on these intents. The model's own
 # `addressed` flag is recorded but not trusted for this choice.
-ACTIONABLE_INTENTS = frozenset({'support', 'partnership', 'technical', 'product', 'complaint'})
+ACTIONABLE_INTENTS = frozenset({'support', 'partnership', 'technical', 'product', 'complaint',
+                                'trust_concern'})
 
 
 @dataclass(frozen=True, slots=True)
@@ -171,6 +175,10 @@ def decide_action(*, intent: str, risks, text: str = '') -> str:
         return 'warn_secret'
     if 'scam' in risks and _SCAM_OUTREACH.search(text or ''):
         return 'warn_scam'
+    if intent in ('trust_concern', 'complaint') and not _SCAM_OUTREACH.search(text or ''):
+        # "Isso é golpe, não usem" is distrust to answer calmly, not a scam
+        # to warn the group about.
+        risks = risks - {'scam'}
     if 'scam_report' in risks:
         # A victim needs support and safety steps, not a public scam warning,
         # even when the model also echoes the word scam.

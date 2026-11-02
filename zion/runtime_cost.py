@@ -13,7 +13,8 @@ class RuntimeCostBudget(ProviderTokenBudget):
     KEY = 'runtime_estimated_cost_micro_usd_v1'
 
     def __init__(self, db, *, daily_limit, provider_limits, model_limits,
-                 request_limit, prices: dict[str, PriceSnapshot]):
+                 request_limit, prices: dict[str, PriceSnapshot],
+                 max_price_age_days: int = 1):
         if any(type(n) is not int or n <= 0 for n in
                (daily_limit, request_limit, *provider_limits.values(), *model_limits.values())):
             raise ValueError('invalid_currency_cap')
@@ -28,6 +29,11 @@ class RuntimeCostBudget(ProviderTokenBudget):
                 raise ValueError('invalid_price_policy')
         self.prices = dict(prices)
         self.request_limit = request_limit
+        # Evaluations demand a price verified within a day; a running service
+        # uses a longer, explicit reverification window (fails closed after).
+        if type(max_price_age_days) is not int or not 1 <= max_price_age_days <= 120:
+            raise ValueError('invalid_price_age')
+        self.max_price_age_days = max_price_age_days
 
     def _read(self):
         data = super()._read()
@@ -41,7 +47,7 @@ class RuntimeCostBudget(ProviderTokenBudget):
     def reserve(self, provider, model, tokens, *, today=None):
         today = today or self.today()
         price = self.prices.get(model)
-        if price is None or not 0 <= (today - price.verified_on).days <= 1:
+        if price is None or not 0 <= (today - price.verified_on).days <= self.max_price_age_days:
             raise ProviderBudgetError('price_missing_or_stale')
         if type(tokens) is not int or tokens <= 0:
             raise ProviderBudgetError('invalid_usage_bound')

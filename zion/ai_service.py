@@ -573,11 +573,26 @@ class AIService:
             # to a new provider merely because this turn retrieves PUBLIC data.
             conversation_context='', agent_id=agent.value)
         import json
-        upper = 2 * len(json.dumps(messages, ensure_ascii=False).encode('utf-8')) + 4096
+        # Every token is at least one byte, so the serialized size is already a
+        # true upper bound on input tokens; the old 2x factor reserved ~10x the
+        # real K3 cost and tripped the per-request cap.
+        upper = len(json.dumps(messages, ensure_ascii=False).encode('utf-8')) + 256
         adapter = self.completion_providers[(selection.provider, selection.model)]
-        reservation = (None if isinstance(adapter, MistralCompletionProvider) else
-            self.provider_token_budget.reserve(selection.provider, selection.model,
-                upper + selection.max_output_tokens))
+        try:
+            reservation = (None if isinstance(adapter, MistralCompletionProvider) else
+                self.provider_token_budget.reserve(selection.provider, selection.model,
+                    upper + selection.max_output_tokens))
+        except ProviderBudgetError:
+            # Nothing was sent: a spent or unavailable candidate budget keeps
+            # the member answered by the baseline instead of an error.
+            logger.info("Escalada sem orçamento; usando baseline | provider=%s",
+                        selection.provider)
+            try:
+                return await self.client.answer(**kwargs)
+            except ProviderBudgetError:
+                raise
+            except Exception:
+                raise GenerationFailure('mistral', self.settings.mistral_model) from None
         try:
             result = await adapter.complete(messages, max_tokens=selection.max_output_tokens)
             if result.model != selection.model:
@@ -751,6 +766,15 @@ class AIService:
                     "provider_called": False,
                 },
             )
+            if selected_agent in (AgentId.EIR, AgentId.ZION):
+                # "Boa noite, estou com um probleminha" needs a question back,
+                # not "no official information"; nothing factual is claimed.
+                natural = await self.converse(
+                    situation='open_support' if selected_agent is AgentId.EIR else 'conversation',
+                    agent_id=selected_agent, text=safe_question,
+                    member_turns=tuple(t for t in safe_conversation_context.split('\n') if t.strip()))
+                if natural:
+                    return AIAnswer(text=natural, model=self.settings.mistral_model)
             return AIAnswer(
                 text=(
                     "Ainda não tenho informação oficial suficiente para "
@@ -1201,6 +1225,63 @@ class AIService:
                     "usage_outcome": "uncertain",
                 },
             )
+            return None
+
+    def _non_custodial_context(self) -> str:
+        """The PUBLIC definition a distrust reply may rely on, nothing else."""
+        for chunk in self.knowledge.chunks:
+            if (chunk.authority.classification is KnowledgeClassification.PUBLIC
+                    and 'nao custodial' in _fold(chunk.text)
+                    and 'seed phrase' in _fold(chunk.text)):
+                return f"[Contexto oficial: {chunk.heading}]\n{chunk.text}"
+        return ""
+
+    async def converse(self, *, situation: str, agent_id: AgentId | str, text: str,
+                       member_turns: tuple[str, ...] = (), bot_replies: tuple[str, ...] = (),
+                       language: str = 'pt') -> str | None:
+        """A natural reply for a tactful turn, or None to keep the fixed fallback."""
+        from .conversation import acceptable_reply, build_conversation_messages, repeats_previous
+        from .mistral import AGENT_IDENTITY_PROMPTS
+        if not self.provider_available():
+            return None
+        agent = AgentId(agent_id)
+        official = self._non_custodial_context() if situation == 'trust_concern' else ''
+        if situation == 'trust_concern' and not official:
+            return None
+        messages = build_conversation_messages(
+            situation=situation, agent_identity=AGENT_IDENTITY_PROMPTS[agent.value],
+            text=sanitize_for_ai(text), member_turns=tuple(sanitize_for_ai(t) for t in member_turns),
+            bot_replies=bot_replies, language=language, official_context=official)
+        safe_text = sanitize_for_ai(text)[:1000]
+        reservation = self._reserve_budget(self._estimate_tokens(
+            "\n".join(m['content'] for m in messages), 180))
+        if reservation is None:
+            return None
+        try:
+            try:
+                async with self._semaphore:
+                    raw = await self.client.converse(messages)
+            finally:
+                self._release_budget(reservation)
+            self._record_provider_success()
+            reply = (raw.text or '').strip()
+            check = validate_public_response(reply, official_context=official) if acceptable_reply(reply) else None
+            accepted = bool(check and check.allowed and not repeats_previous(reply, bot_replies))
+            self._record_provider_success_event(
+                reservation=reservation, input_tokens=raw.input_tokens,
+                output_tokens=raw.output_tokens, chat_id=None, user_id=None,
+                purpose="conversation_reply", model=raw.model or self.settings.mistral_model,
+                success=True, latency_ms=raw.latency_ms, input_hash=self._hash_text(safe_text),
+                metadata={"situation": situation, "agent_id": agent.value, "accepted": accepted,
+                          "guard": check.reason if check else "shape"},
+            )
+            return reply if accepted else None
+        except ProviderBudgetError:
+            return None
+        except Exception as exc:
+            self._record_provider_failure()
+            self._charge_uncertain_budget(reservation)
+            logger.warning("Falha na resposta conversacional: %s", type(exc).__name__)
             return None
 
     async def classify_triage(self, *, text: str, context: tuple[str, ...] = ()):
