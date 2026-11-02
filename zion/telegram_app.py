@@ -1090,7 +1090,9 @@ _TRIAGE_AGENT = {
     'support': (AgentId.EIR, ConversationIntent.SUPPORT),
     'partnership': (AgentId.FREYR, ConversationIntent.PARTNERSHIP),
     'technical': (AgentId.MIMIR, ConversationIntent.TECHNICAL),
-    'product': (AgentId.MIMIR, ConversationIntent.PRODUCT),
+    # MIMIR cannot speak PRODUCT in groups: the arbiter refused the claim and
+    # every AI-understood product question met silence (2026-11-02).
+    'product': (AgentId.ZION, ConversationIntent.PRODUCT),
 }
 _SCAM_CAUTION = (
     "⚠️ Atenção, pessoal: desconfie de quem oferece ajuda ou \"suporte\" no "

@@ -92,5 +92,20 @@ def remove_sentences(answer: str, sentences: tuple[str, ...]) -> str:
         pattern = r'\s*'.join(re.escape(word) for word in sentence.split())
         result = re.sub(pattern + r'[ \t]*', '', result, count=1)
     result = re.sub(r'[ \t]{2,}', ' ', result)
+    result = re.sub(r'(?m)^[ \t]*\d+[.)][ \t]*$\n?', '', result)
     result = re.sub(r'\n{3,}', '\n\n', result)
-    return result.strip()
+    return _renumber(result.strip())
+
+
+def _renumber(text: str) -> str:
+    """A removed item left "2." with no "1." in a live reply (2026-11-02)."""
+    lines, counter = [], 0
+    for line in text.split('\n'):
+        match = re.match(r'([ \t]*)\d+([.)][ \t].*)', line)
+        if match:
+            counter += 1
+            line = f"{match.group(1)}{counter}{match.group(2)}"
+        elif line.strip():
+            counter = 0
+        lines.append(line)
+    return '\n'.join(lines)
