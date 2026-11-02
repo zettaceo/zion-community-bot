@@ -90,7 +90,9 @@ def remove_sentences(answer: str, sentences: tuple[str, ...]) -> str:
     result = answer
     for sentence in sentences:
         pattern = r'\s*'.join(re.escape(word) for word in sentence.split())
-        result = re.sub(pattern + r'[ \t]*', '', result, count=1)
+        # Word boundaries on both ends: a quote matched inside a word once left
+        # "... is para avaliar riscos" behind (audit 2026-11-02).
+        result = re.sub(r'(?<!\w)' + pattern + r'(?!\w)[ \t]*', '', result, count=1)
     result = re.sub(r'[ \t]{2,}', ' ', result)
     result = re.sub(r'(?m)^[ \t]*\d+[.)][ \t]*$\n?', '', result)
     result = re.sub(r'\n{3,}', '\n\n', result)

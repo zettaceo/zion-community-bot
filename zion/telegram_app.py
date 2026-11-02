@@ -275,6 +275,9 @@ class Runtime:
             self.kimi_secret_captures: dict[tuple[int, int], float] = {}
             # Ephemeral (chat, user) -> monotonic time of the last seed warning.
             self.wallet_secret_warnings: dict[tuple[int, int], float] = {}
+            self.wallet_secret_victims: dict[tuple[int, int], float] = {}
+            self.triage_languages: dict[tuple[int, int], str] = {}
+            self.social_replies: dict[int, float] = {}
             # AI-first triage state: in memory only, bounded, never persisted.
             self.member_recent_turns: dict[tuple[int, int], list[tuple[float, str]]] = {}
             self.prompt_attack_attempts: dict[tuple[int, int], list[float]] = {}
@@ -930,6 +933,8 @@ def conversation_route(
     ):
         return ConversationRoute.MODERATE_ONLY
 
+    if _wallet_victim_reply(update, context, raw) is not None:
+        return ConversationRoute.LOCAL_HELP
     if _wallet_secret_sharing_reply(raw) is not None:
         _remember_wallet_secret_warning(update, context)
         return ConversationRoute.LOCAL_HELP
@@ -968,6 +973,101 @@ _WALLET_SECRET_SHARE = re.compile(
     r"post\w*|escrev\w*|te dar|dar pra|dar para|send\w*|shar\w*|paste\w*|"
     r"posso|devo|precis\w*|ped\w*|qu(?:er|ere)\w*|verific\w*|confer\w*)\b"
 )
+
+
+# A member who already sent the seed, lost funds or was robbed needs recovery
+# steps, not "don't send it" (audit 2026-11-02: "eu mandei 😭", "perdi tudo?"
+# and "me robaron mis tokens" met silence or a repeated warning).
+_ALREADY_COMPROMISED = re.compile(
+    r"\b(?:(?:eu\s+)?(?:ja\s+)?(?:mandei|enviei|passei|compartilhei)\s+(?:a\s+|as\s+|minha\s+|minhas\s+)?"
+    r"(?:seed|frase|palavras|chave|senha)|perdi\s+tudo|me\s+roubaram|roubaram\s+(?:meu|minha|meus|minhas)|"
+    r"fui\s+(?:hackead[oa]|roubad[oa]|golpead[oa])|cai\s+(?:num|em\s+um|no)\s+golpe|drenaram|"
+    r"limparam\s+(?:a\s+)?minha\s+carteira|sumiu\s+(?:tudo|meu\s+saldo|meus\s+tokens)|"
+    r"i\s+(?:already\s+)?(?:sent|shared|gave)\s+(?:him\s+|them\s+|her\s+)?(?:my\s+)?(?:seed|phrase|private\s+key|words)|"
+    r"(?:got|been|was)\s+(?:hacked|drained|scammed)|(?:wallet|funds)\s+(?:was\s+|were\s+|got\s+)?drained|"
+    r"stole\s+my|lost\s+everything|me\s+robaron|me\s+hackearon|me\s+estafaron|perdi\s+todo|"
+    r"ya\s+(?:le\s+)?(?:mande|envie|pase)\s+(?:la\s+|mi\s+)?(?:frase|semilla|clave))\b"
+    r"|被盗|被骗|被黑|钱包被清空|把助记词发给"
+)
+# Only after a seed warning, a removed seed or a victim reply to this member.
+_VICTIM_FOLLOW_UP = re.compile(
+    r"^\s*(?:eu\s+)?(?:ja\s+)?(?:mandei|enviei|passei)\b|\bperdi\b|\be\s+agora\b|"
+    r"\bo\s+que\s+(?:eu\s+)?(?:faco|fazer)\b|\bconfer[ei]\b|\b(?:ta|esta)\s+cert[ao]\b|"
+    r"\bi\s+(?:already\s+)?sent\b|\bwhat\s+(?:do|should|can)\s+i\s+do\b|\bis\s+it\s+(?:correct|right)\b|"
+    r"\bya\s+(?:la\s+|lo\s+)?(?:mande|envie)\b|\bque\s+hago\b|怎么办|我已经发了"
+)
+WALLET_VICTIM_SECONDS = 30 * 60
+WALLET_VICTIM_GUIDANCE = (
+    "Sinto muito que isso aconteceu. Se você já enviou sua seed phrase ou chave "
+    "privada para alguém, ou aprovou algo suspeito, considere essa carteira "
+    "comprometida: crie uma carteira nova, com uma seed nova, e transfira o que "
+    "ainda restar o quanto antes. Não volte a usar a carteira antiga e não pague "
+    "ninguém que prometa \"recuperar\" seus fundos: isso costuma ser um segundo "
+    "golpe. Transações já confirmadas na blockchain normalmente não podem ser "
+    "desfeitas. Se ainda não enviou nada, não envie. Me conta o que aconteceu "
+    "(sem mandar seed, chave ou senha) que eu te ajudo no próximo passo."
+)
+
+
+WALLET_VICTIM_AGAIN = (
+    "O mais urgente agora: crie uma carteira nova e transfira para ela o que "
+    "ainda restar, antes que levem o resto. Depois disso, me conta o que "
+    "aconteceu (sem mandar seed, chave ou senha) e seguimos juntos."
+)
+
+
+def _guess_reply_language(text: str, update=None) -> str:
+    """Cheap language guess for fixed host replies that run before triage."""
+    if re.search(r"[\u4e00-\u9fff]", text or ""):
+        return 'zh'
+    folded = _fold_conversation_text(text or "")
+    if re.search(r"\b(?:me\s+robaron|ayuda|porfa|que\s+hago|estafa\w*|perdi\s+todo|hackearon|billetera|ya\s+lo)\b", folded):
+        return 'es'
+    if re.search(r"\b(?:i|my|the|help|sent|stolen|lost|hacked|drained|what|is\s+it)\b", folded):
+        return 'en'
+    code = (getattr(getattr(update, 'effective_user', None), 'language_code', None) or '')
+    code = code.lower().split('-')[0] if isinstance(code, str) else ''
+    return code if code in ('en', 'es', 'zh') else 'pt'
+
+
+def _remember_wallet_victim(update, context) -> None:
+    key = _wallet_secret_warning_key(update)
+    if key is None:
+        return
+    victims = runtime(context).wallet_secret_victims
+    now = time.monotonic()
+    for stale in [k for k, t in victims.items() if now - t > WALLET_VICTIM_SECONDS]:
+        victims.pop(stale, None)
+    if len(victims) < 4096:
+        victims[key] = now
+
+
+def _wallet_victim_reply(update, context, question: str) -> str | None:
+    """Recovery steps for a member who already exposed a secret or lost funds."""
+    folded = _fold_conversation_text(question or "")
+    hit = bool(_ALREADY_COMPROMISED.search(folded) or _ALREADY_COMPROMISED.search(question or ""))
+    if not hit:
+        key = _wallet_secret_warning_key(update)
+        rt = runtime(context)
+        now = time.monotonic()
+        recent = key is not None and (
+            now - rt.wallet_secret_victims.get(key, -1e9) <= WALLET_VICTIM_SECONDS
+            or now - rt.wallet_secret_warnings.get(key, -1e9) <= WALLET_SECRET_WARNING_SECONDS)
+        short = len(re.findall(r"[^\W\d_]+", question or "")) <= 5 or bool(_SECRET_CORROBORATION.search(folded))
+        # "i sent eth to the wrong network help" is a support case, not a victim.
+        hit = recent and short and bool(_VICTIM_FOLLOW_UP.search(folded) or _VICTIM_FOLLOW_UP.search(question or ""))
+    if not hit:
+        return None
+    return _victim_text(update, context, _guess_reply_language(question, update))
+
+
+def _victim_text(update, context, language: str) -> str:
+    """Full steps the first time; a short reminder when repeated (robotic otherwise)."""
+    key = _wallet_secret_warning_key(update)
+    given = runtime(context).wallet_secret_victims.get(key) if key else None
+    if given is not None and time.monotonic() - given <= WALLET_VICTIM_SECONDS:
+        return _localized('victim_again', WALLET_VICTIM_AGAIN, language)
+    return _localized('victim', WALLET_VICTIM_GUIDANCE, language)
 
 
 def _wallet_secret_sharing_reply(question: str) -> str | None:
@@ -1018,11 +1118,22 @@ def _secret_risk_corroborated(update, context, text: str) -> bool:
         return True
     key = _wallet_secret_warning_key(update)
     warned_at = runtime(context).wallet_secret_warnings.get(key) if key else None
-    if warned_at is not None and time.monotonic() - warned_at <= WALLET_SECRET_WARNING_SECONDS:
+    if (warned_at is not None and time.monotonic() - warned_at <= WALLET_SECRET_WARNING_SECONDS
+            and (_SECRET_PERMISSION_FOLLOW_UP.search(folded)
+                 or len(re.findall(r"[^\W\d_]+", text)) <= 4)):
+        # Only a short "posso mandar?" leans on the earlier warning; "i sent
+        # eth to the wrong network" got the seed warning in the audit.
         return True
     # A pasted list: many bare alphabetic words and almost no punctuation.
     words = re.findall(r"[^\W\d_]+", text)
-    return len(words) >= 8 and len(re.findall(r"[.,;:!?]", text)) <= 1 and all(len(w) <= 12 for w in words)
+    if len(words) < 8 or len(re.findall(r"[.,;:!?]", text)) > 1:
+        return False
+    # Mostly BIP-39 words: "i sent eth to the wrong network help me please"
+    # looked like a pasted list by shape alone (audit 2026-11-02).
+    from .mnemonic import _fold as _fold_mnemonic, wordlists
+    folded_words = [_fold_mnemonic(w) for w in words]
+    return any(sum(w in wordlist for w in folded_words) >= 0.75 * len(folded_words)
+               for wordlist in wordlists())
 
 
 def _wallet_secret_warning_key(update) -> tuple[int, int] | None:
@@ -1116,6 +1227,39 @@ _COMPLAINT_REPLY = (
 
 
 _LOCALIZED_REPLIES = {
+    'victim_again': {
+        'en': ("The most urgent step now: create a new wallet and move whatever is left "
+               "into it before the rest is taken. Then tell me what happened (without "
+               "sharing your seed, key or password) and we'll take it from there."),
+        'es': ("Lo más urgente ahora: crea una billetera nueva y transfiere lo que quede "
+               "antes de que se lleven el resto. Después cuéntame qué pasó (sin enviar "
+               "semilla, clave ni contraseña) y seguimos juntos."),
+        'zh': "现在最紧急的是：创建一个新钱包，把剩余资产尽快转过去，以免被全部转走。然后告诉我发生了什么（不要发送助记词、私钥或密码），我们再一起处理。",
+    },
+    'victim': {
+        'en': ("I'm sorry this happened. If you already sent your seed phrase or private "
+               "key to someone, or approved something suspicious, treat that wallet as "
+               "compromised: create a new wallet with a new seed and move whatever is "
+               "left as soon as possible. Stop using the old wallet and don't pay anyone "
+               "who promises to \"recover\" your funds: that is usually a second scam. "
+               "Confirmed blockchain transactions normally can't be reversed. If you "
+               "haven't sent anything yet, don't. Tell me what happened (without sharing "
+               "your seed, key or password) and I'll help with the next step."),
+        'es': ("Siento mucho lo que pasó. Si ya enviaste tu frase semilla o clave privada "
+               "a alguien, o aprobaste algo sospechoso, considera esa billetera "
+               "comprometida: crea una billetera nueva, con una semilla nueva, y "
+               "transfiere lo que quede lo antes posible. No vuelvas a usar la billetera "
+               "antigua y no le pagues a nadie que prometa \"recuperar\" tus fondos: suele "
+               "ser una segunda estafa. Las transacciones ya confirmadas en la blockchain "
+               "normalmente no se pueden deshacer. Si todavía no enviaste nada, no lo "
+               "hagas. Cuéntame qué pasó (sin enviar semilla, clave ni contraseña) y te "
+               "ayudo con el siguiente paso."),
+        'zh': ("很抱歉发生了这种事。如果你已经把助记词或私钥发给了别人，或者批准了可疑的操作，"
+               "请把这个钱包视为已泄露：立即创建一个新钱包（新的助记词），并尽快把剩余资产转过去。"
+               "不要再使用旧钱包，也不要向任何承诺“找回”资金的人付款——那通常是第二次诈骗。"
+               "区块链上已确认的交易通常无法撤销。如果你还没有发送任何东西，就不要发送。"
+               "告诉我发生了什么（不要发送助记词、私钥或密码），我会帮你处理下一步。"),
+    },
     'warn_secret': {
         'zh': '⚠️ 不要发送！你创建钱包时得到的那些单词（通常是 12 或 24 个）就是你的助记词（恢复短语）。谁拥有它们，谁就能控制你的钱包并转走你所有的资金。不要分享给任何人：不要发在这里，不要私信发送，也不要发给自称是团队或客服的人。要帮你解决连接问题，我只需要知道你使用的钱包、网络以及看到的错误信息。',
         'en': ("⚠️ Don't send them! The words you got when you created the wallet "
@@ -1303,6 +1447,151 @@ async def _apply_prompt_attack_policy(update, context, rt) -> str:
             f"{format_duration(PROMPT_ATTACK_MUTE_SECONDS)}.")
 
 
+# Social presence (audit 2026-11-02): "qual teu nome?", "valeu, agr foi",
+# "alguém vivo aqui?" and "bom dia grupo" all met silence. The bot answers a
+# member who is talking to it; group greetings get at most one reply per
+# SOCIAL_GREETING_COOLDOWN_SECONDS so a wave of "gm" never becomes spam.
+SOCIAL_GREETING_COOLDOWN_SECONDS = 20 * 60
+_SOCIAL_DIRECTED = re.compile(
+    r"\?|\b(?:vc|voce|ce|tu|teu|tua|seu\s+nome|you|your|u|valeu|vlw|obrigad\w*|brigad\w*|"
+    r"thanks|thank\s+you|thx|ty|gracias|resolvi|resolveu|funcionou|deu\s+certo|agr\s+foi|"
+    r"agora\s+foi|consegui|solved|worked|lo\s+resolvi|ya\s+funciona|me\s+conta|me\s+fala|"
+    r"conta\s+uma|tell\s+me|cuentame|grazie|merci)\b|谢谢|你"
+)
+# Not "ai"/"ia": in Portuguese they are "aí" and "ia" (went), not the bot.
+# Thanks or "resolvi" may be read as any intent; they still deserve a reply.
+_SOCIAL_CLOSURE = re.compile(
+    r"\b(?:valeu|vlw|obrigad\w*|brigad\w*|resolvi|deu\s+certo|agr\s+foi|agora\s+foi|consegui|"
+    r"thanks|thank\s+you|thx|solved|worked|gracias|lo\s+resolvi|ya\s+funciona|grazie|merci)\b|谢谢"
+)
+_SOCIAL_BOT_MENTION = re.compile(r"\b(?:zion|bot|robo|robozinho|robot|mimir|eir|freyr)\b")
+_SOCIAL_PRESENCE = re.compile(
+    r"\b(?:alguem|algm|alguien|anyone|anybody|someone)\b.{0,25}"
+    r"\b(?:vivo|viva|ai|on|online|aqui|here|alive|ahi|aca|acordado)\b|有人吗|有人在吗"
+)
+
+
+def _social_reply_wanted(rt, update, text: str, intent: str) -> bool:
+    folded = _fold_conversation_text(text or "")
+    if _SOCIAL_PRESENCE.search(folded) or _SOCIAL_PRESENCE.search(text or ""):
+        return True
+    talking_to_bot = bool(_member_bot_replies(rt, update)) or bool(_SOCIAL_BOT_MENTION.search(folded))
+    if talking_to_bot and (_SOCIAL_DIRECTED.search(folded) or _SOCIAL_DIRECTED.search(text or "")
+                           or _SOCIAL_BOT_MENTION.search(folded)):
+        return True
+    if intent == 'greeting':
+        last = rt.social_replies.get(int(update.effective_chat.id))
+        return last is None or time.monotonic() - last >= SOCIAL_GREETING_COOLDOWN_SECONDS
+    return False
+
+
+# Small-model misreadings seen in the audit (2026-11-02): "tem bitcoin?" read
+# as smalltalk and "vsf zion" as a harmless unrelated turn. Host-owned
+# corrections only add a product intent or an insult risk; they never remove one.
+_ASSET_NAMES = (
+    r"bitcoin|btc|ethereum|eth|ether|solana|sol|usdt|usdc|tether|bnb|binance\s+coin|tron|trx|"
+    r"doge|dogecoin|xrp|ripple|ton|toncoin|cardano|ada|polygon|matic|pol|base|arbitrum|arb|"
+    r"optimism|avalanche|avax|litecoin|ltc|shiba|pepe|zetta|zetta\s+chain|pix|real|reais|dolar|euro"
+)
+_ASSET_QUESTION = re.compile(
+    r"^\s*(?:e\s+)?(?:tem|tm|aceita|aceitam|suporta|suportam|da\s+(?:pra|para)\s+(?:usar|trocar)|"
+    r"roda|funciona|vale\s+pra|has|have|supports?|accepts?|is\s+there|do\s+you\s+(?:have|support)|"
+    r"hay|tienen|aceptan|soporta)\b[^?.!\n]{0,30}\b(?:" + _ASSET_NAMES + r")\b[^\n]{0,20}$"
+    r"|^\s*(?:e\s+(?:a\s+|o\s+|na\s+|no\s+)?|and\s+|y\s+)(?:" + _ASSET_NAMES + r")\s*\??\s*$"
+    r"|^\s*(?:a\s+|o\s+|na\s+|no\s+)?(?:" + _ASSET_NAMES + r")\s+(?:funciona|roda|ta\s+ativ\w*|esta\s+ativ\w*|"
+    r"e\s+suportad\w*|works|is\s+supported|funciona\s+ai)\b[^\n]{0,20}$"
+)
+_ABBREVIATED_INSULT = re.compile(
+    r"(?:^|[^\w])(?:vsf|vtnc|vtmnc|tnc|fdp|f\.d\.p|krl|krlh|pqp|mrd|pnc|vagabund\w*|lixo\s+de\s+bot)(?:$|[^\w])|🖕"
+)
+
+
+def _correct_triage_reading(reading, text: str):
+    from dataclasses import replace as _replace
+    folded = _fold_conversation_text(text or "")
+    if reading.intent in ('smalltalk', 'unrelated', 'greeting') and _ASSET_QUESTION.search(folded):
+        reading = _replace(reading, intent='product', addressed=True)
+    if _ABBREVIATED_INSULT.search(folded) and 'insult' not in reading.risks:
+        reading = _replace(reading, risks=frozenset(reading.risks | {'insult'}))
+    return reading
+
+
+def _message_key(update) -> tuple[int, int] | None:
+    chat, message = update.effective_chat, update.effective_message
+    if chat is None or message is None or getattr(message, 'message_id', None) is None:
+        return None
+    return int(chat.id), int(message.message_id)
+
+
+def _remember_triage_language(rt, update, language: str) -> None:
+    key = _message_key(update)
+    if key is None or not language or language == 'und':
+        return
+    if len(rt.triage_languages) > 2048:
+        rt.triage_languages.clear()
+    rt.triage_languages[key] = language
+
+
+# Fixed provider-side texts are Portuguese; a member who wrote in English got
+# "Não tenho informação oficial suficiente..." (audit 2026-11-02).
+_FIXED_ANSWER_TRANSLATIONS = {
+    "Não tenho informação oficial suficiente para confirmar isso com segurança. "
+    "Posso explicar o que está documentado publicamente sobre a Z-SWAP, se quiser.": {
+        'en': "I don't have enough official information to confirm that safely. I can explain what is publicly documented about Z-SWAP if you like.",
+        'es': "No tengo información oficial suficiente para confirmarlo con seguridad. Puedo explicarte lo que está documentado públicamente sobre Z-SWAP, si quieres.",
+        'zh': "我没有足够的官方信息来可靠地确认这一点。如果你愿意，我可以介绍 Z-SWAP 已公开说明的内容。",
+    },
+    "Não tenho informação oficial suficiente para confirmar essa resposta. "
+    "Posso explicar o funcionamento público e suas limitações com base no que está confirmado.": {
+        'en': "I don't have enough official information to confirm that. I can explain how it publicly works and its limits based on what is confirmed.",
+        'es': "No tengo información oficial suficiente para confirmar esa respuesta. Puedo explicar el funcionamiento público y sus límites con base en lo confirmado.",
+        'zh': "我没有足够的官方信息来确认这个回答。我可以根据已确认的内容说明公开的运作方式及其限制。",
+    },
+    "Ainda não tenho informação oficial suficiente para responder isso com segurança. "
+    "Se quiser, reformule a pergunta ou fale com a equipe da Z-SWAP.": {
+        'en': "I don't have enough official information to answer that safely yet. Feel free to rephrase the question.",
+        'es': "Todavía no tengo información oficial suficiente para responder eso con seguridad. Si quieres, reformula la pregunta.",
+        'zh': "我目前还没有足够的官方信息来可靠地回答这个问题。你可以换个方式再问一次。",
+    },
+    "Por segurança, não compartilhe seed phrase, chave privada ou senha e "
+    "não envie fundos a endereços, links ou contatos recebidos em conversa. "
+    "Use apenas os canais oficiais da Z-SWAP.": {
+        'en': "For your safety, don't share your seed phrase, private key or password, and don't send funds to addresses, links or contacts you got in a chat. Use only official Z-SWAP channels.",
+        'es': "Por seguridad, no compartas tu frase semilla, clave privada o contraseña y no envíes fondos a direcciones, enlaces o contactos recibidos en una conversación. Usa solo los canales oficiales de Z-SWAP.",
+        'zh': "为了安全，不要分享助记词、私钥或密码，也不要向聊天中收到的地址、链接或联系人转账。请只使用 Z-SWAP 官方渠道。",
+    },
+    "Não faço recomendação de compra, venda ou investimento nem previsão "
+    "de preço. Posso explicar como a plataforma funciona e quais custos e "
+    "riscos considerar antes de decidir.": {
+        'en': "I don't give buy, sell or investment recommendations or price predictions. I can explain how the platform works and which costs and risks to consider before deciding.",
+        'es': "No hago recomendaciones de compra, venta o inversión ni predicciones de precio. Puedo explicar cómo funciona la plataforma y qué costos y riesgos considerar antes de decidir.",
+        'zh': "我不提供买卖或投资建议，也不做价格预测。我可以说明平台如何运作，以及决定前需要考虑的费用和风险。",
+    },
+    "A Z-SWAP implementa controles para reduzir riscos, mas nenhuma "
+    "plataforma ou transação é livre de risco. Confira os detalhes da "
+    "operação antes de confirmar.": {
+        'en': "Z-SWAP has controls to reduce risk, but no platform or transaction is risk-free. Review the operation details before confirming.",
+        'es': "Z-SWAP aplica controles para reducir riesgos, pero ninguna plataforma o transacción está libre de riesgo. Revisa los detalles de la operación antes de confirmar.",
+        'zh': "Z-SWAP 有降低风险的控制措施，但没有任何平台或交易是零风险的。确认前请检查操作细节。",
+    },
+    "A IA está indisponível agora. Tente novamente em alguns instantes; a proteção "
+    "da comunidade continua funcionando normalmente.": {
+        'en': "The AI is unavailable right now. Please try again in a moment; community protection keeps working normally.",
+        'es': "La IA no está disponible ahora. Inténtalo de nuevo en unos instantes; la protección de la comunidad sigue funcionando.",
+        'zh': "AI 暂时不可用，请稍后再试；社区保护功能仍在正常运行。",
+    },
+}
+
+
+def _translate_fixed_answer(text: str, language: str | None) -> str:
+    if not language or language in ('pt', 'und'):
+        return text
+    options = _FIXED_ANSWER_TRANSLATIONS.get((text or '').strip())
+    if not options:
+        return text
+    return options.get(language) or options['en']
+
+
 async def _triage_member_turn(update, context, rt, text: str, recent: tuple[str, ...]):
     """Read a member turn the deterministic safety net did not settle.
 
@@ -1314,6 +1603,8 @@ async def _triage_member_turn(update, context, rt, text: str, recent: tuple[str,
     reading = await rt.ai.classify_triage(text=text, context=recent)
     if reading is None:
         return None
+    reading = _correct_triage_reading(reading, text)
+    _remember_triage_language(rt, update, reading.language)
     risks = set(reading.risks)
     if 'secret_sharing' in risks and not _secret_risk_corroborated(update, context, text):
         # The seed warning needs deterministic support: the recovery words or
@@ -1348,10 +1639,19 @@ async def _triage_member_turn(update, context, rt, text: str, recent: tuple[str,
     if action == 'respect_notice':
         return (await _natural(rt, update, 'respect_notice', text, recent, reading.language)
                 or _localized('respect_notice', _RESPECT_NOTICE, reading.language)), None
-    if action == 'silent' and reading.intent == 'greeting' and reading.language not in ('pt', 'und', ''):
-        # "您好" or "晚安" must not meet silence; reply briefly in their language.
-        reply = await _natural(rt, update, 'conversation', text, recent, reading.language)
-        return (reply, None) if reply else None
+    if action == 'silent' and (reading.intent in ('greeting', 'smalltalk')
+                               or _SOCIAL_CLOSURE.search(_fold_conversation_text(text))):
+        if _social_reply_wanted(rt, update, text, reading.intent):
+            reply = await _natural(rt, update, 'conversation', text, recent, reading.language)
+            if reply:
+                rt.social_replies[int(update.effective_chat.id)] = time.monotonic()
+                return reply, None
+        return None
+    if action == 'answer' and 'scam_report' in risks:
+        # A victim with intent "unrelated" had no agent and met silence.
+        reply = _victim_text(update, context, reading.language)
+        _remember_wallet_victim(update, context)
+        return reply, None
     if action == 'answer':
         if reading.intent in ('complaint', 'trust_concern'):
             return (await _natural(rt, update, reading.intent, text, recent, reading.language)
@@ -1712,8 +2012,12 @@ async def answer_natural_conversation(
             return True
 
     if route == ConversationRoute.LOCAL_HELP:
+        victim_reply = _wallet_victim_reply(update, context, raw_question)
+        if victim_reply is not None:
+            _remember_wallet_victim(update, context)
         local_reply = (
             triage_local_reply
+            or victim_reply
             or _wallet_secret_sharing_reply(raw_question)
             or _wallet_secret_follow_up_reply(update, context, raw_question)
         )
@@ -1778,8 +2082,12 @@ async def answer_natural_conversation(
 
     if fragment_query:
         answer_kwargs["context_query"] = fragment_query
+    message_key = _message_key(update)
+    reply_language = (rt.triage_languages.pop(message_key, None) if message_key else None)
+    if reply_language and reply_language not in ('pt', 'und'):
+        answer_kwargs["reply_language"] = reply_language
     answer = await rt.ai.answer(**answer_kwargs)
-    rendered = telegram_ai_reply_text(answer.text)
+    rendered = telegram_ai_reply_text(_translate_fixed_answer(answer.text, reply_language))
     if selected_profile.agent_id is AgentId.EIR:
         support_triage = triage_support(question)
         if support_triage.requires_human:
@@ -5543,6 +5851,46 @@ async def reload_knowledge_command(
     )
 
 
+_WELCOME_BY_LANGUAGE = {
+    'pt': ("⚡ Bem-vindo(a), {name}! Que bom ter você na comunidade Z-SWAP. "
+           "Pode perguntar o que quiser por aqui; as regras estão em /rules e "
+           "a ajuda em /help.\n\n🔐 Nunca compartilhe sua seed phrase, chave "
+           "privada ou senha, e desconfie de quem chamar no privado oferecendo suporte."),
+    'en': ("⚡ Welcome, {name}! Great to have you in the Z-SWAP community. "
+           "Feel free to ask anything here; rules are in /rules and help in "
+           "/help.\n\n🔐 Never share your seed phrase, private key or password, "
+           "and be wary of anyone who DMs you offering support."),
+    'es': ("⚡ ¡Bienvenido(a), {name}! Qué bueno tenerte en la comunidad Z-SWAP. "
+           "Pregunta lo que quieras aquí; las reglas están en /rules y la "
+           "ayuda en /help.\n\n🔐 Nunca compartas tu frase semilla, clave "
+           "privada o contraseña, y desconfía de quien te escriba por privado "
+           "ofreciendo soporte."),
+    'zh': ("⚡ 欢迎你，{name}！很高兴你加入 Z-SWAP 社区。有任何问题都可以在这里提问；"
+           "群规见 /rules，帮助见 /help。\n\n🔐 绝不要分享你的助记词、私钥或密码，"
+           "并警惕任何私聊你自称客服的人。"),
+}
+_WELCOME_BILINGUAL = (
+    "⚡ Bem-vindo(a) / Welcome, {name}!\n\n"
+    "PT-BR: Você entrou na comunidade Z-SWAP. "
+    "Leia /rules, consulte /help e use /report para sinalizar problemas.\n"
+    "EN: Welcome to the Z-SWAP community. "
+    "Read /rules, check /help and use /report to flag issues.\n\n"
+    "🔐 Nunca compartilhe / Never share seed phrase, private key, "
+    "password, token or API key."
+)
+
+
+def localized_welcome(name: str, language_code: str | None) -> str:
+    """Welcome in the member's Telegram app language (fixed, reviewed texts).
+
+    Telegram reports the client language of a joining member; a deterministic
+    template needs no model call and cannot be steered by the member's name.
+    """
+    language = (language_code or '').strip().lower().split('-')[0]
+    template = _WELCOME_BY_LANGUAGE.get(language, _WELCOME_BILINGUAL)
+    return template.replace('{name}', name)
+
+
 async def welcome_handler(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
@@ -5663,15 +6011,8 @@ async def welcome_handler(
             )
             or "novo membro"
         )
-        welcome_text = (
-            f"⚡ Bem-vindo(a) / Welcome, {name}!\n\n"
-            "PT-BR: Você entrou na comunidade Z-SWAP. "
-            "Leia /rules, consulte /help e use /report para sinalizar problemas.\n"
-            "EN: Welcome to the Z-SWAP community. "
-            "Read /rules, check /help and use /report to flag issues.\n\n"
-            "🔐 Nunca compartilhe / Never share seed phrase, private key, "
-            "password, token or API key."
-        )
+        welcome_text = localized_welcome(
+            name, getattr(members[0], "language_code", None))
     else:
         welcome_text = (
             f"⚡ {len(members)} novos membros / new members chegaram.\n\n"
@@ -6519,9 +6860,12 @@ async def moderation_handler(
         notice_text=(
             f"🚨 {user_display_name(user)}: mensagem removida por "
             "possível exposição de segredo de carteira. "
-            "Nunca publique seed phrase ou chave privada."
+            "Nunca publique seed phrase ou chave privada. Se a frase era "
+            "real, considere a carteira comprometida e transfira os fundos "
+            "para uma carteira nova o quanto antes."
         ),
     ):
+        _remember_wallet_victim(update, context)
         return
 
     # This Application receives ZION's token. Its private policy is applied

@@ -334,12 +334,25 @@ _SCRIPT_LANGUAGES = (
 )
 
 
-def reply_language_instruction(question: str) -> str:
+_NAMED_LANGUAGES = {'en': 'English', 'es': 'español', 'zh': '简体中文', 'fr': 'français',
+                    'it': 'italiano', 'de': 'Deutsch', 'ru': 'русский', 'ar': 'العربية',
+                    'ja': '日本語', 'ko': '한국어', 'tr': 'Türkçe', 'id': 'Bahasa Indonesia',
+                    'vi': 'Tiếng Việt', 'hi': 'हिन्दी', 'fil': 'Filipino', 'tl': 'Filipino'}
+
+
+def reply_language_instruction(question: str, language: str | None = None) -> str:
     """The corpus is Portuguese; the reply must follow the member, not it.
 
     A Chinese question answered from Portuguese context came back in
     Portuguese (2026-11-02). Non-Latin scripts are named explicitly.
     """
+    named = _NAMED_LANGUAGES.get((language or '').strip().lower())
+    if named:
+        # The triage reading names the language; "ciao, quanto costa?" was
+        # answered in Portuguese from the script guess alone (2026-11-02).
+        return (named + ". Escreva a resposta inteira nesse idioma, mesmo "
+                "com o contexto oficial em português; mantenha nomes "
+                "próprios como Z-SWAP. Seja breve e sem Markdown.")
     for pattern, name in _SCRIPT_LANGUAGES:
         if pattern.search(question or ""):
             return (name + ". Escreva a resposta inteira nesse idioma, mesmo "
@@ -353,7 +366,8 @@ def reply_language_instruction(question: str) -> str:
 
 
 def build_answer_messages(*, question: str, context: str,
-                          conversation_context: str = "", agent_id: str = "zion") -> list[dict[str, str]]:
+                          conversation_context: str = "", agent_id: str = "zion",
+                          reply_language: str | None = None) -> list[dict[str, str]]:
     """Shared grounding contract for provider comparison; inputs are untrusted data."""
     identity = AGENT_IDENTITY_PROMPTS.get(agent_id)
     if identity is None:
@@ -407,6 +421,13 @@ def build_answer_messages(*, question: str, context: str,
         "forem necessários para evitar uma orientação incorreta. "
         "Responda em texto simples, sem sintaxe Markdown. "
         "Responda no idioma do usuário. "
+        "Ao pedir detalhes, faça uma ou duas perguntas curtas em frase corrida; "
+        "não monte menus de opções com marcadores ou listas numeradas. Use "
+        "lista só para enumerar itens oficiais (redes, planos, taxas). Não "
+        "comece com 'Que bom que...' a menos que o membro conte algo bom. "
+        "Se perguntarem por uma rede que não aparece na lista oficial de redes "
+        "ativas do contexto, diga que ela não está entre as redes ativas "
+        "listadas, sem prever se será adicionada. "
         "Numa troca, a Z-SWAP seleciona a fonte de cotação conforme as redes "
         "envolvidas: não diga que o membro escolhe a rota ou a fonte de cotação. "
         "Use SOMENTE as fontes fornecidas em CONTEXTO OFICIAL para "
@@ -558,7 +579,7 @@ def build_answer_messages(*, question: str, context: str,
         "uma lista de fontes à resposta. Não reproduza documentos inteiros, "
         "APNs, papers ou materiais extensos; ofereça somente resumo ou "
         "explicação curta dos fatos públicos necessários à pergunta."
-        + "\nIDIOMA DA RESPOSTA: " + reply_language_instruction(question)
+        + "\nIDIOMA DA RESPOSTA: " + reply_language_instruction(question, reply_language)
     )
 
     input_data = json.dumps(
@@ -838,6 +859,7 @@ class MistralClient:
         context: str,
         conversation_context: str = "",
         agent_id: str = "zion",
+        reply_language: str | None = None,
     ) -> AIAnswer:
         if not context.strip():
             return AIAnswer(
@@ -850,7 +872,7 @@ class MistralClient:
 
         messages = build_answer_messages(question=question, context=context,
                                         conversation_context=conversation_context,
-                                        agent_id=agent_id)
+                                        agent_id=agent_id, reply_language=reply_language)
         options = {} if self.knowledge_tools is None else {'tools': self.knowledge_tools.schemas()}
         raw = await self._chat(messages, temperature=0.1, **options)
         evidence = ""

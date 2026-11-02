@@ -26,7 +26,8 @@ def _fold(value: str) -> str:
 _PARTNERSHIP = re.compile(
     r"\b(?:parcerias?|parceir[oa]s?|partner(?:ship)?|business|comercial|b2b|empresa|"
     r"projeto|integracao comercial|integrar (?:nossa|minha)|afiliados?|"
-    r"patrocinio|sponsor|listing|market maker|liquidez institucional)\b"
+    r"patrocinio|sponsor|listing|listar (?:meu|minha|nosso|nossa|o) (?:token|moeda|projeto|coin)|"
+    r"market maker|liquidez institucional)\b"
 )
 _SUPPORT = re.compile(
     r"\b(?:nao conectar|nao conecta|nao consigo|erro|falha|falhou|bug|problem(?:a|inha)|travou|"
@@ -63,7 +64,11 @@ _COMMUNITY = re.compile(
 )
 _CONFIDENTIALITY = re.compile(
     r"\b(?:system prompt|prompt do sistema|ignore (?:as )?instrucoes|"
-    r"ip do servidor|ssh|firewall|schema sql|rotas? admin(?:istrativas?)?|api key|token|credenciais|leads|endpoints? internos?|"
+    # A bare "token" is a crypto asset in this community ("zswap tem token
+    # próprio?", "posso listar meu token?"); only credential tokens are internal.
+    r"ip do servidor|ssh|firewall|schema sql|rotas? admin(?:istrativas?)?|api key|"
+    r"(?:bot|api|access|acesso|auth|jwt|bearer)\s+tokens?|tokens?\s+(?:de\s+)?(?:acesso|api|bot|"
+    r"autenticacao|do bot|secreto)|credenciais|leads|endpoints? internos?|"
     r"segredos?|secrets?|fontes? internas?|arquivos? internos?|repositorios?|commits?)\b"
 )
 _QUESTION = re.compile(
