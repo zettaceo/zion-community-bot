@@ -325,6 +325,33 @@ def _parse_json_object(text: str) -> dict[str, Any]:
     return {}
 
 
+_SCRIPT_LANGUAGES = (
+    (re.compile(r"[\u3040-\u30ff]"), "日本語"),
+    (re.compile(r"[\uac00-\ud7af]"), "한국어"),
+    (re.compile(r"[\u4e00-\u9fff]"), "简体中文 (se a pergunta usar caracteres tradicionais, 繁體中文)"),
+    (re.compile(r"[\u0400-\u04ff]"), "русский"),
+    (re.compile(r"[\u0600-\u06ff]"), "العربية"),
+)
+
+
+def reply_language_instruction(question: str) -> str:
+    """The corpus is Portuguese; the reply must follow the member, not it.
+
+    A Chinese question answered from Portuguese context came back in
+    Portuguese (2026-11-02). Non-Latin scripts are named explicitly.
+    """
+    for pattern, name in _SCRIPT_LANGUAGES:
+        if pattern.search(question or ""):
+            return (name + ". Escreva a resposta inteira nesse idioma, mesmo "
+                    "com o contexto oficial em português; mantenha nomes "
+                    "próprios como Z-SWAP. Seja breve: no máximo 200 "
+                    "caracteres ou palavras, em dois parágrafos curtos, "
+                    "sem listas e sem Markdown.")
+    return ("o mesmo idioma de user_question, não o do official_context "
+            "(que está em português). Pergunta em inglês ou espanhol recebe "
+            "resposta inteira em inglês ou espanhol.")
+
+
 def build_answer_messages(*, question: str, context: str,
                           conversation_context: str = "", agent_id: str = "zion") -> list[dict[str, str]]:
     """Shared grounding contract for provider comparison; inputs are untrusted data."""
@@ -336,6 +363,10 @@ def build_answer_messages(*, question: str, context: str,
         identity + " " + plan_response(agent_id=agent_id, question=question,
                                       has_evidence=bool(context.strip())).instruction() + " "
         "Converse de forma humana, acolhedora, clara e direta. "
+        "Se o membro disser que já resolveu um problema, reconheça isso numa "
+        "frase curta ('que bom que resolveu!') e responda o restante. "
+        "Não ofereça levantar, consultar, verificar, encaminhar ou perguntar "
+        "algo à equipe ou ao time: você não tem esse canal. "
         "Fale com membros da comunidade, não como se estivesse escrevendo "
         "para desenvolvedores ou para uma equipe de TI. Comece pela resposta "
         "direta, sem saudação repetida e sem introdução genérica. Para uma "
@@ -376,6 +407,8 @@ def build_answer_messages(*, question: str, context: str,
         "forem necessários para evitar uma orientação incorreta. "
         "Responda em texto simples, sem sintaxe Markdown. "
         "Responda no idioma do usuário. "
+        "Numa troca, a Z-SWAP seleciona a fonte de cotação conforme as redes "
+        "envolvidas: não diga que o membro escolhe a rota ou a fonte de cotação. "
         "Use SOMENTE as fontes fornecidas em CONTEXTO OFICIAL para "
         "afirmações factuais sobre Z-SWAP. "
         "Não deduza a rede a partir de ícones ou descrições. Só reconheça a "
@@ -525,6 +558,7 @@ def build_answer_messages(*, question: str, context: str,
         "uma lista de fontes à resposta. Não reproduza documentos inteiros, "
         "APNs, papers ou materiais extensos; ofereça somente resumo ou "
         "explicação curta dos fatos públicos necessários à pergunta."
+        + "\nIDIOMA DA RESPOSTA: " + reply_language_instruction(question)
     )
 
     input_data = json.dumps(
