@@ -771,7 +771,7 @@ class AIService:
                 # not "no official information"; nothing factual is claimed.
                 natural = await self.converse(
                     situation='open_support' if selected_agent is AgentId.EIR else 'conversation',
-                    agent_id=selected_agent, text=safe_question,
+                    agent_id=selected_agent, text=safe_question, language='und',
                     member_turns=tuple(t for t in safe_conversation_context.split('\n') if t.strip()))
                 if natural:
                     return AIAnswer(text=natural, model=self.settings.mistral_model)
@@ -1228,13 +1228,43 @@ class AIService:
             return None
 
     def _non_custodial_context(self) -> str:
-        """The PUBLIC definition a distrust reply may rely on, nothing else."""
+        """The PUBLIC facts a distrust reply may rely on, nothing else: the
+        non-custodial definition and the signing/confirmation guidance."""
+        found = []
         for chunk in self.knowledge.chunks:
-            if (chunk.authority.classification is KnowledgeClassification.PUBLIC
-                    and 'nao custodial' in _fold(chunk.text)
-                    and 'seed phrase' in _fold(chunk.text)):
-                return f"[Contexto oficial: {chunk.heading}]\n{chunk.text}"
-        return ""
+            if chunk.authority.classification is not KnowledgeClassification.PUBLIC:
+                continue
+            body = _fold(chunk.text)
+            if (('nao custodial' in body and 'seed phrase' in body)
+                    or 'assinaturas devem ocorrer na carteira' in body
+                    or 'antes de confirmar, o usuario deve conferir' in body):
+                found.append(f"[Contexto oficial: {chunk.heading}]\n{chunk.text}")
+        return "\n\n".join(found[:3])
+
+    async def _converse_with_candidate(self, candidate, messages):
+        """K3 for the most delicate conversational turns; None falls back."""
+        import json as _json
+        from .mistral import MistralRawResponse
+        approval, adapter = candidate
+        upper = len(_json.dumps(messages, ensure_ascii=False).encode('utf-8')) + 256 + 180
+        try:
+            reservation = self.provider_token_budget.reserve(approval.provider, approval.model, upper)
+        except ProviderBudgetError:
+            return None
+        try:
+            result = await adapter.complete(messages, max_tokens=180)
+            if result.model != approval.model:
+                return None
+            self.provider_token_budget.settle(reservation, result.input_tokens, result.output_tokens)
+            return MistralRawResponse(text=result.text, model=result.model,
+                                      input_tokens=result.input_tokens,
+                                      output_tokens=result.output_tokens,
+                                      latency_ms=result.latency_ms)
+        except Exception as exc:
+            logger.warning("Candidato conversacional indisponível: %s", type(exc).__name__)
+            return None
+        finally:
+            self.provider_token_budget.retain_uncertain(reservation)
 
     async def converse(self, *, situation: str, agent_id: AgentId | str, text: str,
                        member_turns: tuple[str, ...] = (), bot_replies: tuple[str, ...] = (),
@@ -1257,10 +1287,23 @@ class AIService:
             "\n".join(m['content'] for m in messages), 180))
         if reservation is None:
             return None
+        candidate = None
+        if situation in ('trust_concern', 'complaint') and self.runtime_cost_budget is not None:
+            for approval in self.generation_policy.approvals:
+                adapter = self.completion_providers.get((approval.provider, approval.model))
+                if (adapter is not None and adapter.configured and approval.quality_accepted
+                        and approval.privacy_accepted and approval.pricing_accepted
+                        and time.time() < approval.expires_at):
+                    candidate = (approval, adapter)
+                    break
         try:
             try:
                 async with self._semaphore:
-                    raw = await self.client.converse(messages)
+                    raw = None
+                    if candidate is not None:
+                        raw = await self._converse_with_candidate(candidate, messages)
+                    if raw is None:
+                        raw = await self.client.converse(messages)
             finally:
                 self._release_budget(reservation)
             self._record_provider_success()

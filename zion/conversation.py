@@ -25,12 +25,15 @@ SITUATIONS = {
         "próximo passo concreto com uma pergunta curta."
     ),
     'trust_concern': (
-        "O membro desconfia da plataforma, diz que é golpe ou pede para outros "
-        "não usarem. Não discuta, não ataque e não o chame de mentiroso. "
-        "Reconheça a preocupação, explique com calma, usando SOMENTE o contexto "
-        "oficial fornecido, que a Z-SWAP é não custodial (os fundos ficam na "
-        "carteira dele e cada operação precisa da autorização dele), e ofereça "
-        "ajuda com o problema concreto que ele teve."
+        "O membro desconfia da plataforma, diz que é golpe, pede para outros "
+        "não usarem ou levanta um risco de segurança concreto (hacker, "
+        "aprovação maliciosa, invasão). Não discuta, não ataque e não o chame "
+        "de mentiroso. Responda à dúvida CONCRETA dele com o contexto oficial "
+        "fornecido: a Z-SWAP é não custodial, as assinaturas acontecem na "
+        "carteira dele e ele deve conferir os detalhes da operação antes de "
+        "confirmar. Admita que riscos existem quando a pergunta for sobre "
+        "risco; não prometa que algo é impossível. Se ele perguntou algo "
+        "específico, não peça de novo que ele 'conte o que aconteceu'."
     ),
     'open_support': (
         "O membro avisou que tem um problema mas ainda não disse qual. "
@@ -61,7 +64,8 @@ _SYSTEM = (
     "como um robô: frases naturais, sem listas, sem jargão, no máximo 3 frases "
     "e 60 palavras. Responda no idioma indicado. Não use saudação se a conversa "
     "já está em andamento. Não repita frases das suas respostas anteriores: "
-    "varie a formulação. Não invente fatos, prazos, valores, garantias, "
+    "varie a formulação, inclusive a abertura (não comece sempre com "
+    "'Entendo a preocupação' ou 'Entendo'). Não invente fatos, prazos, valores, garantias, "
     "promessas nem contato privado; fatos só do contexto oficial fornecido. "
     "Não use 'nunca', 'sempre', 'garantido' ou '100%' sobre segurança ou "
     "fundos. Não fale pela equipe ('nunca pedimos'): dê a orientação (não "
@@ -83,7 +87,9 @@ def build_conversation_messages(*, situation: str, agent_identity: str, text: st
     if situation not in SITUATIONS:
         raise ValueError('unknown_conversation_situation')
     system = (agent_identity + " " + _SYSTEM + "\nSITUAÇÃO: " + SITUATIONS[situation]
-              + "\nIDIOMA DA RESPOSTA: " + _LANGUAGE_NAMES.get(language, language or 'português do Brasil'))
+              + "\nIDIOMA DA RESPOSTA: " + (
+                  "o mesmo idioma da mensagem do membro" if language in ('und', '')
+                  else _LANGUAGE_NAMES.get(language, language)))
     payload = {
         'member_previous_turns': [t[:300] for t in member_turns[-3:]],
         'your_previous_replies_do_not_repeat': [r[:300] for r in bot_replies[-3:]],
