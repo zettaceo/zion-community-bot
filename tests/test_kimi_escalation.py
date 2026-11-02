@@ -115,12 +115,13 @@ class EscalationTests(unittest.TestCase):
         answer = self.ask(ai, 'Concerteza deve ter plataformas mais baratas, que oferecem '
                               'a mesma coisa que a zswap e já consolidadas no mercado')
         self.assertEqual(answer.model, KIMI_MODEL)
-        self.assertEqual(len(kimi.calls), 1)
+        # One generation, then one grounding review of that reply.
+        self.assertEqual(len(kimi.calls), 2)
         sent = str(kimi.calls[0])
         self.assertNotIn('User:', sent)
         simple = self.ask(ai, 'Quais redes a Z-SWAP suporta atualmente?')
         self.assertNotEqual(simple.model, KIMI_MODEL)
-        self.assertEqual(len(kimi.calls), 1)
+        self.assertEqual(len(kimi.calls), 2)
 
     def test_spent_kimi_budget_falls_back_to_the_baseline_answer(self):
         ai, kimi = self.service()

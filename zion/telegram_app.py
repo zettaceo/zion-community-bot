@@ -745,7 +745,8 @@ def natural_conversation_question(
     actionable_intent = _looks_like_high_confidence_actionable_intent(question)
     interpreted_request = bool(re.search(
         r"\b(?:z-swap e segur[oa]|uniswap nao faz igual|isso ai ja existe|"
-        r"por que eu pagaria|e no pro)\b", folded))
+        r"por que eu pagaria|e no pro|quando (?:lanca|vai lancar|sai|libera)|"
+        r"ja (?:lancou|funciona|esta funcionando))\b", folded))
     # Live acceptance 2026-11-01: after a reply, the same member's next short
     # turns ("Posso mandar ?") were ignored. A member the bot just answered is
     # still talking to it, unless they are replying to somebody else.
@@ -875,7 +876,12 @@ def _security_refusal_reply(question: str) -> str | None:
         )
     )
     direct_private_discovery = bool(re.search(
-        r"\b(?:quais (?:credenciais|leads)|quais sao (?:as )?(?:credenciais|rotas administrativas))\b",
+        r"\b(?:quais (?:credenciais|leads)|quais sao (?:as )?(?:credenciais|rotas administrativas))\b"
+        # Live acceptance 2026-11-02: "onde a z-swap guarda suas chaves e
+        # segredos e como funciona a rotatividade dos endpoints".
+        r"|\b(?:onde|como)\b(?:(?!\bminhas?\b|\bmeus?\b)[^.?!\n]){0,30}\b(?:guarda|armazena|gerencia|esconde)\w*\b"
+        r"(?:(?!\bminhas?\b|\bmeus?\b)[^.?!\n]){0,15}\b(?:(?:suas|seus|as suas|os seus) (?:chaves|senhas|tokens|segredos)|segredos internos|credenciais)\b"
+        r"|\brotatividade d[eo]s? endpoints?\b|\bme (?:manda|passa|mostra) (?:as |os )?rotas\b",
         folded,
     ))
     if (imperative and internal_target) or prompt_exfiltration or direct_private_discovery:
@@ -995,6 +1001,28 @@ _SECRET_PERMISSION_FOLLOW_UP = re.compile(
     r"[^.!?\n]{0,40}\??\s*$"
 )
 WALLET_SECRET_WARNING_SECONDS = 3 * 60
+
+
+# Broader than the deterministic warning trigger: it only has to exclude turns
+# about something else ("me manda as rotas 0x"), in any supported language.
+_SECRET_CORROBORATION = re.compile(
+    r"\b(?:seed|semente|semilla|mnemon\w*|recupera\w*|recover\w*|backup|palavr\w*|palabras?|"
+    r"words?|frases?|phrase|chave|clave|private\s+key|privada|senha|password|contrasena)\b"
+    r"|助记词|私钥|种子|恢复短语|密钥|密码|单词"
+)
+
+
+def _secret_risk_corroborated(update, context, text: str) -> bool:
+    folded = _fold_conversation_text(text)
+    if _WALLET_SECRET_NOUN.search(folded) or _SECRET_CORROBORATION.search(folded):
+        return True
+    key = _wallet_secret_warning_key(update)
+    warned_at = runtime(context).wallet_secret_warnings.get(key) if key else None
+    if warned_at is not None and time.monotonic() - warned_at <= WALLET_SECRET_WARNING_SECONDS:
+        return True
+    # A pasted list: many bare alphabetic words and almost no punctuation.
+    words = re.findall(r"[^\W\d_]+", text)
+    return len(words) >= 8 and len(re.findall(r"[.,;:!?]", text)) <= 1 and all(len(w) <= 12 for w in words)
 
 
 def _wallet_secret_warning_key(update) -> tuple[int, int] | None:
@@ -1285,11 +1313,16 @@ async def _triage_member_turn(update, context, rt, text: str, recent: tuple[str,
     if reading is None:
         return None
     risks = set(reading.risks)
-    if ('secret_sharing' in risks and explicit_topic(text) not in (None, 'security')
-            and not _WALLET_SECRET_NOUN.search(_fold_conversation_text(text))):
-        # A turn about another subject ("e se eu quiser ser parceiro") does not
-        # inherit the seed risk of an earlier turn.
+    if 'secret_sharing' in risks and not _secret_risk_corroborated(update, context, text):
+        # The seed warning needs deterministic support: the recovery words or
+        # key named in this turn, a seed warning just given to this member, or
+        # a pasted list of bare words. "Me manda as rotas 0x" got the seed
+        # warning in live acceptance (2026-11-02) without any of them.
         risks.discard('secret_sharing')
+    if 'prompt_attack' in risks and reading.intent == 'complaint':
+        # "Oshi, nada a ver sua resposta" is a complaint about the bot, not an
+        # attack; it must never count toward the mute threshold.
+        risks.discard('prompt_attack')
     action = decide_action(intent=reading.intent, risks=risks, text=text)
     if action == 'warn_secret':
         _remember_wallet_secret_warning(update, context)
@@ -1313,6 +1346,10 @@ async def _triage_member_turn(update, context, rt, text: str, recent: tuple[str,
     if action == 'respect_notice':
         return (await _natural(rt, update, 'respect_notice', text, recent, reading.language)
                 or _localized('respect_notice', _RESPECT_NOTICE, reading.language)), None
+    if action == 'silent' and reading.intent == 'greeting' and reading.language not in ('pt', 'und', ''):
+        # "您好" or "晚安" must not meet silence; reply briefly in their language.
+        reply = await _natural(rt, update, 'conversation', text, recent, reading.language)
+        return (reply, None) if reply else None
     if action == 'answer':
         if reading.intent in ('complaint', 'trust_concern'):
             return (await _natural(rt, update, reading.intent, text, recent, reading.language)

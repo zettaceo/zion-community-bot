@@ -52,16 +52,29 @@ def plan_response(*, agent_id: AgentId | str, question: str, has_evidence: bool)
     financial = re.search(r'\b(?:swap|ordens?|taxas?|lucro|rendimento|fundos|segur\w*|risco)\b', text)
     risk = 'high' if high else 'medium' if financial else 'low'
     complexity = 'complex' if len(text) > 500 or text.count('?') > 1 or re.search(r'\b(?:compare|comparar|diferenca|versus)\b', text) else 'simple'
+    # Objections and comparisons are recognised before the EIR support mode:
+    # live acceptance (2026-11-02) sent "existe plataforma mais barata" to EIR
+    # as support diagnosis, so it never reached the approved stronger model.
+    objection = re.search(r'\b(?:ja existe|faz igual|mesma coisa|pagaria|por que pagar|car[oa]s?|nao vale|'
+                          r'mais barat[oa]s?|concorrentes?|motivos? (?:para|pra)(?: \w+)? (?:usar|escolher)|'
+                          r'por que (?:usar|escolher)|vale a pena|vantagens?)\b', text)
+    # A real operational problem still comes first for EIR ("isso é caro e
+    # minha ordem travou" is support, not an objection).
+    support_problem = agent is AgentId.EIR and re.search(
+        r'\b(?:travou|travad\w*|erro|falh\w*|nao (?:conecta|liga|funciona|consigo|chegou|caiu)|'
+        r'sumiu|pendente|deu ruim|deu zica|nao dá|perdi)\b', text)
     if not has_evidence or interpretation.clarification:
         mode = ResponseMode.CLARIFICATION
-    elif re.search(r'\b(?:segur\w*|riscos?|protecao)\b', text):
-        mode = ResponseMode.SECURITY_EXPLANATION
-    elif agent is AgentId.EIR:
+    elif support_problem:
         mode = ResponseMode.SUPPORT_DIAGNOSIS
     elif re.search(r'\b(?:compare|comparar|diferenca|versus|vs)\b', text):
         mode = ResponseMode.COMPARISON
-    elif re.search(r'\b(?:ja existe|faz igual|mesma coisa|pagaria|por que pagar|car[oa]s?|nao vale|mais barat[oa]s?|concorrentes?)\b', text):
+    elif objection:
         mode = ResponseMode.OBJECTION
+    elif re.search(r'\b(?:segur\w*|riscos?|protecao|hacke\w*|ataque|vulnera\w*|invas\w*)\b', text):
+        mode = ResponseMode.SECURITY_EXPLANATION
+    elif agent is AgentId.EIR:
+        mode = ResponseMode.SUPPORT_DIAGNOSIS
     elif agent is AgentId.FREYR:
         mode = ResponseMode.PARTNERSHIP_QUALIFICATION
     elif re.search(r'\b(?:como|explique|explica|porque|por que)\b', text):

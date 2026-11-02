@@ -127,6 +127,12 @@ _WALLET_TRIAGE_SOURCE_UNAVAILABLE = (
 )
 
 
+UNGROUNDED_FALLBACK = (
+    "Não tenho informação oficial suficiente para confirmar isso com segurança. "
+    "Posso explicar o que está documentado publicamente sobre a Z-SWAP, se quiser."
+)
+
+
 def sanitize_for_ai(text: str) -> str:
     sanitized = TELEGRAM_TOKEN_REGEX.sub(
         "[REDACTED_TELEGRAM_TOKEN]",
@@ -771,7 +777,7 @@ class AIService:
                 # not "no official information"; nothing factual is claimed.
                 natural = await self.converse(
                     situation='open_support' if selected_agent is AgentId.EIR else 'conversation',
-                    agent_id=selected_agent, text=safe_question,
+                    agent_id=selected_agent, text=safe_question, language='und',
                     member_turns=tuple(t for t in safe_conversation_context.split('\n') if t.strip()))
                 if natural:
                     return AIAnswer(text=natural, model=self.settings.mistral_model)
@@ -891,7 +897,9 @@ class AIService:
                         model=answer.model, success=True, input_hash=question_hash,
                         metadata={"reason": check.reason, "agent_id": selected_agent.value},
                     )
-                    return replace(answer, text=repaired)
+                    return await self._grounded(replace(answer, text=repaired),
+                                                approved_response_context, question_hash,
+                                                chat_id, user_id, selected_agent)
                 self._record_ai_event(
                     chat_id=chat_id, user_id=user_id, purpose="response_guard",
                     model=answer.model, success=False, input_hash=question_hash,
@@ -900,7 +908,8 @@ class AIService:
                 return replace(answer, text=public_fallback_for(
                     check.reason, official_context=approved_response_context,
                     question=safe_question))
-            return answer
+            return await self._grounded(answer, approved_response_context, question_hash,
+                                        chat_id, user_id, selected_agent)
 
         except ProviderBudgetError:
             return AIAnswer(text="O limite de uso da IA está indisponível ou foi atingido. Tente novamente mais tarde.",
@@ -1228,13 +1237,132 @@ class AIService:
             return None
 
     def _non_custodial_context(self) -> str:
-        """The PUBLIC definition a distrust reply may rely on, nothing else."""
+        """The PUBLIC facts a distrust reply may rely on, nothing else: the
+        non-custodial definition and the signing/confirmation guidance."""
+        found = []
         for chunk in self.knowledge.chunks:
-            if (chunk.authority.classification is KnowledgeClassification.PUBLIC
-                    and 'nao custodial' in _fold(chunk.text)
-                    and 'seed phrase' in _fold(chunk.text)):
-                return f"[Contexto oficial: {chunk.heading}]\n{chunk.text}"
-        return ""
+            if chunk.authority.classification is not KnowledgeClassification.PUBLIC:
+                continue
+            body = _fold(chunk.text)
+            if (('nao custodial' in body and 'seed phrase' in body)
+                    or 'assinaturas devem ocorrer na carteira' in body
+                    or 'antes de confirmar, o usuario deve conferir' in body):
+                found.append(f"[Contexto oficial: {chunk.heading}]\n{chunk.text}")
+        return "\n\n".join(found[:3])
+
+    async def _grounded(self, answer: AIAnswer, official_context: str, question_hash: str,
+                        chat_id, user_id, agent: AgentId) -> AIAnswer:
+        """Apply the AI grounding review after the guard has accepted a reply.
+
+        Only with the approved stronger model (the baseline reviewer rejected
+        too many correct replies in evaluation). It can only cut sentences or
+        withhold; on any review failure the guard's accepted reply stands.
+        """
+        candidate = self._approved_candidate()
+        if candidate is None or candidate[0].provider != 'kimi':
+            # Only the reviewer that was measured (K3: 12/12 caught, 1/10
+            # false positive) may cut or withhold replies.
+            return answer
+        verdict = await self.review_grounding(answer=answer.text, official_context=official_context)
+        if verdict is None or verdict.supported:
+            return answer
+        from .grounding import remove_sentences
+        trimmed = remove_sentences(answer.text, verdict.unsupported_sentences)
+        keeps_enough = len(trimmed) >= 60 and len(trimmed) >= 0.4 * len(answer.text)
+        if keeps_enough and validate_public_response(trimmed, official_context=official_context).allowed:
+            self._record_ai_event(chat_id=chat_id, user_id=user_id, purpose="response_repair",
+                                  model=answer.model, success=True, input_hash=question_hash,
+                                  metadata={"reason": "ungrounded", "agent_id": agent.value,
+                                            "removed": len(verdict.unsupported_sentences)})
+            return replace(answer, text=trimmed)
+        self._record_ai_event(chat_id=chat_id, user_id=user_id, purpose="response_guard",
+                              model=answer.model, success=False, input_hash=question_hash,
+                              metadata={"reason": "ungrounded", "agent_id": agent.value})
+        return replace(answer, text=UNGROUNDED_FALLBACK)
+
+    def _approved_candidate(self):
+        if self.runtime_cost_budget is None:
+            return None
+        for approval in self.generation_policy.approvals:
+            adapter = self.completion_providers.get((approval.provider, approval.model))
+            if (adapter is not None and adapter.configured and approval.quality_accepted
+                    and approval.privacy_accepted and approval.pricing_accepted
+                    and time.time() < approval.expires_at):
+                return approval, adapter
+        return None
+
+    async def review_grounding(self, *, answer: str, official_context: str):
+        """Second-model check that every factual statement has a source.
+
+        Uses the approved stronger model when available, else the baseline.
+        Returns a GroundingVerdict, or None whenever the review cannot be
+        trusted (provider, budget or format), leaving the guard's decision.
+        """
+        import json as _json
+        from .grounding import build_review_messages, parse_verdict
+        if not self.provider_available() or not official_context.strip():
+            return None
+        messages = build_review_messages(answer, official_context)
+        candidate = self._approved_candidate()
+        try:
+            if candidate is not None:
+                approval, adapter = candidate
+                upper = len(_json.dumps(messages, ensure_ascii=False).encode('utf-8')) + 256 + 500
+                try:
+                    reservation = self.provider_token_budget.reserve(approval.provider, approval.model, upper)
+                except ProviderBudgetError:
+                    candidate = None
+                else:
+                    try:
+                        result = await adapter.complete(messages, max_tokens=500)
+                        self.provider_token_budget.settle(reservation, result.input_tokens, result.output_tokens)
+                        text, model = result.text, result.model
+                        tokens = (result.input_tokens, result.output_tokens)
+                    finally:
+                        self.provider_token_budget.retain_uncertain(reservation)
+            if candidate is None:
+                raw = await self.client._chat(messages, temperature=0.0, max_tokens=500)
+                text, model, tokens = raw.text, raw.model, (raw.input_tokens, raw.output_tokens)
+        except ProviderBudgetError:
+            return None
+        except Exception as exc:
+            logger.warning("Revisão de fundamentação indisponível: %s", type(exc).__name__)
+            return None
+        verdict = parse_verdict(text, answer)
+        self._record_ai_event(
+            chat_id=None, user_id=None, purpose="grounding_review", model=model,
+            success=verdict is not None, input_tokens=tokens[0], output_tokens=tokens[1],
+            metadata={"supported": None if verdict is None else verdict.supported,
+                      "flagged": 0 if verdict is None else len(verdict.unsupported_sentences)})
+        if verdict is None:
+            return None
+        from dataclasses import replace as _replace
+        return _replace(verdict, model=model, input_tokens=tokens[0], output_tokens=tokens[1])
+
+    async def _converse_with_candidate(self, candidate, messages):
+        """K3 for the most delicate conversational turns; None falls back."""
+        import json as _json
+        from .mistral import MistralRawResponse
+        approval, adapter = candidate
+        upper = len(_json.dumps(messages, ensure_ascii=False).encode('utf-8')) + 256 + 180
+        try:
+            reservation = self.provider_token_budget.reserve(approval.provider, approval.model, upper)
+        except ProviderBudgetError:
+            return None
+        try:
+            result = await adapter.complete(messages, max_tokens=180)
+            if result.model != approval.model:
+                return None
+            self.provider_token_budget.settle(reservation, result.input_tokens, result.output_tokens)
+            return MistralRawResponse(text=result.text, model=result.model,
+                                      input_tokens=result.input_tokens,
+                                      output_tokens=result.output_tokens,
+                                      latency_ms=result.latency_ms)
+        except Exception as exc:
+            logger.warning("Candidato conversacional indisponível: %s", type(exc).__name__)
+            return None
+        finally:
+            self.provider_token_budget.retain_uncertain(reservation)
 
     async def converse(self, *, situation: str, agent_id: AgentId | str, text: str,
                        member_turns: tuple[str, ...] = (), bot_replies: tuple[str, ...] = (),
@@ -1257,10 +1385,23 @@ class AIService:
             "\n".join(m['content'] for m in messages), 180))
         if reservation is None:
             return None
+        candidate = None
+        if situation in ('trust_concern', 'complaint') and self.runtime_cost_budget is not None:
+            for approval in self.generation_policy.approvals:
+                adapter = self.completion_providers.get((approval.provider, approval.model))
+                if (adapter is not None and adapter.configured and approval.quality_accepted
+                        and approval.privacy_accepted and approval.pricing_accepted
+                        and time.time() < approval.expires_at):
+                    candidate = (approval, adapter)
+                    break
         try:
             try:
                 async with self._semaphore:
-                    raw = await self.client.converse(messages)
+                    raw = None
+                    if candidate is not None:
+                        raw = await self._converse_with_candidate(candidate, messages)
+                    if raw is None:
+                        raw = await self.client.converse(messages)
             finally:
                 self._release_budget(reservation)
             self._record_provider_success()

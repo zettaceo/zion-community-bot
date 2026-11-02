@@ -201,7 +201,7 @@ class IntentRouter:
         # No confidence value here grants authorization or factual certainty.
         specific = (
             (ConversationIntent.SECURITY, r"\b(?:segur[oa]|seguranca|riscos?|seed)\b"),
-            (ConversationIntent.ROADMAP, r"\b(?:roadmap|cronograma|lancamento|buy|otc|p2p|launchpad|governance)\b"),
+            (ConversationIntent.ROADMAP, r"\b(?:roadmap|cronograma|lancamento|lanca|lancar|vai lancar|lancou|buy|otc|p2p|launchpad|governance)\b"),
             (ConversationIntent.API_INTEGRATION, r"\b(?:endpoints?|apis?|sdks?|webhooks?|integrar|integracao|conectar bot|developer|development)\b"),
             (ConversationIntent.COMPETITIVE_OBJECTION, r"\b(?:uniswap|mais baratas?|ja existe|pagaria|diferencial|concorrente)\b"),
             (ConversationIntent.PLAN, r"\b(?:taxas?|fees?|precos?|planos?|pro|pilot|trader|thrall|drengr|berserkr|einherjar)\b"),

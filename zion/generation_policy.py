@@ -70,7 +70,8 @@ class GenerationPolicy:
         # A request for a premium model, founder claim or configured key is not
         # an escalation criterion. Missing evidence requires clarification.
         demanding = plan.complexity == 'complex' or plan.mode in {
-            ResponseMode.COMPARISON, ResponseMode.OBJECTION}
+            ResponseMode.COMPARISON, ResponseMode.OBJECTION,
+            ResponseMode.SECURITY_EXPLANATION}
         if not has_evidence or not public_only or not demanding:
             return self.baseline
         now = datetime.now(timezone.utc).timestamp() if now is None else now

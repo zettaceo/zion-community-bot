@@ -2058,14 +2058,34 @@ def validate_public_response(text: str, *, official_context: str) -> ResponseChe
     for network in re.findall(_UNLISTED_NETWORKS, folded):
         if not re.search(r'\b' + re.escape(network) + r'\b', approved_folded):
             return ResponseCheck(False, 'unsupported_network')
+    # Live acceptance 2026-11-02: "a infraestrutura é construída com práticas
+    # de segurança ... como auditorias e protocolos descentralizados" was
+    # invented. Security assurances pass only when the official context has them.
+    for term in re.findall(
+            r"\b(auditori\w*|auditad[oa]s?|certificad[oa]s?|certificac\w*|criptograf\w*|multisig|"
+            r"multi-?assinatura|cold storage|carteira fria|bug bounty|pentest\w*|testes? de invasao|"
+            r"iso 27001|soc ?2|protocolos descentralizados|blindad[oa]s?|inviolavel|"
+            r"(?:imposs[ií]vel|dificil) de (?:hackear|invadir)|inhackeavel|a prova de hackers?|"
+            r"gerenciad[oa]s? internamente|infraestrutura (?:robusta|segura|publica|integrada)|"
+            r"audits?|audited|certified|unhackable)\b", folded):
+        stem = term[:6]
+        if stem not in approved_folded:
+            return ResponseCheck(False, 'unsupported_security_claim')
     # Live acceptance 2026-11-01: "a carteira com uma raposa indica que está
     # conectada à Solana" (wrong, and unsourced). No network or wallet is ever
     # inferred from an icon or description.
-    if re.search(r"\b(?:icone|simbolo|logo|logotipo|raposa|fantasma|cor|desenho|emoji|icon|symbol|fox|ghost)\b"
-                 r"[^.!?\n]{0,80}\b(?:indica|significa|mostra|quer dizer|e da|e de|means|indicates|shows)\b"
-                 r"[^.!?\n]{0,40}\b(?:solana|ethereum|bnb|polygon|base|arbitrum|optimism|avalanche|"
-                 r"metamask|phantom|trust wallet|rede|network|carteira)\b", folded):
-        return ResponseCheck(False, 'unsupported_wallet_inference')
+    for inference in re.finditer(
+            r"\b(icone|simbolo|logo|logotipo|raposa|fantasma|escudo|cor|desenho|emoji|icon|symbol|fox|ghost|shield)\b"
+            r"[^.!?\n]{0,80}\b(?:indica|significa|mostra|quer dizer|e da|e de|e a|e o|means|indicates|shows|is)\b"
+            r"[^.!?\n]{0,40}\b(solana|ethereum|bnb|polygon|base|arbitrum|optimism|avalanche|"
+            r"metamask|phantom|trust wallet|rede|network|carteira)\b", folded):
+        # Allowed only when the official context itself ties that sign to that
+        # wallet ("A MetaMask tem o ícone de uma raposa"); never a network.
+        icon, target = inference.group(1), inference.group(2)
+        tied = re.search(rf"\b{re.escape(target)}\b[^.\n]{{0,60}}\b{re.escape(icon)}\b", approved_folded)
+        if not tied or target in ('solana', 'ethereum', 'bnb', 'polygon', 'base', 'arbitrum',
+                                  'optimism', 'avalanche', 'rede', 'network'):
+            return ResponseCheck(False, 'unsupported_wallet_inference')
     # Launch-state terms are copied, never explained: "pre-launch (em fase
     # inicial de desenvolvimento)" invents a development stage.
     gloss = r"(?:fase inicial|em desenvolvimento|de desenvolvimento|em construcao|em testes?|quase pront[oa]s?|em finalizacao|em preparacao)"
@@ -2102,7 +2122,7 @@ _REPAIRABLE = frozenset({
     'safety_guarantee', 'absolute_safety', 'financial_return_guarantee',
     'absolute_reliability', 'unsupported_network', 'unsupported_status_gloss',
     'unsupported_launch_dates', 'unsupported_partnership_fee_policy',
-    'unsupported_wallet_inference',
+    'unsupported_wallet_inference', 'unsupported_security_claim',
     'unsupported_route_criteria',
 })
 _SECRET_REASONS = frozenset({'unsupported_universal_secret_promise',
