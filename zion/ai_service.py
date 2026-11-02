@@ -573,11 +573,26 @@ class AIService:
             # to a new provider merely because this turn retrieves PUBLIC data.
             conversation_context='', agent_id=agent.value)
         import json
-        upper = 2 * len(json.dumps(messages, ensure_ascii=False).encode('utf-8')) + 4096
+        # Every token is at least one byte, so the serialized size is already a
+        # true upper bound on input tokens; the old 2x factor reserved ~10x the
+        # real K3 cost and tripped the per-request cap.
+        upper = len(json.dumps(messages, ensure_ascii=False).encode('utf-8')) + 256
         adapter = self.completion_providers[(selection.provider, selection.model)]
-        reservation = (None if isinstance(adapter, MistralCompletionProvider) else
-            self.provider_token_budget.reserve(selection.provider, selection.model,
-                upper + selection.max_output_tokens))
+        try:
+            reservation = (None if isinstance(adapter, MistralCompletionProvider) else
+                self.provider_token_budget.reserve(selection.provider, selection.model,
+                    upper + selection.max_output_tokens))
+        except ProviderBudgetError:
+            # Nothing was sent: a spent or unavailable candidate budget keeps
+            # the member answered by the baseline instead of an error.
+            logger.info("Escalada sem orçamento; usando baseline | provider=%s",
+                        selection.provider)
+            try:
+                return await self.client.answer(**kwargs)
+            except ProviderBudgetError:
+                raise
+            except Exception:
+                raise GenerationFailure('mistral', self.settings.mistral_model) from None
         try:
             result = await adapter.complete(messages, max_tokens=selection.max_output_tokens)
             if result.model != selection.model:

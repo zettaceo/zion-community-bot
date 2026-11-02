@@ -43,6 +43,7 @@ from .ai_service import AIService, sanitize_for_ai
 from .triage import decide_action
 from .provider_secrets import ProviderSecretStore
 from .providers import KimiCompletionProvider
+from .escalation import build_ai_composition, escalation_status
 from .kimi_provisioning import (set_kimi_key_command, kimi_secret_capture_handler,
                                 cancel_kimi_key_command, kimi_status_command)
 from .config import Settings
@@ -224,12 +225,16 @@ class Runtime:
                 logger.warning(
                     "Cofre Mistral inseguro no startup; provider bloqueado."
                 )
+            escalation_store = ProviderSecretStore(
+                settings.mistral_secret_path.parent / "providers").for_provider("kimi")
             self.ai = AIService(
                 settings,
                 self.db,
                 self.knowledge,
                 self.secret_store,
+                **build_ai_composition(settings, self.db, escalation_store),
             )
+            self.kimi_escalation_status = escalation_status(settings, escalation_store)
             self.health = HealthService(
                 settings,
                 self.db,
@@ -2660,7 +2665,10 @@ def _control_center_view(
             f"Runtime currency policy: {cost_status}\n"
             f"Accounting: {'OK' if rt.ai.accounting_healthy else 'FAIL-CLOSED'}\n"
             f"Kimi store: {rt.kimi_secret_store.status()}\n"
-            "Kimi activation: BLOCKED — benchmark/policy acceptance pending\n"
+            f"Kimi activation: {'ACTIVE' if rt.kimi_escalation_status == 'active' else 'BLOCKED'}"
+            f" ({rt.kimi_escalation_status}"
+            + (f", até {rt.settings.kimi_approval_until}, teto US$ {rt.settings.ai_daily_usd_cap:.2f}/dia"
+               if rt.kimi_escalation_status == 'active' else '') + ")\n"
             "Kimi registration: /setkimikey (private operator chat only)\n"
             f"Provider ready: {rt.ai.enabled}\n"
             f"Circuit: {'OPEN' if rt.ai.circuit_open() else 'CLOSED'}\n"
