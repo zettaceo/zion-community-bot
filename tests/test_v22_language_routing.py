@@ -72,6 +72,24 @@ class PublicTopicContextTests(unittest.TestCase):
         self.assertIn('36 meses', context)
 
 
+class ControlledContextReviewTests(PublicTopicContextTests):
+    def test_controlled_context_never_reaches_external_reviewer(self):
+        import asyncio
+        from unittest.mock import AsyncMock, patch
+        from zion.agents import AgentId
+        from zion.models import AIAnswer
+        context = self.ai.knowledge.render_context(
+            'arquitetura de roteamento de cotação 0x jupiter lifi', agent_id=AgentId.MIMIR)
+        self.assertTrue(self.ai._has_controlled_context(context))
+        answer = AIAnswer('Texto qualquer da resposta.', 'ministral-8b-2512')
+        approval = type('A', (), {'model': 'kimi-k3'})()
+        with patch.object(self.ai, '_approved_candidate', return_value=(approval, object())), \
+                patch.object(self.ai, 'review_grounding', new=AsyncMock()) as review:
+            result = asyncio.run(self.ai._grounded(answer, context, 'h', None, None, AgentId.MIMIR))
+        review.assert_not_called()
+        self.assertEqual(result.text, answer.text)
+
+
 class RetrievalVariantTests(unittest.TestCase):
     def test_ox_means_0x_and_fillers_are_ignored(self):
         tokens = _base_tokens('entao manda ai as rotas da ox')
@@ -89,3 +107,19 @@ class CostObjectionFallbackTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class FixedAnswerTranslationTests(unittest.TestCase):
+    def test_known_fallbacks_are_translated(self):
+        from zion.ai_service import UNGROUNDED_FALLBACK
+        from zion.response_guard import PUBLIC_FALLBACK
+        from zion.telegram_app import _translate_fixed_answer
+        for text in (UNGROUNDED_FALLBACK, PUBLIC_FALLBACK):
+            self.assertIn("official information", _translate_fixed_answer(text, 'en'))
+            self.assertIn("información oficial", _translate_fixed_answer(text, 'es'))
+            self.assertIn("官方信息", _translate_fixed_answer(text, 'zh'))
+            self.assertIn("official information", _translate_fixed_answer(text, 'fr'))
+            self.assertEqual(_translate_fixed_answer(text, 'pt'), text)
+
+    def test_named_language_wins_over_script_guess(self):
+        self.assertIn('italiano', reply_language_instruction('ciao, quanto costa?', 'it'))

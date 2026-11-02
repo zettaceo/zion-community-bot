@@ -2055,9 +2055,32 @@ def validate_public_response(text: str, *, official_context: str) -> ResponseChe
         if not re.search(re.escape(match.group().split()[-1]) + r"[^.!?\n]{0,40}\brota|\brota[^.!?\n]{0,40}"
                          + re.escape(match.group().split()[-1]), approved_folded):
             return ResponseCheck(False, 'unsupported_route_criteria')
-    for network in re.findall(_UNLISTED_NETWORKS, folded):
-        if not re.search(r'\b' + re.escape(network) + r'\b', approved_folded):
-            return ResponseCheck(False, 'unsupported_network')
+    for network_match in re.finditer(_UNLISTED_NETWORKS, folded):
+        network = network_match.group(0)
+        if re.search(r'\b' + re.escape(network) + r'\b', approved_folded):
+            continue
+        # "Bitcoin não está entre as redes ativas" answers the member; only
+        # an implied support claim is rejected (audit 2026-11-02).
+        start = max(folded.rfind('.', 0, network_match.start()), folded.rfind('\n', 0, network_match.start())) + 1
+        end_candidates = [i for i in (folded.find('.', network_match.end()), folded.find('\n', network_match.end())) if i != -1]
+        end = min(end_candidates) if end_candidates else len(folded)
+        before = folded[start:network_match.start()]
+        after = folded[network_match.end():end]
+        if (re.search(r"\b(?:nao|not|no|nem|doesn'?t|don'?t|isn'?t|aren'?t)\s+(?:\w+\s+){0,4}?"
+                      r"(?:suport\w*|support\w*|oferec\w*|offer\w*|tem|ha|has|have|possui|inclui\w*|include\w*|"
+                      r"esta|estao|aparece\w*|list\w*|ativ\w*|disponi\w*|available|funciona\w*|work\w*|"
+                      r"aceita\w*|accept\w*|integr\w*)\b[^.]*$", before)
+                or re.search(r"\bsem suporte\b[^.]*$", before)
+                or re.search(r"^\W*(?:\([^)]*\)\W*)?(?:\w+\W+){0,2}(?:nao|not|isn'?t|aren'?t|no)\b", after)
+                or 'fora da lista' in folded[start:end]):
+            continue
+        return ResponseCheck(False, 'unsupported_network')
+    # Audit 2026-11-02: "Um momento. Vou conferir." promises an action the bot
+    # never performs; nothing comes after it.
+    if re.search(r"\b(?:um momento|so um (?:instante|momento)|aguarde (?:um|enquanto)|vou (?:conferir|verificar|checar|consultar|pesquisar|buscar) (?:isso|pra voce|para voce|e (?:te|ja) (?:aviso|retorno|falo))|"
+                 r"vou conferir|vou verificar|deixa eu (?:ver|verificar|conferir|checar)|let me check|i'?ll check|"
+                 r"give me a (?:moment|sec)|un momento|dejame (?:revisar|verificar)|voy a (?:revisar|verificar))\b", folded):
+        return ResponseCheck(False, 'unsupported_pending_action')
     # Live acceptance 2026-11-02: "posso levantar com o time as informações
     # reais ... Quer que eu faça isso?" offers a channel the bot does not have.
     for offer in re.finditer(
@@ -2137,7 +2160,7 @@ _REPAIRABLE = frozenset({
     'absolute_reliability', 'unsupported_network', 'unsupported_status_gloss',
     'unsupported_launch_dates', 'unsupported_partnership_fee_policy',
     'unsupported_wallet_inference', 'unsupported_security_claim',
-    'unsupported_team_handoff',
+    'unsupported_team_handoff', 'unsupported_pending_action',
     'unsupported_route_criteria',
 })
 _SECRET_REASONS = frozenset({'unsupported_universal_secret_promise',
@@ -2155,7 +2178,9 @@ def repair_public_response(text: str, *, official_context: str, reason: str) -> 
     """
     if reason not in _REPAIRABLE or not isinstance(text, str):
         return None
-    pieces = re.findall(r'[^.!?\n]+(?:[.!?]+|(?=\n)|$)[ \t]*|[.!?]+[ \t]*|\n+', text)
+    # A sentence ends at punctuation followed by space or end; "Gate.io",
+    # "LI.FI" or "ex." inside a sentence no longer split it (audit 2026-11-02).
+    pieces = re.findall(r'(?:[^.!?\n]|[.!?](?=[^\s.!?]))+(?:[.!?]+(?=\s|$)|(?=\n)|$)[ \t]*|[.!?]+[ \t]*|\n+', text)
     if ''.join(pieces) != text:
         return None
     kept, dropped = [], set()

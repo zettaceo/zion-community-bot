@@ -127,6 +127,48 @@ _WALLET_TRIAGE_SOURCE_UNAVAILABLE = (
 )
 
 
+def _flatten_question_list(text: str) -> str:
+    """A support menu of numbered questions reads like a form; ask in prose.
+
+    Audit 2026-11-02: EIR kept answering "1. Qual carteira? 2. Qual rede?
+    3. Qual erro?" despite the prompt. Only lists whose every item is a
+    question are joined; official enumerations (networks, fees) stay lists.
+    """
+    lines = text.split('\n')
+    out, block = [], []
+
+    def flush():
+        if len(block) >= 2 and all(('?' in item or '？' in item) and len(item) <= 220
+                                   for item in block):
+            out.append(' '.join(re.sub(r'\s*\((?:ex|exemplo|ejemplo|e\.g|por exemplo)[^)]*\)\s*\.?\s*$', '',
+                                       item, flags=re.I).strip() for item in block))
+        else:
+            out.extend(original for original in block_lines)
+        block.clear()
+        block_lines.clear()
+
+    block_lines: list[str] = []
+    for line in lines:
+        match = re.match(r'^\s*(?:\d+[.)]|[•\-*])\s+(.+)$', line)
+        if match:
+            block.append(match.group(1))
+            block_lines.append(line)
+            continue
+        if block:
+            flush()
+        out.append(line)
+    if block:
+        flush()
+    return re.sub(r'\n{3,}', '\n\n', '\n'.join(out)).strip()
+
+
+def _plain_chat_text(text: str) -> str:
+    """Telegram gets plain text: "**negrito**" and "*itálico*" showed literally."""
+    text = re.sub(r'\*\*(.+?)\*\*|__(.+?)__', lambda m: m.group(1) or m.group(2), text or '')
+    text = re.sub(r'(?<![\w*])\*(?!\s)([^*\n]{1,80}?)(?<!\s)\*(?![\w*])', r'\1', text)
+    return _flatten_question_list(text)
+
+
 UNGROUNDED_FALLBACK = (
     "Não tenho informação oficial suficiente para confirmar isso com segurança. "
     "Posso explicar o que está documentado publicamente sobre a Z-SWAP, se quiser."
@@ -574,6 +616,7 @@ class AIService:
         if not evidence:
             raise ProviderBudgetError('candidate_evidence_unavailable')
         messages = build_answer_messages(question=kwargs['question'], context=evidence,
+            reply_language=kwargs.get('reply_language'),
             # Historical assistant output may have been grounded in CONTROLLED
             # material. It has no public classification and cannot be exported
             # to a new provider merely because this turn retrieves PUBLIC data.
@@ -624,6 +667,7 @@ class AIService:
         context_query: str | None = None,
         conversation_context: str | None = None,
         agent_id: AgentId | str = AgentId.ZION,
+        reply_language: str | None = None,
     ) -> AIAnswer:
         try:
             selected_agent = (
@@ -786,7 +830,7 @@ class AIService:
                 # not "no official information"; nothing factual is claimed.
                 natural = await self.converse(
                     situation='open_support' if selected_agent is AgentId.EIR else 'conversation',
-                    agent_id=selected_agent, text=safe_question, language='und',
+                    agent_id=selected_agent, text=safe_question, language=reply_language or 'und',
                     member_turns=tuple(t for t in safe_conversation_context.split('\n') if t.strip()))
                 if natural:
                     return AIAnswer(text=natural, model=self.settings.mistral_model)
@@ -860,6 +904,8 @@ class AIService:
                         client_kwargs["conversation_context"] = (
                             safe_conversation_context
                         )
+                    if reply_language:
+                        client_kwargs["reply_language"] = reply_language
                     answer = await self._generate_answer(client_kwargs, agent=selected_agent,
                                                          context_query=safe_context_query)
             finally:
@@ -894,8 +940,7 @@ class AIService:
             )
             approved_response_context = context + "\n" + answer.evidence_context
             # Telegram gets plain text: "**negrito**" showed up literally.
-            answer = replace(answer, text=re.sub(r'\*\*(.+?)\*\*|__(.+?)__',
-                                                 lambda m: m.group(1) or m.group(2), answer.text))
+            answer = replace(answer, text=_plain_chat_text(answer.text))
             check = validate_public_response(answer.text,
                 official_context=approved_response_context)
             if not check.allowed:
@@ -919,7 +964,8 @@ class AIService:
                 )
                 rewritten = await self._rewrite_after_guard(
                     question=safe_question, previous=answer.text, reason=check.reason,
-                    official_context=approved_response_context, agent=selected_agent)
+                    official_context=approved_response_context, agent=selected_agent,
+                    reply_language=reply_language)
                 if rewritten is not None:
                     self._record_ai_event(
                         chat_id=chat_id, user_id=user_id, purpose="response_rewrite",
@@ -1259,6 +1305,16 @@ class AIService:
             )
             return None
 
+    def _has_controlled_context(self, context: str) -> bool:
+        """True when any non-PUBLIC knowledge text is part of this context."""
+        if not context:
+            return False
+        for chunk in getattr(self.knowledge, 'chunks', ()):
+            if (chunk.authority.classification is not KnowledgeClassification.PUBLIC
+                    and chunk.text.strip() and chunk.text.strip()[:200] in context):
+                return True
+        return False
+
     def _public_topic_context(self, text: str) -> str:
         """PUBLIC sections about the member's own topic for a tactful reply."""
         try:
@@ -1297,6 +1353,11 @@ class AIService:
             # Only the reviewer that was measured (K3: 12/12 caught, 1/10
             # false positive) may cut or withhold replies.
             return answer
+        if self._has_controlled_context(official_context):
+            # CONTROLLED evidence never leaves the baseline provider; the
+            # reviewer was sending MIMIR's controlled context to K3 (audit
+            # 2026-11-02). The guard's accepted reply stands.
+            return answer
         verdict = await self.review_grounding(answer=answer.text, official_context=official_context)
         if verdict is None or verdict.supported:
             return answer
@@ -1315,7 +1376,8 @@ class AIService:
         return replace(answer, text=UNGROUNDED_FALLBACK)
 
     async def _rewrite_after_guard(self, *, question: str, previous: str, reason: str,
-                                   official_context: str, agent: AgentId) -> str | None:
+                                   official_context: str, agent: AgentId,
+                                   reply_language: str | None = None) -> str | None:
         """One guided rewrite after a guard rejection, instead of a canned text.
 
         The model sees its rejected reply and the reason; the rewrite must pass
@@ -1325,7 +1387,8 @@ class AIService:
             return None
         from .mistral import build_answer_messages
         messages = build_answer_messages(question=question, context=official_context,
-                                         conversation_context='', agent_id=agent.value)
+                                         conversation_context='', agent_id=agent.value,
+                                         reply_language=reply_language)
         messages += [
             {"role": "assistant", "content": previous[:3000]},
             {"role": "user", "content": (
@@ -1339,7 +1402,8 @@ class AIService:
         text = None
         candidate = self._approved_candidate()
         try:
-            if candidate is not None and candidate[0].model == 'kimi-k3':
+            if (candidate is not None and candidate[0].model == 'kimi-k3'
+                    and not self._has_controlled_context(official_context)):
                 import json as _json
                 approval, adapter = candidate
                 upper = len(_json.dumps(messages, ensure_ascii=False).encode('utf-8')) + 256 + 700
@@ -1414,7 +1478,8 @@ class AIService:
         if not self.provider_available() or not official_context.strip():
             return None
         messages = build_review_messages(answer, official_context)
-        candidate = self._approved_candidate()
+        candidate = (None if self._has_controlled_context(official_context)
+                     else self._approved_candidate())
         try:
             if candidate is not None:
                 approval, adapter = candidate
@@ -1501,7 +1566,8 @@ class AIService:
         if reservation is None:
             return None
         candidate = None
-        if situation in ('trust_concern', 'complaint') and self.runtime_cost_budget is not None:
+        if (situation in ('trust_concern', 'complaint', 'conversation')
+                and self.runtime_cost_budget is not None):
             for approval in self.generation_policy.approvals:
                 adapter = self.completion_providers.get((approval.provider, approval.model))
                 if (adapter is not None and adapter.configured and approval.quality_accepted
@@ -1520,7 +1586,9 @@ class AIService:
             finally:
                 self._release_budget(reservation)
             self._record_provider_success()
-            reply = (raw.text or '').strip()
+            # "Ah, ..." opened almost every small-model reply (audit 2026-11-02).
+            reply = re.sub(r'^(?:ah|ahh|oh)[,!.]?\s+(?=\w)', '', (raw.text or '').strip(), flags=re.I)
+            reply = reply[:1].upper() + reply[1:] if reply else reply
             check = validate_public_response(reply, official_context=official) if acceptable_reply(reply) else None
             accepted = bool(check and check.allowed and not repeats_previous(reply, bot_replies))
             self._record_provider_success_event(
