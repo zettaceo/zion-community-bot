@@ -586,7 +586,7 @@ class ConversationTests(unittest.TestCase):
 
         self.assertEqual(len(transport.calls), 1)
         self.assertEqual(transport.calls[0]["agent_id"], AgentId.FREYR)
-        self.assertIn("FREYR no privado", transport.calls[0]["text"])
+        self.assertIn("fale comigo no privado", transport.calls[0]["text"])
         self.assertIn("dados profissionais necessários", transport.calls[0]["text"])
 
     def test_mimir_private_inbox_is_closed_before_ai(self) -> None:

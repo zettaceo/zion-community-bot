@@ -10,7 +10,7 @@ import idna
 
 from .config import Settings
 from .db import ZionDB
-from .mnemonic import looks_like_bare_mnemonic
+from .mnemonic import looks_like_bare_mnemonic, looks_like_mistyped_mnemonic, word_list_with_label
 from .models import (
     AbuseDecision,
     ChatBurstDecision,
@@ -213,6 +213,14 @@ def detect_sensitive_content(text: str) -> SensitiveContentDecision:
             detected=True,
             kind="possible_wallet_secret",
             reason="possível seed phrase (sequência de palavras BIP-39) sem rótulo",
+        )
+    if looks_like_mistyped_mnemonic(text) or word_list_with_label(text):
+        # Live 2026-11-03: 12 words with typos and "these are the words I got"
+        # stayed in the group three times.
+        return SensitiveContentDecision(
+            detected=True,
+            kind="possible_wallet_secret",
+            reason="provável seed phrase (lista de palavras com erros ou com rótulo)",
         )
     if not SENSITIVE_LABEL_REGEX.search(text):
         return SensitiveContentDecision()

@@ -167,7 +167,7 @@ ACTIONS = ('warn_secret', 'warn_scam', 'refuse_attack', 'respect_notice', 'answe
 
 # Someone *offering* private help, recovery or a release is running the scam;
 # a victim asks for help. This breaks a model tie between scam and scam_report.
-_SCAM_OUTREACH = re.compile(
+SCAM_OUTREACH = re.compile(
     r"(?i)\b(?:me\s+chama|chama\s+(?:no|na)\s+(?:pv|privado|dm|direct)|me\s+(?:manda|mande|envia)\s+"
     r"(?:dm|mensagem|msg)|dm\s+me|message\s+me|(?:eu\s+)?(?:te\s+)?(?:ajudo|libero|desbloqueio|"
     r"recupero)\s+(?:a\s+)?(?:sua|seu|you|your)|suporte\s+oficial\s+aqui|official\s+support\s+here)"
@@ -178,9 +178,9 @@ def decide_action(*, intent: str, risks, text: str = '') -> str:
     risks = set(risks)
     if 'secret_sharing' in risks:
         return 'warn_secret'
-    if 'scam' in risks and _SCAM_OUTREACH.search(text or ''):
+    if 'scam' in risks and SCAM_OUTREACH.search(text or ''):
         return 'warn_scam'
-    if intent in ('trust_concern', 'complaint') and not _SCAM_OUTREACH.search(text or ''):
+    if intent in ('trust_concern', 'complaint') and not SCAM_OUTREACH.search(text or ''):
         # "Isso é golpe, não usem" is distrust to answer calmly, not a scam
         # to warn the group about.
         risks = risks - {'scam'}

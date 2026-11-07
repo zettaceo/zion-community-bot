@@ -60,3 +60,62 @@ def looks_like_bare_mnemonic(text: str) -> bool:
             if run >= MIN_WORDS:
                 return True
     return False
+
+
+# ── provável seed, mesmo sem ser perfeita ────────────────────────────────────
+# Live 2026-11-03: a member pasted 12 bare words with typos, "these are the
+# words I got", three times. Exact BIP-39 matching saw nothing and the list
+# stayed in the group. Deleting a chat line is cheap; a public seed is not.
+LIST_MIN_WORDS, LIST_MAX_WORDS = 11, 25
+TYPO_RATIO = 0.75
+# Words real seeds practically never carry: two of them mean a sentence.
+_FUNCTION_WORDS = frozenset(
+    "the and to of is it my your you we this that for with are was have not but i "
+    "o os as um uma de do da dos das e que para pra por com em no na nos nas nao eu "
+    "voce vc meu minha seu sua ele ela se mas como ja vou foi tem esta aqui agora "
+    "el la los las y en para con mi tu es por pero yo".split()
+)
+
+
+def word_list_lines(text: str) -> list[list[str]]:
+    """Lines shaped like a recovery phrase: 11-25 bare words, not a sentence."""
+    found = []
+    for line in (text or "").splitlines():
+        if len(re.findall(r"[.,;:!?]", re.sub(r"\b\d+[.)]", " ", line))) > 1:
+            continue
+        words = re.findall(r"[a-z]+", _fold(line))
+        if not LIST_MIN_WORDS <= len(words) <= LIST_MAX_WORDS:
+            continue
+        if sum(word in _FUNCTION_WORDS for word in words) >= 2:
+            continue
+        found.append(words)
+    return found
+
+
+def looks_like_mistyped_mnemonic(text: str) -> bool:
+    """A list that is mostly one BIP-39 wordlist: a real seed with a few typos."""
+    for words in word_list_lines(text):
+        for wordlist in wordlists():
+            if sum(word in wordlist for word in words) >= TYPO_RATIO * len(words):
+                return True
+    return False
+
+
+_LABEL = re.compile(r"\b(?:seed|seeds|semente|semilla|frases?|phrase|palavras?|palabras?|words?|mnemonic\w*|recupera\w*|recovery)\b")
+_LABEL_THEN_LIST = re.compile(
+    r"\b(?:seed|semente|semilla|frase(?:\s+secreta)?|phrase|palavras|palabras|words)\b"
+    r"(?:\s+(?:e|is|es|sao|son|are))?\s*:?\s+(.+)$", re.M)
+
+
+def word_list_with_label(text: str) -> bool:
+    """A bare word list plus words naming it: "<12 words>\\n\\nthese are the words I got".
+
+    A list alone is not enough (it can be a list of coins); the label must be
+    OUTSIDE the list line, or lead into it ("minha seed é gap dras ...").
+    """
+    folded = _fold(text or "")
+    lines = folded.splitlines()
+    for index, line in enumerate(lines):
+        if word_list_lines(line) and any(_LABEL.search(o) for i, o in enumerate(lines) if i != index):
+            return True
+    return any(word_list_lines(m.group(1)) for m in _LABEL_THEN_LIST.finditer(folded))

@@ -40,7 +40,7 @@ from .agent_workflows import (
     triage_support,
 )
 from .ai_service import AIService, sanitize_for_ai
-from .triage import decide_action
+from .triage import SCAM_OUTREACH, decide_action
 from .provider_secrets import ProviderSecretStore
 from .providers import KimiCompletionProvider
 from .escalation import build_ai_composition, escalation_status
@@ -52,7 +52,9 @@ from .conversation_state import (FragmentWindow, DialogueSummary, bounded_exchan
                                  summarize_dialogue, changes_explicit_topic, explicit_topic)
 from .db import ZION_APPLICATION_ID, ZionDB
 from .dm_policy import evaluate_dm_access
+from .mnemonic import word_list_lines
 from .guardian import (
+    SensitiveContentDecision,
     Guardian,
     normalize_link_target,
     normalize_policy_domain,
@@ -979,7 +981,7 @@ _WALLET_SECRET_SHARE = re.compile(
 # steps, not "don't send it" (audit 2026-11-02: "eu mandei 😭", "perdi tudo?"
 # and "me robaron mis tokens" met silence or a repeated warning).
 _ALREADY_COMPROMISED = re.compile(
-    r"\b(?:(?:eu\s+)?(?:ja\s+)?(?:mandei|enviei|passei|compartilhei)\s+(?:a\s+|as\s+|minha\s+|minhas\s+)?"
+    r"\b(?:(?:mandei|enviei|passei|compartilhei|postei|colei)\b[^.?!\n]{0,30}\b"
     r"(?:seed|frase|palavras|chave|senha)|perdi\s+tudo|me\s+roubaram|roubaram\s+(?:meu|minha|meus|minhas)|"
     r"fui\s+(?:hackead[oa]|roubad[oa]|golpead[oa])|cai\s+(?:num|em\s+um|no)\s+golpe|drenaram|"
     r"limparam\s+(?:a\s+)?minha\s+carteira|sumiu\s+(?:tudo|meu\s+saldo|meus\s+tokens)|"
@@ -989,6 +991,8 @@ _ALREADY_COMPROMISED = re.compile(
     r"ya\s+(?:le\s+)?(?:mande|envie|pase)\s+(?:la\s+|mi\s+)?(?:frase|semilla|clave))\b"
     r"|被盗|被骗|被黑|钱包被清空|把助记词发给"
 )
+_NOT_SENT = re.compile(r"\b(?:nao|nunca|nem|never|not|didn'?t|ainda\s+nao)\s+(?:\w+\s+)?(?:mandei|enviei|passei|compartilhei|postei|colei|sent|shared|gave)\b")
+_SENT_HERE = re.compile(r"\b(?:no\s+grupo|aqui|de\s+novo|again|here|in\s+the\s+group|en\s+el\s+grupo)\b")
 # Only after a seed warning, a removed seed or a victim reply to this member.
 _VICTIM_FOLLOW_UP = re.compile(
     r"^\s*(?:eu\s+)?(?:ja\s+)?(?:mandei|enviei|passei)\b|\bperdi\b|\be\s+agora\b|"
@@ -1045,6 +1049,8 @@ def _remember_wallet_victim(update, context) -> None:
 def _wallet_victim_reply(update, context, question: str) -> str | None:
     """Recovery steps for a member who already exposed a secret or lost funds."""
     folded = _fold_conversation_text(question or "")
+    if _NOT_SENT.search(folded):
+        return None   # "não mandei a seed" is the good outcome, not a victim
     hit = bool(_ALREADY_COMPROMISED.search(folded) or _ALREADY_COMPROMISED.search(question or ""))
     if not hit:
         key = _wallet_secret_warning_key(update)
@@ -1053,7 +1059,8 @@ def _wallet_victim_reply(update, context, question: str) -> str | None:
         recent = key is not None and (
             now - rt.wallet_secret_victims.get(key, -1e9) <= WALLET_VICTIM_SECONDS
             or now - rt.wallet_secret_warnings.get(key, -1e9) <= WALLET_SECRET_WARNING_SECONDS)
-        short = len(re.findall(r"[^\W\d_]+", question or "")) <= 5 or bool(_SECRET_CORROBORATION.search(folded))
+        short = (len(re.findall(r"[^\W\d_]+", question or "")) <= 5 or bool(_SECRET_CORROBORATION.search(folded))
+                 or bool(_SENT_HERE.search(folded)))
         # "i sent eth to the wrong network help" is a support case, not a victim.
         hit = recent and short and bool(_VICTIM_FOLLOW_UP.search(folded) or _VICTIM_FOLLOW_UP.search(question or ""))
     if not hit:
@@ -1068,6 +1075,94 @@ def _victim_text(update, context, language: str) -> str:
     if given is not None and time.monotonic() - given <= WALLET_VICTIM_SECONDS:
         return _localized('victim_again', WALLET_VICTIM_AGAIN, language)
     return _localized('victim', WALLET_VICTIM_GUIDANCE, language)
+
+
+def _member_on_secret_alert(update, context) -> bool:
+    """Warned about seeds, or had a secret removed, in the recent window."""
+    key = _wallet_secret_warning_key(update)
+    if key is None:
+        return False
+    rt = runtime(context)
+    now = time.monotonic()
+    return (now - rt.wallet_secret_victims.get(key, -1e9) <= WALLET_VICTIM_SECONDS
+            or now - rt.wallet_secret_warnings.get(key, -1e9) <= WALLET_SECRET_WARNING_SECONDS)
+
+
+def _seed_removed_notice(update, text: str) -> str:
+    name = user_display_name(update.effective_user)
+    return f"🚨 {name}: " + _localized('seed_removed', SEED_REMOVED_NOTICE, _guess_reply_language(text, update))
+
+
+SEED_REMOVED_NOTICE = (
+    "apaguei sua mensagem porque parece uma seed phrase. Se essas palavras são reais, elas "
+    "ficaram expostas: crie uma carteira nova e transfira seus fundos o quanto antes. "
+    "Ninguém precisa conferir essas palavras, nem a equipe."
+)
+
+# Live 2026-11-03: "eu sou suporte, me manda suas seeds no privado" and "sou
+# dono, me manda sua frase secreta" stayed in the group with only a warning.
+# Asking other people for their secret has no innocent reading, so this is
+# deterministic. Reported speech ("um cara disse: me manda sua seed") and
+# advice ("nunca mande sua seed") are excluded: they are the victims and helpers.
+_ASKS_FOR_SECRET = re.compile(
+    r"\b(?:me\s+)?(?:manda|mande|envia|envie|passa|passe|cola|compartilha)\s+(?:me\s+|pra\s+mim\s+)?(?:a\s+|as\s+)?"
+    r"(?:sua|suas|tua|tuas)\s+(?:\w+\s+){0,2}(?:seeds?|frases?|palavras|chaves?(?:\s+privadas?)?|senhas?)\b"
+    r"|\b(?:send|give|share|dm)\s+(?:me\s+)?your\s+(?:\w+\s+){0,2}(?:seeds?|phrases?|private\s+keys?|passwords?|recovery\s+words|words)\b"
+    r"|\b(?:enviame|mandame|pasame|dame)\s+(?:tu|tus)\s+(?:\w+\s+){0,2}(?:semillas?|frases?|claves?|contrasenas?|palabras)\b"
+    r"|把你的(?:助记词|私钥|密码)|发给我.{0,8}(?:助记词|私钥)|(?:助记词|私钥).{0,8}发给我"
+)
+_NOT_ASKING = re.compile(r"\b(?:nao|nunca|jamais|nem|never|don'?t|do\s+not|no\s+le|nunca\s+le)\s+(?:\w+\s+){0,2}$")
+_REPORTED_SPEECH = re.compile(
+    r"\b(?:falou|disse|dizendo|pediu|pedindo|pediram|mandou|um\s+cara|alguem|golpista|golpe|scammer|scam|said|told|asked|"
+    r"someone|me\s+dijo|me\s+pidio|alguien|estafa)\b|别人|有人|骗"
+)
+SECRET_REQUEST_MUTE_SECONDS = 30 * 60
+SECRET_REQUEST_WARNING = (
+    "🚨 Apaguei uma mensagem que pedia seed phrase ou chave privada e silenciei quem enviou. "
+    "Ninguém da Z-SWAP pede isso. Não envie essas palavras a ninguém, nem no privado."
+)
+
+
+def asks_others_for_secret(text: str) -> bool:
+    folded = _fold_conversation_text(text or "")
+    if _REPORTED_SPEECH.search(folded):
+        return False
+    for match in _ASKS_FOR_SECRET.finditer(folded):
+        if not _NOT_ASKING.search(folded[max(0, match.start() - 30):match.start()]):
+            return True
+    return False
+
+
+async def _remove_scam_message(update, context, *, category: str, source: str, mute: bool, warning: str) -> None:
+    """Delete, audit, optionally mute, then warn the group (no reply: the target is gone)."""
+    rt = runtime(context)
+    chat, user, message = update.effective_chat, update.effective_user, update.effective_message
+    deleted = await delete_message_safe(context, chat.id, message.message_id)
+    incident_id = None
+    try:
+        incident_id = rt.db.create_incident(
+            chat_id=chat.id, user_id=user.id, category=category, severity=Severity.HIGH, source=source,
+            evidence={"message_id": message.message_id, "content_not_stored": True},
+            note="Scam message removed; body not stored.")
+        rt.db.record_action(incident_id=incident_id, chat_id=chat.id, user_id=user.id, action_type="delete",
+                            actor_type="guardian", actor_id=None, reason=category, success=deleted)
+    except Exception as exc:
+        logger.error("Falha ao registrar remoção de golpe: %s", type(exc).__name__)
+    if mute:
+        muted = await mute_user_safe(context, chat.id, user.id, SECRET_REQUEST_MUTE_SECONDS)
+        try:
+            rt.db.record_action(incident_id=incident_id, chat_id=chat.id, user_id=user.id, action_type="mute",
+                                actor_type="guardian", actor_id=None, reason=category, success=muted,
+                                metadata={"duration_seconds": SECRET_REQUEST_MUTE_SECONDS})
+        except Exception as exc:
+            logger.error("Falha ao registrar mute de golpe: %s", type(exc).__name__)
+    if not deleted:
+        await _alert_operators_enforcement_failure(
+            context, chat_id=chat.id, target_user_id=user.id, action="delete", reason=category)
+    try:
+        await context.bot.send_message(chat_id=chat.id, text=warning)
+    except Exception as exc:
+        logger.warning("Falha ao avisar o grupo sobre golpe: %s", type(exc).__name__)
 
 
 def _wallet_secret_sharing_reply(question: str) -> str | None:
@@ -1227,6 +1322,22 @@ _COMPLAINT_REPLY = (
 
 
 _LOCALIZED_REPLIES = {
+    'seed_removed': {
+        'en': ("I removed your message because it looks like a seed phrase. If those words are real they "
+               "were exposed: create a new wallet and move your funds as soon as possible. "
+               "Nobody needs to check those words, not even the team."),
+        'es': ("Borré tu mensaje porque parece una frase semilla. Si esas palabras son reales, quedaron "
+               "expuestas: crea una billetera nueva y transfiere tus fondos lo antes posible. "
+               "Nadie necesita revisar esas palabras, ni siquiera el equipo."),
+        'zh': "我删除了你的消息，因为它看起来像助记词。如果这些单词是真实的，它们已经泄露：请创建新钱包并尽快转移资金。任何人都不需要核对这些单词，包括团队。",
+    },
+    'secret_request': {
+        'en': ("🚨 I removed a message asking for seed phrases or private keys and muted the sender. Nobody "
+               "from Z-SWAP asks for that. Don't send those words to anyone, not even in private."),
+        'es': ("🚨 Borré un mensaje que pedía frases semilla o claves privadas y silencié a quien lo envió. "
+               "Nadie de Z-SWAP pide eso. No envíes esas palabras a nadie, ni por privado."),
+        'zh': "🚨 我删除了一条索要助记词或私钥的消息，并禁言了发送者。Z-SWAP 的任何人都不会索要这些。不要把这些单词发给任何人，私信也不行。",
+    },
     'victim_again': {
         'en': ("The most urgent step now: create a new wallet and move whatever is left "
                "into it before the rest is taken. Then tell me what happened (without "
@@ -1506,9 +1617,19 @@ _ABBREVIATED_INSULT = re.compile(
 )
 
 
+# Live 2026-11-07: "As vendas dos pass NFT" read as unrelated and met silence.
+_PRODUCT_TERMS = re.compile(
+    r"\b(?:founders?\s*pass\w*|passes?\s+(?:de\s+)?fundador\w*|pass(?:es)?\s+nfts?|nfts?\s+(?:do\s+|de\s+)?pass\w*|"
+    r"vendas?\s+d[oae]s?\s+(?:pass\w*|nfts?)|z-?swap|zion\s+(?:pro|ai)|planos?\s+(?:pro|trader|pilot|free))\b"
+)
+
+
 def _correct_triage_reading(reading, text: str):
     from dataclasses import replace as _replace
     folded = _fold_conversation_text(text or "")
+    if (reading.intent in ('unrelated', 'smalltalk') and len(folded.split()) <= 12
+            and _PRODUCT_TERMS.search(folded) and not reading.risks):
+        reading = _replace(reading, intent='product', addressed=True)
     if reading.intent in ('smalltalk', 'unrelated', 'greeting') and _ASSET_QUESTION.search(folded):
         reading = _replace(reading, intent='product', addressed=True)
     if _ABBREVIATED_INSULT.search(folded) and 'insult' not in reading.risks:
@@ -1619,7 +1740,18 @@ async def _triage_member_turn(update, context, rt, text: str, recent: tuple[str,
     action = decide_action(intent=reading.intent, risks=risks, text=text)
     if action == 'warn_secret':
         _remember_wallet_secret_warning(update, context)
+        if word_list_lines(text):
+            # The list is already in the group: "don't send it" is too late.
+            await protect_wallet_secret(update, context, text, source="ai_triage",
+                                        notice_text=_seed_removed_notice(update, text),
+                                        forced_reason="lista de palavras lida como seed pela triagem")
+            return "", None
         return _localized('warn_secret', WALLET_SECRET_WARNING, reading.language), None
+    if action == 'warn_scam' and SCAM_OUTREACH.search(text or ""):
+        # Model and pattern agree: someone is fishing for private contact.
+        await _remove_scam_message(update, context, category="scam_suspected", source="ai_triage", mute=False,
+                                   warning=_localized('warn_scam', _SCAM_CAUTION, reading.language))
+        return "", None
     if action == 'warn_scam':
         try:
             rt.db.create_incident(
@@ -2097,8 +2229,8 @@ async def answer_natural_conversation(
             )
     elif selected_profile.agent_id is AgentId.FREYR:
         rendered += (
-            "\n\nSe quiser qualificar a oportunidade, fale com a FREYR no "
-            "privado e envie somente os dados profissionais necessários."
+            "\n\nSe quiser seguir com isso, fale comigo no privado por este perfil "
+            "e envie só os dados profissionais necessários."
         )
     await deliver(rendered)
     if delivery_succeeded:
@@ -2611,6 +2743,7 @@ async def protect_wallet_secret(
     notice_text: str,
     source_message_id: int | None = None,
     source_user_id: int | None = None,
+    forced_reason: str | None = None,
 ) -> bool:
     if (
         not update.effective_message
@@ -2621,8 +2754,16 @@ async def protect_wallet_secret(
 
     rt = runtime(context)
     sensitive = rt.guardian.sensitive_content(text)
+    if not sensitive.detected and word_list_lines(text) and (
+            forced_reason or _member_on_secret_alert(update, context)):
+        # A bare word list alone may be a list of coins. It is a secret when
+        # the triage read it as one or the member was just warned about seeds.
+        sensitive = SensitiveContentDecision(
+            detected=True, kind="possible_wallet_secret",
+            reason=forced_reason or "lista de palavras logo após aviso de seed")
     if not sensitive.detected:
         return False
+    _remember_wallet_victim(update, context)
 
     message_id_to_delete = (
         source_message_id
@@ -6857,15 +6998,8 @@ async def moderation_handler(
         context,
         sensitive_surface,
         source="guardian",
-        notice_text=(
-            f"🚨 {user_display_name(user)}: mensagem removida por "
-            "possível exposição de segredo de carteira. "
-            "Nunca publique seed phrase ou chave privada. Se a frase era "
-            "real, considere a carteira comprometida e transfira os fundos "
-            "para uma carteira nova o quanto antes."
-        ),
+        notice_text=_seed_removed_notice(update, sensitive_surface),
     ):
-        _remember_wallet_victim(update, context)
         return
 
     # This Application receives ZION's token. Its private policy is applied
@@ -6932,6 +7066,12 @@ async def moderation_handler(
             reason="lockdown",
             success=deleted,
         )
+        return
+
+    if asks_others_for_secret(text) and not await is_admin(update, context, revalidate_cached_admin=True):
+        await _remove_scam_message(
+            update, context, category="secret_solicitation", source="guardian", mute=True,
+            warning=_localized('secret_request', SECRET_REQUEST_WARNING, _guess_reply_language(text, update)))
         return
 
     remaining = rt.guardian.containment_remaining(chat.id, user.id)
