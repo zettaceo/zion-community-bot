@@ -20,6 +20,13 @@ A platform fee da Z-SWAP nas rotas EVM suportadas onde o mecanismo está ativo
 gas, slippage, spread e custos de rede, DEX, bridge, exchange ou terceiros
 podem existir além da platform fee.
 
+# Quais taxas pago: platform fee por plano
+
+Platform fee da Z-SWAP por plano, nas rotas EVM suportadas onde o mecanismo está ativo: Free/Thrall 1,00%,
+Pro/Drengr 0,50%, Trader/Berserkr 0,25% e Pilot/Einherjar 0,10%. As rotas Solana têm a condição própria descrita
+na seção seguinte. Gas, slippage, spread e custos de rede, DEX, bridge, exchange ou terceiros podem existir além
+da platform fee.
+
 # Taxas Solana, Jupiter e LI.FI
 
 Desde 16 de outubro de 2026, as rotas Solana elegíveis usam a mesma escada

@@ -1004,6 +1004,16 @@ def _evm_plan_fees(context: str) -> dict[str, Decimal]:
     parts = re.split(r'\[contexto oficial: ([^\]]+)\]\s*', _fold(context))
     fees: dict[str, Decimal] = {}
     for heading, body in zip(parts[1::2], parts[2::2]):
+        if 'platform fee por plano' in heading:
+            # The reviewed one-table section ("Free/Thrall 1,00%, Pro/Drengr 0,50%, …"):
+            # only its first sentence, the EVM schedule, is read (2026-11-07).
+            evm = ' '.join(body.split()).split('. ')[0]
+            if re.search(r'\bevm\b', evm):
+                for name in _EVM_TIERS:
+                    found = re.search(r'\b' + name + r'\b[^,;%]{0,25}?' + _PERCENT_PATTERN, evm)
+                    if found:
+                        fees.setdefault(name, Decimal(found[1].replace(',', '.')))
+            continue
         tier = next((name for name in _EVM_TIERS
                      if re.match(r'plano ' + name + r'\b', heading)), None)
         if tier is None:
@@ -2077,6 +2087,10 @@ def validate_public_response(text: str, *, official_context: str) -> ResponseChe
         return ResponseCheck(False, 'unsupported_network')
     # Audit 2026-11-02: "Um momento. Vou conferir." promises an action the bot
     # never performs; nothing comes after it.
+    if re.search(r"\b(?:posso|vou|irei|podemos)\s+(?:te\s+|lhe\s+)?(?:confirmar|avisar|informar|notificar)\s+"
+                 r"(?:\w+\s+){0,2}quando\b|\b(?:i can|i will|i'?ll)\s+(?:let you know|notify you|confirm)\s+when\b", folded):
+        # Live 2026-11-03: "posso confirmar quando houver um anúncio": no such channel.
+        return ResponseCheck(False, 'unsupported_pending_action')
     if re.search(r"\b(?:um momento|so um (?:instante|momento)|aguarde (?:um|enquanto)|vou (?:conferir|verificar|checar|consultar|pesquisar|buscar) (?:isso|pra voce|para voce|e (?:te|ja) (?:aviso|retorno|falo))|"
                  r"vou conferir|vou verificar|deixa eu (?:ver|verificar|conferir|checar)|let me check|i'?ll check|"
                  r"give me a (?:moment|sec)|un momento|dejame (?:revisar|verificar)|voy a (?:revisar|verificar))\b", folded):
@@ -2310,6 +2324,31 @@ def _public_solana_fee_reply(official_context: str) -> str | None:
     return None
 
 
+def _public_fee_overview_reply(official_context: str, question: str = '') -> str | None:
+    """EVM schedule + Solana condition, when BOTH reviewed sections are in context.
+
+    Live 2026-11-07: "quais taxas vou pagar?" fell back to a Solana-only text
+    (or "não vou tratar uma lista parcial como completa") although the full
+    public schedule was retrieved.
+    """
+    evm = _evm_plan_fees(official_context)
+    if set(evm) != set(_EVM_TIERS) or _public_solana_fee_reply(official_context) is None:
+        return None
+    pct = lambda tier: f'{evm[tier]:.2f}%'.replace('.', ',')
+    reply = (
+        'Depende do plano e da rota. Nas rotas EVM suportadas onde a cobrança está ativa, a platform fee é '
+        f'Free/Thrall {pct("free")}, Pro/Drengr {pct("pro")}, Trader/Berserkr {pct("trader")} e '
+        f'Pilot/Einherjar {pct("pilot")}. Nas rotas Solana elegíveis vale a mesma escada: na Jupiter, '
+        'a cobrança se aplica quando USDC ou SOL é um dos lados do swap; outros pares na Jupiter não têm '
+        'essa taxa, e as rotas LI.FI saindo da Solana são tratadas separadamente. Custos de rede e de '
+        'terceiros podem ocorrer à parte; confira os custos da rota antes de confirmar.'
+    )
+    if not question.strip() or re.search(r'\b(?:mais|menos|barat\w*|car[oa]s?|outras?|concorr\w*|compar\w*)\b', _fold(question)):
+        reply += (' Essa fonte não compara taxas com outras plataformas, então não posso dizer se a '
+                  'Z-SWAP cobra mais ou menos.')
+    return reply if validate_public_response(reply, official_context=official_context).allowed else None
+
+
 def _public_feature_status_reply(official_context: str) -> str | None:
     """Carry only feature states present in already approved retrieved context."""
     source_statuses = _source_feature_statuses(official_context)
@@ -2513,6 +2552,10 @@ def public_fallback_for(reason: str, *, official_context: str = '', question: st
                           'ou prazo.')
             return reply
         return PUBLIC_FALLBACK
+    if reason in {'incomplete_plan_fee_matrix', 'overbroad_solana_fee_scope'}:
+        overview = _public_fee_overview_reply(official_context, question)
+        if overview is not None and not re.search(r'\b(?:' + _TIER_PATTERN + r')\b', _fold(question)):
+            return overview
     if reason in {'incomplete_plan_fee_matrix', 'unsupported_spelled_plan_fee'}:
         reply = _public_evm_fee_reply(question, official_context)
         if reply is not None:
