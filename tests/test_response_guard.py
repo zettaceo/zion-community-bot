@@ -1145,6 +1145,11 @@ class ResponseGuardTests(unittest.TestCase):
                                {'query': 'Quanto paga de platform fee EVM no Free?'},
                                agent_id='zion').render()
         self.assertIn('[Contexto oficial: Plano Free ou Thrall]', free_only)
+        # 2026-11-07: the one-table section also carries the Pro rate; drop it so
+        # this stays the "rate absent from the evidence" case it was written for.
+        import re as _re
+        free_only = _re.sub(r'\[Contexto oficial: Quais taxas pago[^\]]*\].*?(?=\[Contexto oficial:|\Z)', '',
+                            free_only, flags=_re.S)
         self.assertTrue(validate_public_response(
             'No Free, a taxa EVM é 1%.', official_context=free_only).allowed)
         self.assertEqual(validate_public_response(
