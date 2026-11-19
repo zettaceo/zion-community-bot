@@ -40,6 +40,7 @@ from .agent_workflows import (
     triage_support,
 )
 from .ai_service import AIService, sanitize_for_ai
+from . import partnership_lead
 from .triage import SCAM_OUTREACH, decide_action
 from .provider_secrets import ProviderSecretStore
 from .providers import KimiCompletionProvider
@@ -278,6 +279,7 @@ class Runtime:
             # Ephemeral (chat, user) -> monotonic time of the last seed warning.
             self.wallet_secret_warnings: dict[tuple[int, int], float] = {}
             self.wallet_secret_victims: dict[tuple[int, int], float] = {}
+            self.partnership_leads = partnership_lead.LeadWindow()
             self.triage_languages: dict[tuple[int, int], str] = {}
             self.social_replies: dict[int, float] = {}
             # AI-first triage state: in memory only, bounded, never persisted.
@@ -7334,21 +7336,7 @@ async def secondary_private_handler(
                 _complete_routing_decision(rt, routing_inbound, "sent")
                 return
             summary = sanitize_for_ai(qualification.operator_summary())
-            delivered = 0
-            for operator_id in sorted(rt.settings.admin_user_ids):
-                try:
-                    if rt.primary_bot is None:
-                        raise RuntimeError("primary ZION bot unavailable")
-                    await rt.primary_bot.send_message(
-                        chat_id=operator_id,
-                        text=summary,
-                    )
-                    delivered += 1
-                except Exception as exc:
-                    logger.warning(
-                        "Partnership operator handoff failed | error=%s",
-                        type(exc).__name__,
-                    )
+            delivered = await _send_partnership_to_operators(rt, summary)
             try:
                 rt.db.record_action(
                     incident_id=None,
@@ -7386,6 +7374,9 @@ async def secondary_private_handler(
             await update.effective_message.reply_text(reply)
             _complete_routing_decision(rt, routing_inbound, "sent")
             return
+    if raw_agent is AgentId.FREYR and await _freyr_lead_turn(rt, update, text):
+        _complete_routing_decision(rt, routing_inbound, "sent")
+        return
     if not rt.ask_limiter.allow(update.effective_user.id):
         await update.effective_message.reply_text(
             "Recebi muitas perguntas em pouco tempo. Tente novamente em "
@@ -7411,6 +7402,72 @@ async def secondary_private_handler(
     await update.effective_message.reply_text(rendered)
     _complete_routing_decision(rt, routing_inbound, "sent")
 
+
+
+async def _send_partnership_to_operators(rt: Runtime, summary: str) -> int:
+    """Deliver a partnership summary to every admin; returns how many received it."""
+    delivered = 0
+    for operator_id in sorted(rt.settings.admin_user_ids):
+        try:
+            if rt.primary_bot is None:
+                raise RuntimeError("primary ZION bot unavailable")
+            await rt.primary_bot.send_message(chat_id=operator_id, text=summary)
+            delivered += 1
+        except Exception as exc:
+            logger.warning("Partnership operator handoff failed | error=%s", type(exc).__name__)
+    return delivered
+
+
+async def _freyr_lead_turn(rt: Runtime, update, text: str) -> bool:
+    """FREYR private lead conversation (partnership_lead.py). True = answered here.
+
+    Understands offers (promotion/"shill", AMA, content, integration, event),
+    asked price, "vão me pagar?" and "quero falar com um humano"; never approves
+    money or terms. With the person's confirmation the lead goes to the
+    operators through the same channel as the qualified-form handoff.
+    """
+    user = update.effective_user
+    key = (update.effective_chat.id, user.id)
+    now = partnership_lead.agora()
+    sinais = partnership_lead.analisar(text)
+    lead = rt.partnership_leads.get(key, now)
+    if lead is None:
+        if not (sinais.interest or sinais.kinds or sinais.paid_offer or sinais.asks_payment or sinais.asks_human):
+            return False
+        if sinais.product_question and not sinais.interest:
+            return False
+        lead = rt.partnership_leads.start(key, _guess_reply_language(text, update), now)
+    if not (sinais.product_question and not (sinais.asks_human or sinais.asks_payment)):
+        lead.absorver(sinais, text, now)
+    handle = f"@{user.username}" if getattr(user, "username", None) else ""
+    passo = partnership_lead.decidir(lead, sinais, handle=handle)
+    if passo is None:
+        return False
+    if not passo.forward:
+        await update.effective_message.reply_text(passo.reply)
+        return True
+    if not rt.partnership_leads.may_forward(user.id, now):
+        await update.effective_message.reply_text(partnership_lead.texto("forward_limit", lead.language))
+        return True
+    summary = sanitize_for_ai(partnership_lead.resumo_operador(lead, handle=handle, user_id=user.id))
+    delivered = await _send_partnership_to_operators(rt, summary)
+    try:
+        rt.db.record_action(
+            incident_id=None, chat_id=None, user_id=None, action_type="partnership_handoff",
+            actor_type="agent", actor_id=AgentId.FREYR.value, reason="conversation_lead_forwarded",
+            success=delivered > 0,
+            metadata={"kinds": list(lead.kinds), "paid": lead.paid, "human_requested": lead.human_requested,
+                      "operator_delivery_count": delivered},
+        )
+    except Exception as exc:
+        logger.warning("Partnership handoff audit unavailable | error=%s", type(exc).__name__)
+    if delivered:
+        rt.partnership_leads.mark_forwarded(user.id, lead, now)
+        reply = partnership_lead.texto("forwarded", lead.language, handle=f" ({handle})" if handle else "")
+    else:
+        reply = partnership_lead.texto("forward_failed", lead.language)
+    await update.effective_message.reply_text(reply)
+    return True
 
 def expire_temporary_state(rt: Runtime) -> None:
     with rt.db.transaction():

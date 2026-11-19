@@ -2197,7 +2197,7 @@ def repair_public_response(text: str, *, official_context: str, reason: str) -> 
     pieces = re.findall(r'(?:[^.!?\n]|[.!?](?=[^\s.!?]))+(?:[.!?]+(?=\s|$)|(?=\n)|$)[ \t]*|[.!?]+[ \t]*|\n+', text)
     if ''.join(pieces) != text:
         return None
-    kept, dropped = [], set()
+    marks, dropped = [], set()
     for piece in pieces:
         check = validate_public_response(piece, official_context=official_context) \
             if piece.strip() else None
@@ -2205,10 +2205,16 @@ def repair_public_response(text: str, *, official_context: str, reason: str) -> 
             if check.reason not in _REPAIRABLE:
                 return None
             dropped.add(check.reason)
+            marks.append(False)
             continue
-        kept.append(piece)
-    if not dropped or len(pieces) - len(kept) > 2:
+        marks.append(True)
+    if not dropped or marks.count(False) > 2:
         return None
+    # A list that lost an item loses the WHOLE list and the line that introduces
+    # it ("Por exemplo:"): a leftover "• Outro tipo (especifique)" read as nonsense
+    # (FREYR, 03/11). The length checks below then decide repair vs. fallback.
+    _drop_damaged_lists(pieces, marks)
+    kept = [p for p, keep in zip(pieces, marks) if keep]
     result = re.sub(r'\n{3,}', '\n\n', ''.join(kept)).strip()
     if len(result) < 80 or len(result) < 0.6 * len(text.strip()):
         return None
@@ -2217,6 +2223,32 @@ def repair_public_response(text: str, *, official_context: str, reason: str) -> 
     if not validate_public_response(result, official_context=official_context).allowed:
         return None
     return result
+
+
+_LIST_ITEM = re.compile(r'^\s*(?:[•\-*–]|\d{1,2}[.)])\s+')
+
+
+def _drop_damaged_lists(pieces: list[str], marks: list[bool]) -> None:
+    """Mark every item of a list (and its ':' intro line) as dropped when one item was."""
+    content = [i for i, p in enumerate(pieces) if p.strip()]
+    runs, current = [], []
+    for i in content:
+        if _LIST_ITEM.match(pieces[i]):
+            current.append(i)
+        else:
+            if current:
+                runs.append(current)
+            current = []
+    if current:
+        runs.append(current)
+    for run in runs:
+        if all(marks[i] for i in run):
+            continue
+        for i in run:
+            marks[i] = False
+        before = [i for i in content if i < run[0]]
+        if before and pieces[before[-1]].rstrip().endswith(':'):
+            marks[before[-1]] = False
 
 
 PUBLIC_FALLBACK = (
