@@ -875,8 +875,40 @@ def _future_launch_status_update_promise(text: str) -> bool:
     return False
 
 
-def _unconfirmed_partnership_handoff_claim(text: str) -> bool:
-    """Generated prose cannot confirm or offer an unexecuted operator handoff."""
+HANDOFF_CAPABILITY = (
+    "[Capacidade ativa nesta conversa: encaminhamento para a equipe humana da Z-SWAP] "
+    "Você pode OFERECER encaminhar o pedido, a proposta ou o caso para a equipe humana, "
+    "perguntando se a pessoa quer (por exemplo: \"Quer que eu encaminhe para a equipe?\"). "
+    "O envio só acontece depois que a pessoa confirmar, feito pelo sistema; por isso nunca "
+    "diga que já encaminhou, enviou, repassou ou que algo foi encaminhado. Ofereça quando a "
+    "pessoa pedir um humano, quando a decisão for da equipe (valores, pagamento, contrato, "
+    "prazo, exceção, caso que você não consegue resolver) ou quando houver uma proposta "
+    "concreta com o essencial já dito. Não ofereça encaminhar o que você mesmo responde nem o que "
+    "não é decisão da equipe (por exemplo, conselho de investimento ou qual token comprar). "
+    "Não ofereça na primeira resposta a um interesse vago: "
+    "primeiro entenda o que a pessoa quer. Ofereça no máximo uma vez por assunto; se a memória "
+    "do sistema disser que já foi oferecido e aguarda resposta, não repita a oferta. Nunca diga "
+    "que não existe contato humano ou que você não tem como encaminhar."
+)
+
+_HANDOFF_OFFER = re.compile(
+    r"\b(?:quer (?:que eu|que nos|que a gente) (?:encaminhe|envie|repasse)|posso (?:te |lhe )?(?:encaminhar|enviar|repassar)|"
+    r"should i (?:forward|send|pass)|can i (?:forward|send|pass)|(?:do you )?want me to (?:forward|send|pass)|"
+    r"(?:lo|la|los|las) (?:envio|reenvio)\b|puedo (?:enviar|reenviar|pasar)(?:lo|la|los|las)?|quieres que (?:lo |la )?(?:envie|reenvie|pase))")
+
+
+def offers_human_handoff(text: str) -> bool:
+    """The reply asks the person whether to forward to the human team (pt/en/es)."""
+    return bool(_HANDOFF_OFFER.search(_fold(text or "")))
+
+
+def _unconfirmed_partnership_handoff_claim(text: str, *, offers_allowed: bool = False) -> bool:
+    """Generated prose cannot confirm an unexecuted operator handoff.
+
+    Offering it ("posso encaminhar...?", "quer que eu encaminhe...?") is allowed
+    only when the conversation has the real capability (``HANDOFF_CAPABILITY``
+    in the official context): the system forwards after the person confirms.
+    """
     folded = _mask_reported_quotes(_fold(text))
     folded = re.sub(r'\b(?:mas|porem|contudo|however|but)\b', ';', folded)
     target = r'(?:parcerias?|proposta|avaliacao|oportunidade)'
@@ -902,6 +934,11 @@ def _unconfirmed_partnership_handoff_claim(text: str) -> bool:
             r'[^.!?;\n]{0,40}\b(?:foi|sera|serao|vai ser|vao ser)\s+'
             r'(?:encaminhad[ao]s?|enviad[ao]s?|repassad[ao]s?)\b'),
     )
+    if offers_allowed:
+        promessa = re.compile(
+            r'\b(?:vou|vamos|irei|iremos)\s+(?:(?:te|lhe)\s+)?' + transfer
+            + r'\b[^.!?;\n]{0,120}\b(?:' + target + '|' + recipient + r')\b')
+        actions = (promessa, actions[1]) + actions[3:]
     for sentence in re.finditer(r'[^.!?;\n]+[.!?;\n]?', folded):
         clause = sentence.group().strip()
         for pattern in actions:
@@ -1992,7 +2029,8 @@ def validate_public_response(text: str, *, official_context: str) -> ResponseChe
     if (_future_launch_status_update_promise(text)
             and not _future_launch_status_update_promise(official_context)):
         return ResponseCheck(False, 'unsupported_future_status_update')
-    if _unconfirmed_partnership_handoff_claim(text):
+    if _unconfirmed_partnership_handoff_claim(
+            text, offers_allowed=HANDOFF_CAPABILITY in (official_context or "")):
         return ResponseCheck(False, 'unconfirmed_partnership_handoff')
     if _unapproved_wallet_example(text, official_context):
         return ResponseCheck(False, 'unapproved_wallet_example')
@@ -2095,6 +2133,11 @@ def validate_public_response(text: str, *, official_context: str) -> ResponseChe
                  r"vou conferir|vou verificar|deixa eu (?:ver|verificar|conferir|checar)|let me check|i'?ll check|"
                  r"give me a (?:moment|sec)|un momento|dejame (?:revisar|verificar)|voy a (?:revisar|verificar))\b", folded):
         return ResponseCheck(False, 'unsupported_pending_action')
+    if re.search(r"\b(?:posso|vou|consigo|irei)\s+(?:te\s+)?(?:verificar|checar|consultar|analisar|investigar|rastrear|"
+                 r"revisar|conferir)\s+(?:como|se|o que|onde|a sua|sua|seu|o seu|a transac\w*|o hash|a taxa|o caso|"
+                 r"o ocorrido|a operac\w*|o swap|a carteira)\b", folded):
+        # Live 2026-11-18 (EIR): "posso verificar como a taxa foi aplicada" — no such access.
+        return ResponseCheck(False, 'unsupported_pending_action')
     # Live acceptance 2026-11-02: "posso levantar com o time as informações
     # reais ... Quer que eu faça isso?" offers a channel the bot does not have.
     for offer in re.finditer(
@@ -2107,6 +2150,10 @@ def validate_public_response(text: str, *, official_context: str) -> ResponseChe
         # Only a negation right before this offer ("não posso consultar a
         # equipe") excuses it; "não vou te convencer, mas posso levantar com
         # o time" is still an offer.
+        if (HANDOFF_CAPABILITY in (official_context or "")
+                and re.match(r"(?:posso|podemos|eu posso)\b", offer.group())
+                and re.search(r"\b(?:encaminhar|repassar|escalar)\b", offer.group())):
+            continue   # ação REAL desta conversa (enviada só após confirmação)
         if not re.search(r"\b(?:nao|nunca)\s+(?:\w+\s+){0,1}$", folded[max(0, offer.start() - 20):offer.start()]):
             return ResponseCheck(False, 'unsupported_team_handoff')
     # Live acceptance 2026-11-02: "a infraestrutura é construída com práticas
@@ -2214,8 +2261,14 @@ def repair_public_response(text: str, *, official_context: str, reason: str) -> 
     # it ("Por exemplo:"): a leftover "• Outro tipo (especifique)" read as nonsense
     # (FREYR, 03/11). The length checks below then decide repair vs. fallback.
     _drop_damaged_lists(pieces, marks)
+    # "Quer que eu faça isso?" depois de uma oferta removida fica sem referente.
+    for i, piece in enumerate(pieces):
+        if marks[i] and re.match(r'^\s*(?:quer|deseja|posso|gostaria)\b[^.!?\n]{0,40}\b(?:isso|isto)\s*\?\s*$',
+                                 _fold(piece)):
+            marks[i] = False
     kept = [p for p, keep in zip(pieces, marks) if keep]
-    result = re.sub(r'\n{3,}', '\n\n', ''.join(kept)).strip()
+    from .text_cleanup import limpar_listas_orfas
+    result = limpar_listas_orfas(text, re.sub(r'\n{3,}', '\n\n', ''.join(kept)).strip())
     if len(result) < 80 or len(result) < 0.6 * len(text.strip()):
         return None
     if dropped & _SECRET_REASONS and 'seed phrase' not in _fold(result):

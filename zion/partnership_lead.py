@@ -70,6 +70,17 @@ _AUDIENCE = re.compile(
     r"\b\d[\d.,]*\s?(?:k|mil)?\s?(?:membros|members|miembros|seguidores|followers|pessoas|inscritos|"
     r"subscribers|usuarios|users)\b")
 _COMMUNITY_COUNT = re.compile(r"\b(?:\d+|v[aá]rias|muitas|several|many)\s+(?:comunidades|communities|grupos|groups|canais|channels)\b")
+_FORWARD_REQUEST = re.compile(
+    r"\b(?:pode (?:me )?encaminhar|encaminha (?:a|minha|isso|pra|para)|encaminhe|pode mandar (?:pra|para) (?:a )?equipe|"
+    r"(?:please )?forward (?:it|this|my)|send (?:it|this) to (?:the )?team|"
+    r"envialo|enviala|reenvialo|pasalo al equipo|puedes enviar(?:lo|la))\b")
+# Pedido para a Z-SWAP (ou a pessoa) PAGAR/ENVIAR cripto a um endereço — taxa de
+# listagem, "liberação", "verificação": golpe clássico, alertado sem depender do modelo.
+_SCAM_PAYMENT = re.compile(
+    r"\b(?:pag\w*|envi\w*|mand\w*|transfir\w*|deposit\w*|pay|send|transfer)\b(?:[^.?!\n]|\.(?=\d)){0,80}"
+    r"(?:\b0x[0-9a-f]{4,}|\bcarteira\b|\bwallet\b|\bendereco\b|\baddress\b)")
+_SCAM_HOOK = re.compile(r"\b(?:taxa|fee|listagem|listing|liberac\w*|verificac\w*|ativac\w*|urgente|urgent|hoje|today|vaga)\b")
+_GREETING = re.compile(r"^(?:oi+|ola|ola+|opa|e ai|eai|bom dia|boa tarde|boa noite|hello|hi|hey|hola|buenas|buenos dias)[\s!.,?]*$")
 _PRODUCT_TOPIC = re.compile(
     r"\b(?:taxas?|fees?|planos?|plans?|swap|redes?|chains?|carteira|wallet|ordem|ordens|stop|seguranca|"
     r"founder pass|roadmap|token)\b")
@@ -86,6 +97,9 @@ class Sinais:
     confirms: bool
     declines: bool
     channels: tuple[str, ...]
+    forward_request: bool
+    scam_payment: bool
+    greeting: bool
     audience: str | None
     community_count: str | None
     product_question: bool
@@ -115,6 +129,9 @@ def analisar(text: str) -> Sinais:
         confirms=short and bool(_CONFIRM.search(folded)),
         declines=short and bool(_DECLINE.search(folded)),
         channels=tuple(dict.fromkeys(m.group(0) for m in _CHANNEL.finditer(text or "")))[:6],
+        forward_request=bool(_FORWARD_REQUEST.search(folded)),
+        scam_payment=bool(_SCAM_PAYMENT.search(folded) and _SCAM_HOOK.search(folded)),
+        greeting=bool(_GREETING.match(folded)),
         audience=audience.group(0) if audience else None,
         community_count=count.group(0) if count else None,
         product_question="?" in (text or "") and bool(_PRODUCT_TOPIC.search(folded)) and not kinds,
@@ -144,8 +161,15 @@ class Lead:
     def has_substance(self) -> bool:
         return bool(self.kinds or self.notes or self.channels or self.price)
 
-    def absorver(self, s: Sinais, text: str, now: float) -> None:
+    def absorver(self, s: Sinais, text: str, now: float, *, parceria: bool = True) -> None:
         self.updated = now
+        self.human_requested = self.human_requested or s.asks_human
+        if not parceria:
+            # outros agentes: só a fala da pessoa (para o resumo) e o pedido de humano
+            note = " ".join((text or "").split())[:MAX_NOTE_CHARS]
+            if note and not (s.confirms or s.declines) and note not in self.notes and len(self.notes) < MAX_NOTES:
+                self.notes.append(note)
+            return
         for k in s.kinds:
             if k not in self.kinds:
                 self.kinds.append(k)
@@ -280,6 +304,16 @@ _TXT = {
                     "diretamente pelo Telegram. Eu não consigo confirmar valores nem prazos."),
         "declined": "Tudo bem, não encaminhei nada. Se quiser, me conte mais detalhes da proposta.",
         "details": "Anotei.",
+        "already_case": ("Seu pedido já foi encaminhado para a equipe. Alguém fala com você diretamente pelo Telegram. "
+                         "Se quiser, pode me contar mais detalhes aqui enquanto isso."),
+        "forwarded_case": ("Encaminhei seu pedido para a equipe da Z-SWAP com o seu contato do Telegram{handle}. "
+                           "Alguém da equipe fala com você diretamente. Não envie seed phrase, chave privada ou senha a ninguém."),
+        "unknown": ("Não tenho informação pública confirmada sobre isso, e prefiro não adivinhar. "
+                    "Posso encaminhar sua pergunta para a equipe da Z-SWAP responder. Quer que eu encaminhe?"),
+        "unknown_nohandoff": "Não tenho informação pública confirmada sobre isso, e prefiro não adivinhar.",
+        "scam": ("Atenção: pedido para pagar ou enviar cripto a uma carteira como \"taxa\" de listagem, liberação ou "
+                 "verificação é um golpe conhecido. A Z-SWAP não paga nem cobra taxas assim por mensagem, e nada aqui "
+                 "deve ser pago. Não envie fundos a esse endereço."),
         "confirm_short": "Quer que eu encaminhe para a equipe?",
         "payment_short": "Esse pagamento eu não posso prometer: só a equipe decide.",
     },
@@ -309,6 +343,15 @@ _TXT = {
                     "you directly on Telegram. I can't confirm prices or deadlines."),
         "declined": "Okay, I didn't forward anything. Tell me more about the proposal if you like.",
         "details": "Noted.",
+        "already_case": ("Your request was already forwarded to the team. Someone will contact you directly on Telegram. "
+                         "Feel free to share more details here in the meantime."),
+        "forwarded_case": ("I forwarded your request to the Z-SWAP team with your Telegram contact{handle}. "
+                           "Someone from the team will contact you directly. Never share your seed phrase, private key or password."),
+        "unknown": ("I don't have confirmed public information about that, and I'd rather not guess. "
+                    "I can forward your question to the Z-SWAP team. Should I forward it?"),
+        "unknown_nohandoff": "I don't have confirmed public information about that, and I'd rather not guess.",
+        "scam": ("Warning: a request to pay or send crypto to a wallet as a listing, release or verification \"fee\" "
+                 "is a known scam. Z-SWAP does not pay or charge fees like this by message. Do not send funds to that address."),
         "confirm_short": "Should I forward it to the team?",
         "payment_short": "I can't promise that payment: only the team decides.",
     },
@@ -337,10 +380,37 @@ _TXT = {
                     "Telegram. No puedo confirmar valores ni plazos."),
         "declined": "De acuerdo, no envié nada. Si quieres, cuéntame más detalles de la propuesta.",
         "details": "Anotado.",
+        "already_case": ("Tu solicitud ya fue enviada al equipo. Alguien te escribirá directamente por Telegram. "
+                         "Si quieres, puedes contarme más detalles aquí mientras tanto."),
+        "forwarded_case": ("Envié tu solicitud al equipo de Z-SWAP con tu contacto de Telegram{handle}. "
+                           "Alguien del equipo te escribirá directamente. Nunca compartas tu frase semilla, clave privada o contraseña."),
+        "unknown": ("No tengo información pública confirmada sobre eso y prefiero no adivinar. "
+                    "Puedo enviar tu pregunta al equipo de Z-SWAP. ¿La envío?"),
+        "unknown_nohandoff": "No tengo información pública confirmada sobre eso y prefiero no adivinar.",
+        "scam": ("Atención: pedir que se pague o envíe cripto a una billetera como \"tarifa\" de listado, liberación o "
+                 "verificación es una estafa conocida. Z-SWAP no paga ni cobra tarifas así por mensaje. No envíes fondos a esa dirección."),
         "confirm_short": "¿Lo envío al equipo?",
         "payment_short": "Ese pago no lo puedo prometer: solo decide el equipo.",
     },
 }
+
+
+_GREETINGS = {
+    "freyr": {"pt": "Oi! Sou o FREYR, cuido de parcerias da Z-SWAP. Me conte o que você tem em mente: o que você faz, onde e o que propõe.",
+              "en": "Hi! I'm FREYR, I handle partnerships at Z-SWAP. Tell me what you have in mind: what you do, where, and what you propose.",
+              "es": "¡Hola! Soy FREYR, me ocupo de las alianzas de Z-SWAP. Cuéntame qué tienes en mente: qué haces, dónde y qué propones."},
+    "eir": {"pt": "Oi! Sou a EIR, do suporte da Z-SWAP. Me conte o que aconteceu e em qual rede ou carteira.",
+            "en": "Hi! I'm EIR from Z-SWAP support. Tell me what happened and on which network or wallet.",
+            "es": "¡Hola! Soy EIR, del soporte de Z-SWAP. Cuéntame qué pasó y en qué red o billetera."},
+    "mimir": {"pt": "Oi! Sou o MIMIR, cuido das dúvidas técnicas da Z-SWAP. Qual é a sua pergunta?",
+              "en": "Hi! I'm MIMIR, I handle technical questions at Z-SWAP. What's your question?",
+              "es": "¡Hola! Soy MIMIR, me ocupo de las dudas técnicas de Z-SWAP. ¿Cuál es tu pregunta?"},
+}
+
+
+def saudacao(agente: str, language: str) -> str:
+    opcoes = _GREETINGS.get(agente, _GREETINGS["freyr"])
+    return opcoes[_lang(language)]
 
 
 def texto(chave: str, language: str, **fmt: str) -> str:
@@ -420,9 +490,37 @@ def _novidades(lead: Lead, lang: str) -> list[str]:
     return [p for p in parts if p]
 
 
-def resumo_operador(lead: Lead, *, handle: str, user_id: int) -> str:
+def estado_para_modelo(lead: Lead | None, agora_: float) -> str:
+    """Memória do sistema sobre esta conversa, para o modelo (não é fala da pessoa)."""
+    if lead is None:
+        return ""
     labels = _KIND_LABEL["pt"]
-    linhas = ["FREYR — PROPOSTA DE PARCERIA (conversa privada)",
+    linhas = ["[Memória do sistema sobre esta conversa — fatos já ditos pela pessoa]"]
+    if lead.kinds:
+        linhas.append("Proposta: " + ", ".join(labels.get(k, k) for k in lead.kinds))
+    if lead.paid or lead.price:
+        linhas.append("Serviço pago: sim" + (f"; valor pedido: {lead.price}" if lead.price else "; valor ainda não informado"))
+    if lead.channels or lead.community_count:
+        linhas.append("Onde: " + ", ".join(lead.channels + ([lead.community_count] if lead.community_count else [])))
+    linhas.append("Audiência: " + (lead.audience or "não informada"))
+    if lead.human_requested:
+        linhas.append("A pessoa pediu para falar com um humano.")
+    if lead.forwarded_at is not None:
+        minutos = max(1, int((agora_ - lead.forwarded_at) // 60))
+        linhas.append(f"Encaminhamento: JÁ ENVIADO à equipe há {minutos} min. Não ofereça de novo; "
+                      "diga que a equipe fala com a pessoa diretamente se houver interesse.")
+    elif lead.awaiting_confirm:
+        linhas.append("Encaminhamento: já oferecido; aguardando a pessoa confirmar.")
+    else:
+        linhas.append("Encaminhamento: ainda não oferecido.")
+    return "\n".join(linhas)
+
+
+def resumo_operador(lead: Lead, *, handle: str, user_id: int, agente: str = "FREYR") -> str:
+    labels = _KIND_LABEL["pt"]
+    titulo = ("FREYR — PROPOSTA DE PARCERIA (conversa privada)" if agente == "FREYR"
+              else f"{agente} — PEDIDO DE ATENDIMENTO HUMANO (conversa privada)")
+    linhas = [titulo,
               f"Contato: {handle or '(sem @usuário)'} · Telegram id {user_id}"]
     if lead.kinds:
         linhas.append("Tipo: " + ", ".join(labels.get(k, k) for k in lead.kinds))
@@ -438,7 +536,7 @@ def resumo_operador(lead: Lead, *, handle: str, user_id: int) -> str:
         linhas.append("O que a pessoa escreveu:")
         linhas.extend(f"- {n}" for n in lead.notes)
     linhas.append("Pediu contato humano: " + ("sim" if lead.human_requested else "não"))
-    linhas.append("Decisão humana necessária: SIM (FREYR não aprovou valor, pagamento, contrato ou prazo)")
+    linhas.append(f"Decisão humana necessária: SIM ({agente} não aprovou valor, pagamento, contrato, prazo ou reembolso)")
     return "\n".join(linhas)
 
 

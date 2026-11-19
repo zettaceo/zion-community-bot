@@ -40,7 +40,8 @@ from .agent_workflows import (
     triage_support,
 )
 from .ai_service import AIService, sanitize_for_ai
-from . import partnership_lead
+from . import idioma, partnership_lead
+from .response_guard import HANDOFF_CAPABILITY, offers_human_handoff
 from .triage import SCAM_OUTREACH, decide_action
 from .provider_secrets import ProviderSecretStore
 from .providers import KimiCompletionProvider
@@ -280,6 +281,9 @@ class Runtime:
             self.wallet_secret_warnings: dict[tuple[int, int], float] = {}
             self.wallet_secret_victims: dict[tuple[int, int], float] = {}
             self.partnership_leads = partnership_lead.LeadWindow()
+            # Private-chat memory per (chat, user, agent): bounded exchanges, 1 h.
+            self.dm_exchanges: dict[tuple[int, int, str], tuple[float, tuple[tuple[str, str], ...]]] = {}
+            self.dm_languages: dict[tuple[int, int], str] = {}
             self.triage_languages: dict[tuple[int, int], str] = {}
             self.social_replies: dict[int, float] = {}
             # AI-first triage state: in memory only, bounded, never persisted.
@@ -7374,7 +7378,7 @@ async def secondary_private_handler(
             await update.effective_message.reply_text(reply)
             _complete_routing_decision(rt, routing_inbound, "sent")
             return
-    if raw_agent is AgentId.FREYR and await _freyr_lead_turn(rt, update, text):
+    if await _dm_handoff_action(rt, update, text, raw_agent):
         _complete_routing_decision(rt, routing_inbound, "sent")
         return
     if not rt.ask_limiter.allow(update.effective_user.id):
@@ -7387,13 +7391,7 @@ async def secondary_private_handler(
     support_triage = (
         triage_support(text) if raw_agent is AgentId.EIR else None
     )
-    answer = await rt.ai.answer(
-        chat_id=update.effective_chat.id,
-        user_id=update.effective_user.id,
-        question=text[:6000],
-        agent_id=raw_agent,
-    )
-    rendered = telegram_ai_reply_text(answer.text)
+    rendered = await _dm_model_reply(rt, update, text, raw_agent)
     if support_triage is not None and support_triage.requires_human:
         rendered += (
             "\n\nEste caso precisa de revisão humana. Não envie seed phrase, "
@@ -7418,56 +7416,169 @@ async def _send_partnership_to_operators(rt: Runtime, summary: str) -> int:
     return delivered
 
 
-async def _freyr_lead_turn(rt: Runtime, update, text: str) -> bool:
-    """FREYR private lead conversation (partnership_lead.py). True = answered here.
+DM_HISTORY_SECONDS = 3600.0
 
-    Understands offers (promotion/"shill", AMA, content, integration, event),
-    asked price, "vão me pagar?" and "quero falar com um humano"; never approves
-    money or terms. With the person's confirmation the lead goes to the
-    operators through the same channel as the qualified-form handoff.
-    """
+
+def _dm_history(rt: Runtime, key: tuple[int, int], agent: AgentId) -> str:
+    entry = rt.dm_exchanges.get((key[0], key[1], agent.value))
+    if not entry or partnership_lead.agora() - entry[0] > DM_HISTORY_SECONDS:
+        return ""
+    return "\n\n".join(exchange for _q, exchange in entry[1])
+
+
+def _remember_dm_exchange(rt: Runtime, key: tuple[int, int], agent: AgentId, question: str, reply: str) -> None:
+    k = (key[0], key[1], agent.value)
+    now = partnership_lead.agora()
+    entry = rt.dm_exchanges.get(k)
+    previous = entry[1] if entry and now - entry[0] <= DM_HISTORY_SECONDS else ()
+    pergunta = sanitize_for_ai(question)[:500]
+    troca = (pergunta, f"Membro: {pergunta}\n{agent.value.upper()}: {reply[:700]}")
+    trocas = list(previous[-3:]) + [troca]
+    while sum(len(t[1]) + 2 for t in trocas) > 4000:
+        trocas.pop(0)
+    rt.dm_exchanges[k] = (now, tuple(trocas))
+    if len(rt.dm_exchanges) > 4096:
+        for stale in sorted(rt.dm_exchanges, key=lambda x: rt.dm_exchanges[x][0])[:1024]:
+            rt.dm_exchanges.pop(stale, None)
+
+
+def _dm_language(rt: Runtime, update, text: str) -> str:
+    """Idioma da conversa privada: o da mensagem quando claro; senão o já usado; senão o do Telegram."""
+    key = (update.effective_chat.id, update.effective_user.id)
+    detectado = idioma.detectar(text)
+    if detectado:
+        if len(rt.dm_languages) > 4096:
+            rt.dm_languages.clear()
+        rt.dm_languages[key] = detectado
+        return detectado
+    return rt.dm_languages.get(key) or _guess_reply_language(text, update)
+
+
+def _generic_fallback(text: str) -> bool:
+    return (text or "").strip().startswith("Não tenho informação oficial suficiente")
+
+
+async def _dm_handoff_action(rt: Runtime, update, text: str, agent: AgentId) -> bool:
+    """Only REAL actions are deterministic: confirming or declining an offered handoff."""
     user = update.effective_user
     key = (update.effective_chat.id, user.id)
     now = partnership_lead.agora()
     sinais = partnership_lead.analisar(text)
+    language = _dm_language(rt, update, text)
+    if sinais.scam_payment:
+        # Segurança não depende do modelo: "pague a taxa nesta carteira" é golpe conhecido.
+        reply = partnership_lead.texto("scam", language)
+        await update.effective_message.reply_text(reply)
+        _remember_dm_exchange(rt, key, agent, text, reply)
+        return True
+    history = _dm_history(rt, key, agent)
+    if sinais.greeting and not history:
+        reply = partnership_lead.saudacao(agent.value, language)
+        await update.effective_message.reply_text(reply)
+        _remember_dm_exchange(rt, key, agent, text, reply)
+        return True
     lead = rt.partnership_leads.get(key, now)
-    if lead is None:
-        if not (sinais.interest or sinais.kinds or sinais.paid_offer or sinais.asks_payment or sinais.asks_human):
-            return False
-        if sinais.product_question and not sinais.interest:
-            return False
-        lead = rt.partnership_leads.start(key, _guess_reply_language(text, update), now)
-    if not (sinais.product_question and not (sinais.asks_human or sinais.asks_payment)):
-        lead.absorver(sinais, text, now)
-    handle = f"@{user.username}" if getattr(user, "username", None) else ""
-    passo = partnership_lead.decidir(lead, sinais, handle=handle)
-    if passo is None:
+    if lead is not None:
+        lead.language = language
+    if lead is not None and lead.forwarded_at is not None and (sinais.confirms or sinais.forward_request):
+        # "sim"/"pode encaminhar" depois do envio: o estado REAL, sem o modelo perder o fio.
+        reply = partnership_lead.texto("already" if agent is AgentId.FREYR else "already_case", lead.language)
+        await update.effective_message.reply_text(reply)
+        _remember_dm_exchange(rt, key, agent, text, reply)
+        return True
+    if sinais.forward_request and history and (lead is None or lead.forwarded_at is None):
+        # "pode encaminhar" dito pela pessoa É o consentimento: não pergunta de novo.
+        if lead is None:
+            lead = rt.partnership_leads.start(key, language, now)
+            for question, _exchange in rt.dm_exchanges[(key[0], key[1], agent.value)][1]:
+                lead.absorver(partnership_lead.analisar(question), question, now,
+                              parceria=agent is AgentId.FREYR)
+        lead.awaiting_confirm = True
+        sinais = partnership_lead.analisar("sim")
+    if lead is None or lead.forwarded_at is not None or not lead.awaiting_confirm:
         return False
-    if not passo.forward:
-        await update.effective_message.reply_text(passo.reply)
+    if sinais.declines:
+        lead.awaiting_confirm = False
+        reply = partnership_lead.texto("declined", lead.language)
+        await update.effective_message.reply_text(reply)
+        _remember_dm_exchange(rt, key, agent, text, reply)
         return True
+    if not sinais.confirms:
+        return False
+    handle = f"@{user.username}" if getattr(user, "username", None) else ""
     if not rt.partnership_leads.may_forward(user.id, now):
-        await update.effective_message.reply_text(partnership_lead.texto("forward_limit", lead.language))
+        reply = partnership_lead.texto("forward_limit", lead.language)
+        await update.effective_message.reply_text(reply)
         return True
-    summary = sanitize_for_ai(partnership_lead.resumo_operador(lead, handle=handle, user_id=user.id))
+    summary = sanitize_for_ai(partnership_lead.resumo_operador(
+        lead, handle=handle, user_id=user.id, agente=agent.value.upper()))
     delivered = await _send_partnership_to_operators(rt, summary)
     try:
         rt.db.record_action(
             incident_id=None, chat_id=None, user_id=None, action_type="partnership_handoff",
-            actor_type="agent", actor_id=AgentId.FREYR.value, reason="conversation_lead_forwarded",
+            actor_type="agent", actor_id=agent.value, reason="conversation_handoff_forwarded",
             success=delivered > 0,
-            metadata={"kinds": list(lead.kinds), "paid": lead.paid, "human_requested": lead.human_requested,
-                      "operator_delivery_count": delivered},
+            metadata={"agent": agent.value, "kinds": list(lead.kinds), "paid": lead.paid,
+                      "human_requested": lead.human_requested, "operator_delivery_count": delivered},
         )
     except Exception as exc:
         logger.warning("Partnership handoff audit unavailable | error=%s", type(exc).__name__)
     if delivered:
         rt.partnership_leads.mark_forwarded(user.id, lead, now)
-        reply = partnership_lead.texto("forwarded", lead.language, handle=f" ({handle})" if handle else "")
+        reply = partnership_lead.texto("forwarded" if agent is AgentId.FREYR else "forwarded_case",
+                                       lead.language, handle=f" ({handle})" if handle else "")
     else:
         reply = partnership_lead.texto("forward_failed", lead.language)
     await update.effective_message.reply_text(reply)
+    _remember_dm_exchange(rt, key, agent, text, reply)
     return True
+
+
+async def _dm_model_reply(rt: Runtime, update, text: str, agent: AgentId) -> str:
+    """The MODEL answers every private turn, with the conversation history, the
+    system's memory of the lead/handoff and the real capabilities it may offer.
+    Fixed texts are only the fallback when the model has nothing usable."""
+    user = update.effective_user
+    key = (update.effective_chat.id, user.id)
+    now = partnership_lead.agora()
+    sinais = partnership_lead.analisar(text)
+    language = _dm_language(rt, update, text)
+    lead = rt.partnership_leads.get(key, now)
+    if lead is not None:
+        lead.language = language
+    parceria = agent is AgentId.FREYR
+    starts = sinais.asks_human or (parceria and (sinais.interest or sinais.kinds or sinais.paid_offer
+                                                 or sinais.asks_payment))
+    if lead is None and starts and not (sinais.product_question and not sinais.asks_human):
+        lead = rt.partnership_leads.start(key, language, now)
+    if lead is not None and not (sinais.product_question and not (sinais.asks_human or sinais.asks_payment)):
+        lead.absorver(sinais, text, now, parceria=parceria)
+    can_handoff = bool(rt.settings.admin_user_ids) and rt.primary_bot is not None \
+        and (lead is None or lead.forwarded_at is None) and rt.partnership_leads.may_forward(user.id, now)
+    context = "\n\n".join(x for x in (_dm_history(rt, key, agent),
+                                       partnership_lead.estado_para_modelo(lead, now)) if x)
+    answer = await rt.ai.answer(
+        chat_id=update.effective_chat.id, user_id=user.id, question=text[:6000], agent_id=agent,
+        conversation_context=context or None, capabilities=HANDOFF_CAPABILITY if can_handoff else None,
+        reply_language=language if language in ("en", "es") else None,
+    )
+    rendered = telegram_ai_reply_text(answer.text)
+    if _generic_fallback(rendered):
+        # O desconhecido não é beco sem saída: diz que não sabe e oferece a equipe.
+        rendered = partnership_lead.texto("unknown" if can_handoff else "unknown_nohandoff", language)
+        if can_handoff:
+            if lead is None:
+                lead = rt.partnership_leads.start(key, language, now)
+                lead.absorver(sinais, text, now, parceria=parceria)
+            lead.awaiting_confirm = True
+    elif can_handoff and offers_human_handoff(rendered):
+        if lead is None:
+            lead = rt.partnership_leads.start(key, language, now)
+            lead.absorver(sinais, text, now, parceria=parceria)
+        lead.awaiting_confirm = True
+    _remember_dm_exchange(rt, key, agent, text, rendered)
+    return rendered
+
 
 def expire_temporary_state(rt: Runtime) -> None:
     with rt.db.transaction():
