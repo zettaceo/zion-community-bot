@@ -222,6 +222,14 @@ class MistralRawResponse:
     tool_calls: list[dict] | None = None
 
 
+# Models that ALWAYS reason before answering: the "thinking" chunk counts toward
+# max_tokens, and Mistral Large 4 cannot disable it ("none" is rejected; default
+# is "high"). Ask for the least reasoning and give it room, or short calls end
+# with finish_reason "length" and no text (measured 2026-11-19).
+REASONING_MODELS = {"mistral-large-4": "low", "mistral-large-4-0": "low", "mistral-large-latest": "low"}
+REASONING_HEADROOM_TOKENS = 3072
+
+
 def _extract_content(message: dict[str, Any]) -> str:
     content = message.get("content", "")
     if isinstance(content, str):
@@ -749,6 +757,16 @@ class MistralClient:
             "temperature": temperature,
             "max_tokens": max_tokens or self.settings.mistral_max_tokens,
         }
+        effort = REASONING_MODELS.get(self.settings.mistral_model)
+        if effort:
+            payload["reasoning_effort"] = effort
+            payload["max_tokens"] += REASONING_HEADROOM_TOKENS
+        if temperature == 0:
+            # Greedy decoding. Mistral Large 4 rejects temperature 0 unless top_p
+            # is exactly 1 ("top_p must be 1 when using greedy sampling", HTTP 400,
+            # 2026-11-19); 1 is also the default for the other models, so this
+            # changes nothing for them. Triage and repairs use temperature 0.
+            payload["top_p"] = 1
         if tools is not None:
             if tool_choice not in {'auto', 'none'}:
                 raise ValueError('invalid_tool_choice')

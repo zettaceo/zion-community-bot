@@ -40,9 +40,14 @@ class PriceSnapshot:
 # (input 3, 5m cache write 3, output 15 USD/M; unchanged since 2026-10-29).
 # K3 input includes cache write conservatively (3 + 3 USD/M).
 PRICES = {
-    # Official docs.mistral.ai/models/ministral-3-8b-25-12, reverified 2026-11-01
-    # (0.15 USD/M input and output; unchanged).
-    'ministral-8b-2512': PriceSnapshot('ministral-8b-2512', 150000, 150000, date(2026, 11, 1)),
+    # Official docs.mistral.ai/models/ministral-3-8b-25-12, reverified 2026-11-19
+    # (0.15 USD/M input and output; unchanged since 2026-11-01).
+    'ministral-8b-2512': PriceSnapshot('ministral-8b-2512', 150000, 150000, date(2026, 11, 19)),
+    # Official docs.mistral.ai/models/mistral-large-4-0 (GA 2026-11-05, v26.10),
+    # verified 2026-11-19: 0.70 USD/M input, 2.10 USD/M output. API id from
+    # GET /v1/models on 2026-11-19: "mistral-large-4" (aliases mistral-large-4-0,
+    # mistral-large-latest), no deprecation. Successor of mistral-large-2512.
+    'mistral-large-4': PriceSnapshot('mistral-large-4', 700000, 2100000, date(2026, 11, 19)),
     # Official docs.mistral.ai/models/mistral-small-4-0-26-03 (GA), verified
     # 2026-11-01: 0.15 USD/M input, 0.60 USD/M output.
     'mistral-small-2603': PriceSnapshot('mistral-small-2603', 150000, 600000, date(2026, 11, 1)),

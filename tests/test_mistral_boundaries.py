@@ -152,6 +152,38 @@ class MistralBoundaryTests(unittest.TestCase):
         self.assertIn('Sem essa indicação, você não tem esse canal', system)
         self.assertNotIn(question, system)
 
+    def test_greedy_requests_pin_top_p_to_one(self):
+        """Mistral Large 4 returns HTTP 400 for temperature 0 without top_p=1 (2026-11-19)."""
+        ok = lambda: httpx.Response(200, json={"model": "m", "choices": [{"message": {"content": "ok"}}],
+                                              "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2}})
+        with tempfile.TemporaryDirectory() as tmp:
+            settings = replace(make_settings(Path(tmp)), ai_enabled=True, mistral_min_request_interval_ms=0)
+            fake_http = SequenceAsyncClient([ok(), ok()])
+            client = MistralClient(settings, FakePrivateSecretStore("segredo"))
+            with patch("zion.mistral.httpx.AsyncClient", return_value=fake_http):
+                asyncio.run(client._chat([{"role": "user", "content": "classifique"}], temperature=0.0))
+                asyncio.run(client._chat([{"role": "user", "content": "responda"}], temperature=0.1))
+        self.assertEqual(fake_http.calls[0]["json"]["top_p"], 1)
+        self.assertNotIn("top_p", fake_http.calls[1]["json"])
+
+    def test_reasoning_model_gets_low_effort_and_headroom_only_for_itself(self):
+        ok = lambda: httpx.Response(200, json={"model": "m", "choices": [{"message": {"content": "ok"}}],
+                                              "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2}})
+        payloads = {}
+        for model in ("mistral-large-4", "ministral-8b-2512"):
+            with tempfile.TemporaryDirectory() as tmp:
+                settings = replace(make_settings(Path(tmp)), ai_enabled=True, mistral_min_request_interval_ms=0,
+                                   mistral_model=model)
+                fake_http = SequenceAsyncClient([ok()])
+                client = MistralClient(settings, FakePrivateSecretStore("segredo"))
+                with patch("zion.mistral.httpx.AsyncClient", return_value=fake_http):
+                    asyncio.run(client._chat([{"role": "user", "content": "x"}], temperature=0.0, max_tokens=120))
+                payloads[model] = fake_http.calls[0]["json"]
+        self.assertEqual(payloads["mistral-large-4"]["reasoning_effort"], "low")
+        self.assertEqual(payloads["mistral-large-4"]["max_tokens"], 120 + 3072)
+        self.assertNotIn("reasoning_effort", payloads["ministral-8b-2512"])
+        self.assertEqual(payloads["ministral-8b-2512"]["max_tokens"], 120)
+
     def test_eir_prompt_separates_local_wallet_unlock_from_sharing(self):
         context = ('[Contexto oficial: Segurança]\n'
                    'Nunca compartilhe seed phrase, chave privada ou senha.')
