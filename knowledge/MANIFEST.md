@@ -236,7 +236,7 @@ model context is built.
       "file": "wallet-guide.md",
       "classification": "PUBLIC",
       "status": "CURRENT",
-      "version": "2026-11-02",
+      "version": "2026-11-19",
       "source_identity": "zion-wallet-recognition-guide",
       "allowed_agents": [
         "zion",
@@ -246,13 +246,13 @@ model context is built.
       "id": "zion-wallet-recognition-guide",
       "title": "Carteiras comuns e como reconhecê-las",
       "source_type": "curated_local_projection",
-      "snapshot_date": "2026-11-02",
+      "snapshot_date": "2026-11-19",
       "authority": "zion-wallet-recognition-guide",
       "supersedes": [],
       "superseded_by": null,
       "freshness": "snapshot_only",
       "valid_until": null,
-      "notes": "Owner-approved 2026-11-02 recognition guide for third-party wallets; not a compatibility list. Recheck icons and names when wallets rebrand."
+      "notes": "Owner-approved 2026-11-02 recognition guide for third-party wallets; not a compatibility list. Recheck icons and names when wallets rebrand. Drained-wallet / malicious-approval section owner-approved 2026-11-19."
     }
   ]
 }
