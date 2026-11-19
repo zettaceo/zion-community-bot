@@ -145,8 +145,11 @@ class MistralBoundaryTests(unittest.TestCase):
         system = client.messages[0]['content']
         payload = json.loads(client.messages[1]['content'].split('\n', 1)[1])
         self.assertEqual(payload['official_context'], context)
-        self.assertIn('não prometa encaminhar ou ter encaminhado', system)
-        self.assertIn('de qualificação e entrega efetiva', system)
+        # 2026-11-18: oferecer encaminhamento existe SÓ com a capacidade no contexto;
+        # dizer que já encaminhou continua proibido (guarda + regra do prompt).
+        self.assertIn('Encaminhar para a equipe humana só existe quando a capacidade', system)
+        self.assertIn('nunca dizer que já encaminhou', system)
+        self.assertIn('Sem essa indicação, você não tem esse canal', system)
         self.assertNotIn(question, system)
 
     def test_eir_prompt_separates_local_wallet_unlock_from_sharing(self):

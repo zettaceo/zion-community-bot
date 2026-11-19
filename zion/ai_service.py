@@ -668,6 +668,7 @@ class AIService:
         conversation_context: str | None = None,
         agent_id: AgentId | str = AgentId.ZION,
         reply_language: str | None = None,
+        capabilities: str | None = None,
     ) -> AIAnswer:
         try:
             selected_agent = (
@@ -750,6 +751,10 @@ class AIService:
                 agent_id=selected_agent).render()
             if comparison_context:
                 context = comparison_context
+        if capabilities:
+            # Real actions the system will perform for this conversation (e.g. human
+            # handoff after confirmation). Fixed host text, never member input.
+            context = (context + "\n\n" + capabilities).strip()
         question_hash = self._hash_text(safe_question)
 
         if (selected_agent is AgentId.EIR

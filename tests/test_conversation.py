@@ -632,11 +632,13 @@ class ConversationTests(unittest.TestCase):
                 asyncio.run(secondary_private_handler(update, self.context))
                 asyncio.run(secondary_private_handler(update, self.context))
 
-                self.runtime.ai.answer.assert_awaited_once_with(
-                    chat_id=20,
-                    user_id=2,
-                    question=question,
-                    agent_id=agent_id,
+                # Uma chamada só (idempotência) e com a identidade do agente; desde
+                # 2026-11-18 o privado também leva histórico e capacidades reais.
+                self.runtime.ai.answer.assert_awaited_once()
+                kwargs = self.runtime.ai.answer.await_args.kwargs
+                self.assertEqual(
+                    (kwargs["chat_id"], kwargs["user_id"], kwargs["question"], kwargs["agent_id"]),
+                    (20, 2, question, agent_id),
                 )
                 self.assertEqual(
                     update.effective_message.replies,
