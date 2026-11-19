@@ -96,7 +96,8 @@ def remove_sentences(answer: str, sentences: tuple[str, ...]) -> str:
     result = re.sub(r'[ \t]{2,}', ' ', result)
     result = re.sub(r'(?m)^[ \t]*\d+[.)][ \t]*$\n?', '', result)
     result = re.sub(r'\n{3,}', '\n\n', result)
-    return _renumber(result.strip())
+    from .text_cleanup import limpar_listas_orfas
+    return _renumber(limpar_listas_orfas(answer, result))
 
 
 def _renumber(text: str) -> str:
