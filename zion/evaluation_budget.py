@@ -36,13 +36,16 @@ class PriceSnapshot:
         return (raw * 12 + 9999999) // 10000000
 
 
-# Official platform.kimi.ai model table; K3 reverified 2026-11-01
-# (input 3, 5m cache write 3, output 15 USD/M; unchanged since 2026-10-29).
-# K3 input includes cache write conservatively (3 + 3 USD/M).
+# Kimi K3 reverified 2026-11-21 on Moonshot's own pages (www.kimi.ai and
+# www.kimi.com /resources/kimi-k3-pricing, "Updated: 2026-11-17"): input 3.00
+# (cache miss), 0.30 (cache hit), output 15.00 USD/M; unchanged since 2026-10-29.
+# platform.kimi.ai/docs/pricing/chat says K3 cache writes are billed separately
+# by TTL (default 5m) without publishing the rate, so input stays conservative
+# at 3 + 3 USD/M (cache miss + 5m write).
 PRICES = {
-    # Official docs.mistral.ai/models/ministral-3-8b-25-12, reverified 2026-11-01
-    # (0.15 USD/M input and output; unchanged).
-    'ministral-8b-2512': PriceSnapshot('ministral-8b-2512', 150000, 150000, date(2026, 11, 1)),
+    # Official docs.mistral.ai/models/ministral-3-8b-25-12, reverified 2026-11-19
+    # (0.15 USD/M input and output; unchanged since 2026-11-01).
+    'ministral-8b-2512': PriceSnapshot('ministral-8b-2512', 150000, 150000, date(2026, 11, 19)),
     # Official docs.mistral.ai/models/mistral-small-4-0-26-03 (GA), verified
     # 2026-11-01: 0.15 USD/M input, 0.60 USD/M output.
     'mistral-small-2603': PriceSnapshot('mistral-small-2603', 150000, 600000, date(2026, 11, 1)),
@@ -50,7 +53,7 @@ PRICES = {
     # Marked Deprecated on 2026-11-01 ("Use Mistral Large 4"); do not adopt.
     'mistral-large-2512': PriceSnapshot('mistral-large-2512', 500000, 1500000, date(2026, 10, 19)),
     'kimi-k2.6': PriceSnapshot('kimi-k2.6', 950000, 4000000, date(2026, 10, 25)),
-    'kimi-k3': PriceSnapshot('kimi-k3', 6000000, 15000000, date(2026, 11, 1)),
+    'kimi-k3': PriceSnapshot('kimi-k3', 6000000, 15000000, date(2026, 11, 21)),
 }
 
 

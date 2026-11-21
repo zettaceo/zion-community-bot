@@ -45,7 +45,7 @@ from .response_guard import HANDOFF_CAPABILITY, offers_human_handoff
 from .triage import SCAM_OUTREACH, decide_action
 from .provider_secrets import ProviderSecretStore
 from .providers import KimiCompletionProvider
-from .escalation import build_ai_composition, escalation_status
+from .escalation import build_ai_composition, escalation_status, expiry_issues
 from .kimi_provisioning import (set_kimi_key_command, kimi_secret_capture_handler,
                                 cancel_kimi_key_command, kimi_status_command)
 from .config import Settings
@@ -8022,6 +8022,8 @@ async def operational_alert_cycle(
                     issues.append("ai_accounting_fail_closed")
             elif remaining == 0:
                 issues.append("ai_budget_exhausted")
+        # Preço vencido ou aprovação vencida param a IA em silêncio: avisa 14 dias antes.
+        issues.extend(expiry_issues(rt.settings))
 
     if not rt.knowledge.chunks:
         issues.append("knowledge_empty")
