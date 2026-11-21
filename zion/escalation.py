@@ -55,6 +55,41 @@ def escalation_status(settings, kimi_store: SecretStore, *, now: float | None = 
     return 'active'
 
 
+PRICE_WARN_DAYS = 14
+
+
+def expiry_issues(settings, *, today: date | None = None) -> list[str]:
+    """Deadlines that silently stop the AI while Kimi escalation is on.
+
+    The runtime budget refuses prices verified more than RUNTIME_PRICE_AGE_DAYS
+    ago (every AI call then fails closed), and escalation turns off at the
+    owner's approval date. Nothing warned before either happened (2026-11-19:
+    found with 27 days left), so health raises them 14 days ahead.
+    """
+    if not settings.kimi_escalation_enabled:
+        return []
+    today = today or datetime.now(timezone.utc).date()
+    issues: list[str] = []
+    for model in (settings.mistral_model, KIMI_MODEL):
+        price = PRICES.get(model)
+        if price is None:
+            issues.append(f"ai_price_unknown:{model}")
+            continue
+        left = (price.verified_on + timedelta(days=RUNTIME_PRICE_AGE_DAYS) - today).days
+        if left < 0:
+            issues.append(f"ai_price_expired:{model}")
+        elif left <= PRICE_WARN_DAYS:
+            issues.append(f"ai_price_expires_soon:{model}")
+    expiry = approval_expiry(settings.kimi_approval_until)
+    if expiry is not None:
+        left = (datetime.fromtimestamp(expiry, timezone.utc).date() - today).days
+        if left <= 0:
+            issues.append("kimi_approval_expired")
+        elif left <= PRICE_WARN_DAYS:
+            issues.append("kimi_approval_expires_soon")
+    return issues
+
+
 def build_ai_composition(settings, db, kimi_store: SecretStore) -> dict:
     """Keyword arguments for AIService; {} keeps the baseline-only service."""
     status = escalation_status(settings, kimi_store)
