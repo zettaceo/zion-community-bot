@@ -41,9 +41,10 @@ _KINDS = (
     ("promotion", re.compile(
         r"\b(?:shil+\w*|shel+\w*|sheel\w*|xil+\w*|divulg\w*|promov\w*|promoc\w*|promot\w*|"
         r"publicid\w*|anunci\w*|marketing|kols?|influenc\w*|difund\w*|difusion|advertis\w*|"
-        r"postagens?|posts? patrocinad\w*)\b")),
+        r"postagens?|posts? patrocinad\w*|publicac\w*|publicar|publis?)\b")),
     ("ama", re.compile(r"\b(?:amas?|ask me anything|spaces?|lives?)\b")),
-    ("integration", re.compile(r"\b(?:integra\w*|listagem|listar|listing|api|sdk)\b")),
+    ("listing", re.compile(r"\b(?:listagem|listar|listado|listing|list(?:ar|e) (?:o|meu|nosso|um) token)\b")),
+    ("integration", re.compile(r"\b(?:integra\w*|api|sdk)\b")),
     ("content", re.compile(r"\b(?:conteudos?|content|videos?|youtube|artigos?|articles?|educativ\w*|tutoria\w*)\b")),
     ("event", re.compile(r"\b(?:eventos?|events?|meetups?|hackathons?|conferenc\w*)\b")),
 )
@@ -67,8 +68,14 @@ _CONFIRM = re.compile(r"^(?:sim|s|pode|pode sim|ok|okay|claro|isso|manda|pode ma
 _DECLINE = re.compile(r"^(?:nao|no|nope|agora nao|ainda nao|not now|todavia no|espera)\b")
 _CHANNEL = re.compile(r"(?:https?://)?(?:t\.me|telegram\.me|x\.com|twitter\.com|youtube\.com|discord\.gg)/[\w/+-]{2,64}|@[A-Za-z0-9_]{4,32}")
 _AUDIENCE = re.compile(
-    r"\b\d[\d.,]*\s?(?:k|mil)?\s?(?:membros|members|miembros|seguidores|followers|pessoas|inscritos|"
-    r"subscribers|usuarios|users)\b")
+    r"\b\d[\d.,]*\s?(?:k|mil|m)?\s?(?:de\s+)?(?:membros|members|miembros|seguidores|followers|pessoas|inscritos|"
+    r"subscribers|usuarios|users|ouvintes|listeners|holders|views|visualizac\w*)\b")
+_PLATFORMS = (
+    ("TikTok", r"tik ?tok"), ("Instagram", r"instagram|insta"), ("YouTube", r"you ?tube"), ("X", r"twitter|x\.com"),
+    ("Telegram", r"telegram"), ("Discord", r"discord"), ("Kwai", r"kwai"), ("Twitch", r"twitch"),
+    ("Facebook", r"facebook"), ("LinkedIn", r"linkedin"), ("Reddit", r"reddit"), ("WhatsApp", r"whats ?app"),
+)
+_PLATFORM_RX = tuple((nome, re.compile(r"\b(?:" + rx + r")\b")) for nome, rx in _PLATFORMS)
 _COMMUNITY_COUNT = re.compile(r"\b(?:\d+|v[aá]rias|muitas|several|many)\s+(?:comunidades|communities|grupos|groups|canais|channels)\b")
 _FORWARD_REQUEST = re.compile(
     r"\b(?:pode (?:me )?encaminhar|encaminha (?:a|minha|isso|pra|para)|encaminhe|pode mandar (?:pra|para) (?:a )?equipe|"
@@ -97,6 +104,7 @@ class Sinais:
     confirms: bool
     declines: bool
     channels: tuple[str, ...]
+    platforms: tuple[str, ...]
     forward_request: bool
     scam_payment: bool
     greeting: bool
@@ -107,7 +115,7 @@ class Sinais:
     @property
     def lead_signal(self) -> bool:
         return bool(self.kinds or self.interest or self.paid_offer or self.asks_payment or self.price
-                    or self.asks_human or self.channels or self.audience or self.community_count)
+                    or self.asks_human or self.channels or self.platforms or self.audience or self.community_count)
 
 
 def analisar(text: str) -> Sinais:
@@ -129,6 +137,7 @@ def analisar(text: str) -> Sinais:
         confirms=short and bool(_CONFIRM.search(folded)),
         declines=short and bool(_DECLINE.search(folded)),
         channels=tuple(dict.fromkeys(m.group(0) for m in _CHANNEL.finditer(text or "")))[:6],
+        platforms=tuple(nome for nome, rx in _PLATFORM_RX if rx.search(folded)),
         forward_request=bool(_FORWARD_REQUEST.search(folded)),
         scam_payment=bool(_SCAM_PAYMENT.search(folded) and _SCAM_HOOK.search(folded)),
         greeting=bool(_GREETING.match(folded)),
@@ -146,6 +155,7 @@ class Lead:
     updated: float
     kinds: list[str] = field(default_factory=list)
     channels: list[str] = field(default_factory=list)
+    platforms: list[str] = field(default_factory=list)
     audience: str | None = None
     community_count: str | None = None
     price: str | None = None
@@ -176,6 +186,9 @@ class Lead:
         for c in s.channels:
             if c not in self.channels and len(self.channels) < 6:
                 self.channels.append(c)
+        for p in s.platforms:
+            if p not in self.platforms and len(self.platforms) < 6:
+                self.platforms.append(p)
         self.audience = s.audience or self.audience
         self.community_count = s.community_count or self.community_count
         self.price = s.price or self.price
@@ -231,11 +244,11 @@ class Passo:
 
 
 _KIND_LABEL = {
-    "pt": {"promotion": "divulgação da Z-SWAP", "ama": "AMAs", "integration": "integração",
+    "pt": {"promotion": "divulgação da Z-SWAP", "ama": "AMAs", "integration": "integração", "listing": "listagem de token",
            "content": "criação de conteúdo", "event": "eventos"},
-    "en": {"promotion": "promoting Z-SWAP", "ama": "AMAs", "integration": "integration",
+    "en": {"promotion": "promoting Z-SWAP", "ama": "AMAs", "integration": "integration", "listing": "token listing",
            "content": "content creation", "event": "events"},
-    "es": {"promotion": "difusión de Z-SWAP", "ama": "AMAs", "integration": "integración",
+    "es": {"promotion": "difusión de Z-SWAP", "ama": "AMAs", "integration": "integración", "listing": "listado de token",
            "content": "creación de contenido", "event": "eventos"},
 }
 
@@ -254,13 +267,18 @@ def _understood(lead: Lead, lang: str) -> str:
     if not kinds:
         return ""
     where = ""
-    if lead.channels or lead.community_count or any("telegram" in _fold(n) for n in lead.notes):
+    outras = [p for p in lead.platforms if p != "Telegram"]
+    if outras:
+        where = {"pt": " no ", "en": " on ", "es": " en "}[lang] + _join(outras, lang)
+    elif lead.channels or lead.community_count or "Telegram" in lead.platforms:
         where = {"pt": " em comunidades do Telegram", "en": " in Telegram communities",
                  "es": " en comunidades de Telegram"}[lang]
+    if lead.audience:
+        where += f" ({lead.audience})"
     paid = {"pt": ", como serviço pago", "en": ", as a paid service", "es": ", como servicio pagado"}[lang] if lead.paid else ""
     price = f" ({lead.price})" if lead.price else ""
-    return {"pt": "Entendi: você oferece ", "en": "Got it: you are offering ",
-            "es": "Entendido: ofreces "}[lang] + _join(kinds, lang) + where + paid + price + "."
+    return {"pt": "Entendi: você propõe ", "en": "Got it: you are proposing ",
+            "es": "Entendido: propones "}[lang] + _join(kinds, lang) + where + paid + price + "."
 
 
 def _missing(lead: Lead, lang: str) -> str:
@@ -304,6 +322,7 @@ _TXT = {
                     "diretamente pelo Telegram. Eu não consigo confirmar valores nem prazos."),
         "declined": "Tudo bem, não encaminhei nada. Se quiser, me conte mais detalhes da proposta.",
         "details": "Anotei.",
+        "team_decides": "Isso é decidido pela equipe da Z-SWAP; eu não aprovo propostas, valores nem prazos.",
         "already_case": ("Seu pedido já foi encaminhado para a equipe. Alguém fala com você diretamente pelo Telegram. "
                          "Se quiser, pode me contar mais detalhes aqui enquanto isso."),
         "forwarded_case": ("Encaminhei seu pedido para a equipe da Z-SWAP com o seu contato do Telegram{handle}. "
@@ -343,6 +362,7 @@ _TXT = {
                     "you directly on Telegram. I can't confirm prices or deadlines."),
         "declined": "Okay, I didn't forward anything. Tell me more about the proposal if you like.",
         "details": "Noted.",
+        "team_decides": "That is decided by the Z-SWAP team; I don't approve proposals, prices or deadlines.",
         "already_case": ("Your request was already forwarded to the team. Someone will contact you directly on Telegram. "
                          "Feel free to share more details here in the meantime."),
         "forwarded_case": ("I forwarded your request to the Z-SWAP team with your Telegram contact{handle}. "
@@ -380,6 +400,7 @@ _TXT = {
                     "Telegram. No puedo confirmar valores ni plazos."),
         "declined": "De acuerdo, no envié nada. Si quieres, cuéntame más detalles de la propuesta.",
         "details": "Anotado.",
+        "team_decides": "Eso lo decide el equipo de Z-SWAP; yo no apruebo propuestas, valores ni plazos.",
         "already_case": ("Tu solicitud ya fue enviada al equipo. Alguien te escribirá directamente por Telegram. "
                          "Si quieres, puedes contarme más detalles aquí mientras tanto."),
         "forwarded_case": ("Envié tu solicitud al equipo de Z-SWAP con tu contacto de Telegram{handle}. "
@@ -411,6 +432,26 @@ _GREETINGS = {
 def saudacao(agente: str, language: str) -> str:
     opcoes = _GREETINGS.get(agente, _GREETINGS["freyr"])
     return opcoes[_lang(language)]
+
+
+def resposta_de_reserva(lead: "Lead | None", s: Sinais, language: str, *, pode_encaminhar: bool) -> str | None:
+    """Quando o guarda barra a resposta do modelo numa conversa de PROPOSTA, a reserva
+    não é o genérico "não sei": repete o que foi entendido (com os dados que a pessoa
+    deu), diz com clareza o que só a equipe decide e oferece o encaminhamento.
+    ``None`` = sem proposta reconhecível; o chamador usa a reserva genérica."""
+    if lead is None or not (lead.kinds or lead.paid or lead.price):
+        return None
+    lang = _lang(language)
+    t = _TXT[lang]
+    partes = [_understood(lead, lang)]
+    if s.asks_payment or s.paid_offer or s.price or lead.paid:
+        partes.append(t["payment"])
+    else:
+        partes.append(t["team_decides"])
+    if pode_encaminhar:
+        preco = f" ({lead.price})" if lead.price else ""
+        partes.append(t["payment_offer"].format(price=preco))
+    return " ".join(p for p in partes if p)
 
 
 def texto(chave: str, language: str, **fmt: str) -> str:
@@ -500,8 +541,9 @@ def estado_para_modelo(lead: Lead | None, agora_: float) -> str:
         linhas.append("Proposta: " + ", ".join(labels.get(k, k) for k in lead.kinds))
     if lead.paid or lead.price:
         linhas.append("Serviço pago: sim" + (f"; valor pedido: {lead.price}" if lead.price else "; valor ainda não informado"))
-    if lead.channels or lead.community_count:
-        linhas.append("Onde: " + ", ".join(lead.channels + ([lead.community_count] if lead.community_count else [])))
+    if lead.channels or lead.community_count or lead.platforms:
+        linhas.append("Onde: " + ", ".join(lead.platforms + lead.channels
+                                           + ([lead.community_count] if lead.community_count else [])))
     linhas.append("Audiência: " + (lead.audience or "não informada"))
     if lead.human_requested:
         linhas.append("A pessoa pediu para falar com um humano.")
@@ -526,6 +568,8 @@ def resumo_operador(lead: Lead, *, handle: str, user_id: int, agente: str = "FRE
         linhas.append("Tipo: " + ", ".join(labels.get(k, k) for k in lead.kinds))
     if lead.paid or lead.price:
         linhas.append("Serviço pago: sim" + (f" · valor pedido: {lead.price}" if lead.price else ""))
+    if lead.platforms:
+        linhas.append("Plataformas: " + ", ".join(lead.platforms))
     if lead.channels:
         linhas.append("Canais: " + ", ".join(lead.channels))
     if lead.community_count:

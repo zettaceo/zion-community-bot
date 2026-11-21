@@ -7564,8 +7564,12 @@ async def _dm_model_reply(rt: Runtime, update, text: str, agent: AgentId) -> str
     )
     rendered = telegram_ai_reply_text(answer.text)
     if _generic_fallback(rendered):
-        # O desconhecido não é beco sem saída: diz que não sabe e oferece a equipe.
-        rendered = partnership_lead.texto("unknown" if can_handoff else "unknown_nohandoff", language)
+        # O desconhecido não é beco sem saída. Numa PROPOSTA (o guarda barrou o modelo,
+        # p.ex. por afirmar valor), a reserva repete o que foi entendido e diz o que só a
+        # equipe decide; fora disso, diz que não sabe e oferece a equipe (2026-11-19).
+        reserva = (partnership_lead.resposta_de_reserva(lead, sinais, language, pode_encaminhar=can_handoff)
+                   if parceria else None)
+        rendered = reserva or partnership_lead.texto("unknown" if can_handoff else "unknown_nohandoff", language)
         if can_handoff:
             if lead is None:
                 lead = rt.partnership_leads.start(key, language, now)

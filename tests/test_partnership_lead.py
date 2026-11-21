@@ -348,5 +348,45 @@ class PerguntaOrfaNaRevisao(unittest.TestCase):
         self.assertIn("Quer que eu faça isso?", r)
 
 
+class ConversaDe1911(unittest.TestCase):
+    """Teste ao vivo do dono (FREYR privado, 2026-11-19 10:15): listagem → TikTok → "500k de
+    seguidores, vc me paga 100 dólares" → "Pode encaminhar". O turno 3 foi barrado pelo guarda
+    (afirmação sobre dinheiro) e saiu o genérico "prefiro não adivinhar"; o resumo marcou
+    "integração" para um pedido de LISTAGEM e não levou TikTok nem a audiência."""
+
+    BARRADO = "Não tenho informação oficial suficiente para confirmar essa resposta. Posso explicar o funcionamento público."
+
+    def test_replay(self):
+        rt = fake_rt([
+            "Entendi: você gostaria de explorar uma possível listagem. Quem decide é a equipe. Quer que eu encaminhe?",
+            "Entendi: você quer propor divulgação no TikTok. Qual o tamanho da audiência e o formato?",
+            self.BARRADO,
+        ])
+        turn(rt, "Olá! 🚀 Gostaria muito de explorar uma possível listagem para o Zettaword. Você é a pessoa ideal "
+                 "para isso, ou seria melhor entrar em contato com outra pessoa?", 1)
+        turn(rt, "Então quero propor uma parceria de publicidade eu tenho um canal muito grande no tiktok te interessa", 2)
+        r = turn(rt, "500k de seguidores, vc me paga 100 dólares e eu faço uma publicação", 3)
+        self.assertNotIn("prefiro não adivinhar", r)
+        for trecho in ("Entendi: você propõe", "divulgação da Z-SWAP", "no TikTok (500k de seguidores)",
+                       "como serviço pago (100 dólares)", "Não posso confirmar pagamento",
+                       "Quer que eu encaminhe?"):
+            self.assertIn(trecho, r)
+        r = turn(rt, "Pode encaminhar", 4)
+        self.assertIn("Encaminhei sua proposta", r)
+        resumo = rt.primary_bot.sent[0][1]
+        for trecho in ("Tipo: listagem de token, divulgação da Z-SWAP", "Plataformas: TikTok",
+                       "Audiência: 500k de seguidores", "valor pedido: 100 dólares"):
+            self.assertIn(trecho, resumo)
+        self.assertNotIn("integração", resumo)
+
+    def test_reserva_generica_continua_fora_de_proposta(self):
+        rt = fake_rt([self.BARRADO])
+        r = turn(rt, "vocês têm escritório em Lisboa?", 1)
+        self.assertIn("Posso encaminhar sua pergunta para a equipe", r)
+
+    def test_capacidade_proibe_descrever_o_que_a_equipe_vai_verificar(self):
+        self.assertIn("não diga o que a equipe vai verificar", HANDOFF_CAPABILITY)
+
+
 if __name__ == "__main__":
     unittest.main()
