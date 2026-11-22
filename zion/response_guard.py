@@ -899,12 +899,21 @@ _HANDOFF_OFFER = re.compile(
     r"(?:lo|la|los|las) (?:envio|reenvio)\b|puedo (?:enviar|reenviar|pasar)(?:lo|la|los|las)?|quieres que (?:lo |la )?(?:envie|reenvie|pase))")
 
 
+HANDOFF_DONE_CAPABILITY = (
+    "[Fato real desta conversa: o sistema JÁ encaminhou o pedido desta pessoa à equipe humana da Z-SWAP] "
+    "Você pode dizer que já foi encaminhado. Não ofereça encaminhar de novo, não prometa prazo, "
+    "resposta ou resultado e não diga o que a equipe vai decidir; se houver interesse, alguém da "
+    "equipe fala com a pessoa diretamente."
+)
+
+
 def offers_human_handoff(text: str) -> bool:
     """The reply asks the person whether to forward to the human team (pt/en/es)."""
     return bool(_HANDOFF_OFFER.search(_fold(text or "")))
 
 
-def _unconfirmed_partnership_handoff_claim(text: str, *, offers_allowed: bool = False) -> bool:
+def _unconfirmed_partnership_handoff_claim(text: str, *, offers_allowed: bool = False,
+                                           handoff_done: bool = False) -> bool:
     """Generated prose cannot confirm an unexecuted operator handoff.
 
     Offering it ("posso encaminhar...?", "quer que eu encaminhe...?") is allowed
@@ -936,7 +945,20 @@ def _unconfirmed_partnership_handoff_claim(text: str, *, offers_allowed: bool = 
             r'[^.!?;\n]{0,40}\b(?:foi|sera|serao|vai ser|vao ser)\s+'
             r'(?:encaminhad[ao]s?|enviad[ao]s?|repassad[ao]s?)\b'),
     )
-    if offers_allowed:
+    if handoff_done:
+        # Fato real desta conversa (o sistema JÁ encaminhou; ``HANDOFF_DONE_CAPABILITY``):
+        # o passado é verdade e passa — sem isso o reparo trocava "já encaminhei" por
+        # "não encaminhei nada" (bateria 2026-11-21). Oferta, promessa e futuro continuam
+        # barrados: não existe segundo envio.
+        futuro = re.compile(
+            r'\b(?:encaminharei|encaminharemos|enviarei|enviaremos|encaminho|repasso)\b'
+            rf'[^.!?;\n]{{0,120}}\b(?:{target}|{recipient})\b')
+        passivo_futuro = re.compile(
+            rf'\b(?:sua|a|uma|essa|esta)\s+{target}\b'
+            r'[^.!?;\n]{0,40}\b(?:sera|serao|vai ser|vao ser)\s+'
+            r'(?:encaminhad[ao]s?|enviad[ao]s?|repassad[ao]s?)\b')
+        actions = (actions[0], futuro, actions[2], passivo_futuro)
+    elif offers_allowed:
         promessa = re.compile(
             r'\b(?:vou|vamos|irei|iremos)\s+(?:(?:te|lhe)\s+)?' + transfer
             + r'\b[^.!?;\n]{0,120}\b(?:' + target + '|' + recipient + r')\b')
@@ -2032,7 +2054,8 @@ def validate_public_response(text: str, *, official_context: str) -> ResponseChe
             and not _future_launch_status_update_promise(official_context)):
         return ResponseCheck(False, 'unsupported_future_status_update')
     if _unconfirmed_partnership_handoff_claim(
-            text, offers_allowed=HANDOFF_CAPABILITY in (official_context or "")):
+            text, offers_allowed=HANDOFF_CAPABILITY in (official_context or ""),
+            handoff_done=HANDOFF_DONE_CAPABILITY in (official_context or "")):
         return ResponseCheck(False, 'unconfirmed_partnership_handoff')
     if _unapproved_wallet_example(text, official_context):
         return ResponseCheck(False, 'unapproved_wallet_example')

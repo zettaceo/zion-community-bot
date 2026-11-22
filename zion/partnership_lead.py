@@ -12,7 +12,10 @@ statements) and offers the REAL handoff: with the person's confirmation, the
 lead is summarized to the operators (admins) by the caller. It never approves
 payment, price, contract, deadline or integration; it never promises a reply.
 
-Nothing here is persisted. Raw text kept in a lead is bounded, and the caller
+Only content-free STATE is persisted (dm_memory, 1 h TTL) to survive restarts:
+kinds, platforms, flags and language. Values, audience, channels and the
+person's own words stay in process memory only (docs/DEPLOYMENT-MODEL.md: a
+partnership DM must not appear in SQLite or logs). Raw text kept in a lead is bounded, and the caller
 only stores it after the guardian already ran on the message.
 """
 from __future__ import annotations
@@ -66,6 +69,67 @@ _ASKS_HUMAN = re.compile(
 _CONFIRM = re.compile(r"^(?:sim|s|pode|pode sim|ok|okay|claro|isso|manda|pode mandar|encaminha|encaminhar|"
                       r"pode encaminhar|quero|yes|y|sure|go ahead|si|dale|confirmo|confirmado)\b")
 _DECLINE = re.compile(r"^(?:nao|no|nope|agora nao|ainda nao|not now|todavia no|espera)\b")
+# Consentimento é estrito (2026-11-21): "ok, e quais as taxas?" e "quero saber as taxas"
+# NÃO são "sim". Vale: só palavras de confirmação ("sim, pode mandar", "ok obrigado"),
+# confirmação + pedido de humano ("quero falar com o dono") ou um sim forte no começo
+# ("sim, são 3 comunidades") — nunca com negação. Recusa idem ("não entendi" não é recusa).
+_WORD = re.compile(r"[a-z0-9]+")
+_CONFIRM_FILLER = frozenset((
+    "sim s pode claro isso ok okay manda mandar encaminha encaminhar encaminhe quero yes y sure si dale "
+    "confirmo confirmado por favor pf pfv porfa please pls plz obrigado obrigada valeu thanks thank you "
+    "gracias mesmo ser go ahead beleza blz perfeito otimo show top fechado combinado ai faz faca mande "
+    "envia enviar envie envialo bora vamos vai la com certeza uhum aham yep yeah yup fine great perfect "
+    "do it vale venga adelante agora ja entao a o pra para equipe time team the to this isto tambem tb"
+).split())
+_STRONG_YES = re.compile(r"^(?:sim|s|yes|yep|yeah|yup|sure|claro|confirmo|confirmado|dale|sí|si(?=\s*[,.!]|\s*$))(?!\w)")
+_NEGATION = frozenset("nao no not nope nunca never jamais".split())
+_DECLINE_FILLER = frozenset((
+    "nao no nope not now yet agora ainda todavia espera obrigado obrigada valeu thanks thank you gracias "
+    "precisa necessario quero deixa pra para depois later mais tarde por enquanto momento so isso ok tudo bem "
+    "encaminhar encaminha encaminhe mandar enviar repassar it"
+).split())
+_STRONG_NO = re.compile(r"^(?:não|nao|no|nope)\s*[,.!]")
+
+
+def _confirma(lowered: str, folded: str, asks_human: bool) -> bool:
+    palavras = _WORD.findall(folded)
+    if not palavras or _NEGATION.intersection(palavras):
+        return False
+    if len(folded) <= 120 and _STRONG_YES.match(lowered):
+        return True
+    if len(folded) > 40 or not _CONFIRM.search(folded):
+        return False
+    return asks_human or all(p in _CONFIRM_FILLER for p in palavras)
+
+
+def _recusa(lowered: str, folded: str) -> bool:
+    if len(folded) <= 120 and _STRONG_NO.match(lowered):
+        return True
+    if len(folded) > 40 or not _DECLINE.search(folded):
+        return False
+    return all(p in _DECLINE_FILLER for p in _WORD.findall(folded))
+
+
+_MENCIONA_HANDOFF = re.compile(
+    r"\b(?:encaminh\w*|repass\w*|forward\w*|reenvi\w*|equipe|time|team|equipo|humanos?|human|responsavel|"
+    r"dono|fundador|founder|owner|ceo|contato|contact|contacto|proposta|proposal|propuesta)\b")
+
+
+_STATUS = re.compile(r"\b(?:ja|e ai|status|retorno|resposta|responde\w*|respondeu|quando|algum\w*|noticia\w*|"
+                     r"novidade\w*|update|already|yet|ya|cuando|alguna)\b")
+
+
+def pergunta_de_status(text: str, s: "Sinais") -> bool:
+    """"e aí, já encaminhou?", "e a minha proposta?", "quando a equipe responde?" — depois
+    de um envio real, a resposta é o estado verdadeiro (texto fixo), não o modelo."""
+    folded = _fold(text)
+    return (menciona_encaminhamento(text) and ("?" in (text or "") or bool(_STATUS.search(folded)))
+            and not s.product_question and not s.kinds)
+
+
+def menciona_encaminhamento(text: str) -> bool:
+    """A pessoa falou de encaminhar / equipe / humano: a oferta pode (e deve) aparecer."""
+    return bool(_MENCIONA_HANDOFF.search(_fold(text)))
 _CHANNEL = re.compile(r"(?:https?://)?(?:t\.me|telegram\.me|x\.com|twitter\.com|youtube\.com|discord\.gg)/[\w/+-]{2,64}|@[A-Za-z0-9_]{4,32}")
 _AUDIENCE = re.compile(
     r"\b\d[\d.,]*\s?(?:k|mil|m)?\s?(?:de\s+)?(?:membros|members|miembros|seguidores|followers|pessoas|inscritos|"
@@ -120,22 +184,22 @@ class Sinais:
 
 def analisar(text: str) -> Sinais:
     folded = _fold(text)
-    short = len(folded) <= 40
     lowered = " ".join((text or "").lower().split())
     price = _PRICE.search(lowered)
     audience = _AUDIENCE.search(folded)
     count = _COMMUNITY_COUNT.search(lowered) or _COMMUNITY_COUNT.search(folded)
     kinds = tuple(name for name, rx in _KINDS if rx.search(folded))
     asks_payment = bool(_ASKS_PAYMENT.search(folded))
+    asks_human = bool(_ASKS_HUMAN.search(folded))
     return Sinais(
         kinds=kinds,
         interest=bool(_INTEREST.search(folded)),
         paid_offer=bool(_PAID_OFFER.search(folded)) or (bool(price) and not asks_payment),
         asks_payment=asks_payment,
         price=price.group(0).strip() if price else None,
-        asks_human=bool(_ASKS_HUMAN.search(folded)),
-        confirms=short and bool(_CONFIRM.search(folded)),
-        declines=short and bool(_DECLINE.search(folded)),
+        asks_human=asks_human,
+        confirms=_confirma(lowered, folded, asks_human),
+        declines=_recusa(lowered, folded),
         channels=tuple(dict.fromkeys(m.group(0) for m in _CHANNEL.finditer(text or "")))[:6],
         platforms=tuple(nome for nome, rx in _PLATFORM_RX if rx.search(folded)),
         forward_request=bool(_FORWARD_REQUEST.search(folded)),
@@ -166,6 +230,11 @@ class Lead:
     forwarded_at: float | None = None
     # o que FREYR já disse nesta conversa: cada informação uma vez só
     said: set[str] = field(default_factory=set)
+    # A oferta de encaminhar é a pergunta EM ABERTO (nenhuma outra pergunta depois dela):
+    # só então ela não se repete e um "sim" solto vale como consentimento (2026-11-21).
+    offer_open: bool = False
+    # Reconstruído do banco após um reinício: só o estado, sem os detalhes da conversa.
+    restaurado: bool = False
 
     @property
     def has_substance(self) -> bool:
@@ -216,10 +285,13 @@ class LeadWindow:
             return None
         return lead
 
-    def start(self, key: tuple[int, int], language: str, now: float) -> Lead:
+    def _podar(self) -> None:
         if len(self._leads) >= self.max_entries:
             for stale in sorted(self._leads, key=lambda k: self._leads[k].updated)[: max(1, self.max_entries // 8)]:
                 self._leads.pop(stale, None)
+
+    def start(self, key: tuple[int, int], language: str, now: float) -> Lead:
+        self._podar()
         lead = Lead(language=language, updated=now)
         self._leads[key] = lead
         return lead
@@ -228,6 +300,19 @@ class LeadWindow:
         recent = [t for t in self._forwards.get(user_id, []) if now - t < 86400]
         self._forwards[user_id] = recent
         return len(recent) < MAX_FORWARDS_PER_DAY
+
+    def exportar(self, key: tuple[int, int], user_id: int, now: float) -> tuple[dict | None, list[float]]:
+        lead = self.get(key, now)
+        envios = [t for t in self._forwards.get(user_id, []) if now - t < 86400]
+        return (lead_para_dict(lead) if lead is not None else None), envios
+
+    def importar(self, key: tuple[int, int], user_id: int, lead: Lead | None, envios: list[float], now: float) -> None:
+        if lead is not None and now - lead.updated <= self.ttl and key not in self._leads:
+            self._podar()
+            self._leads[key] = lead
+        if envios:
+            atuais = set(self._forwards.get(user_id, []))
+            self._forwards[user_id] = sorted(atuais | {float(t) for t in envios if now - float(t) < 86400})
 
     def mark_forwarded(self, user_id: int, lead: Lead, now: float) -> None:
         lead.forwarded_at = now
@@ -537,22 +622,37 @@ def estado_para_modelo(lead: Lead | None, agora_: float) -> str:
         return ""
     labels = _KIND_LABEL["pt"]
     linhas = ["[Memória do sistema sobre esta conversa — fatos já ditos pela pessoa]"]
+    idioma_ = {"en": "Conversation language: English. Reply in English.",
+               "es": "Idioma de la conversación: español. Responde en español.",
+               "zh": "对话语言：中文。请用中文回答。"}.get(lead.language)
+    if idioma_:
+        # Sem histórico (reinício) nada ancora o idioma; escrita NO idioma, porque a mesma
+        # instrução em português puxou uma resposta em inglês para o português (bateria 2026-11-21).
+        linhas.append(idioma_)
     if lead.kinds:
         linhas.append("Proposta: " + ", ".join(labels.get(k, k) for k in lead.kinds))
     if lead.paid or lead.price:
-        linhas.append("Serviço pago: sim" + (f"; valor pedido: {lead.price}" if lead.price else "; valor ainda não informado"))
+        linhas.append("Serviço pago: sim" + (f"; valor pedido: {lead.price}" if lead.price
+                                             else ("" if lead.restaurado else "; valor ainda não informado")))
     if lead.channels or lead.community_count or lead.platforms:
         linhas.append("Onde: " + ", ".join(lead.platforms + lead.channels
                                            + ([lead.community_count] if lead.community_count else [])))
-    linhas.append("Audiência: " + (lead.audience or "não informada"))
+    if lead.audience or not lead.restaurado:
+        linhas.append("Audiência: " + (lead.audience or "não informada"))
+    if lead.restaurado:
+        linhas.append("Detalhes ditos antes (valor, audiência, canais): não estão nesta memória. "
+                      "Não invente e não diga que a pessoa não informou; se precisar, pergunte de forma breve.")
     if lead.human_requested:
         linhas.append("A pessoa pediu para falar com um humano.")
     if lead.forwarded_at is not None:
         minutos = max(1, int((agora_ - lead.forwarded_at) // 60))
         linhas.append(f"Encaminhamento: JÁ ENVIADO à equipe há {minutos} min. Não ofereça de novo; "
                       "diga que a equipe fala com a pessoa diretamente se houver interesse.")
+    elif lead.awaiting_confirm and lead.offer_open:
+        linhas.append("Encaminhamento: já oferecido na resposta anterior; se a pessoa disser sim, o sistema "
+                      "encaminha. Não repita nem mencione a oferta.")
     elif lead.awaiting_confirm:
-        linhas.append("Encaminhamento: já oferecido; aguardando a pessoa confirmar.")
+        linhas.append("Encaminhamento: oferecido antes; se fizer sentido, pode perguntar de novo se a pessoa quer.")
     else:
         linhas.append("Encaminhamento: ainda não oferecido.")
     return "\n".join(linhas)
@@ -579,10 +679,96 @@ def resumo_operador(lead: Lead, *, handle: str, user_id: int, agente: str = "FRE
     if lead.notes:
         linhas.append("O que a pessoa escreveu:")
         linhas.extend(f"- {n}" for n in lead.notes)
+    if lead.restaurado:
+        linhas.append("Obs.: o ZION reiniciou durante a conversa. Por privacidade, valor, audiência, canais e o "
+                      "texto da pessoa ditos antes disso não ficam guardados; confirme direto com a pessoa.")
     linhas.append("Pediu contato humano: " + ("sim" if lead.human_requested else "não"))
     linhas.append(f"Decisão humana necessária: SIM ({agente} não aprovou valor, pagamento, contrato, prazo ou reembolso)")
     return "\n".join(linhas)
 
 
 def agora() -> float:
-    return time.monotonic()
+    # Relógio de parede (não monotônico): a memória do privado é gravada no banco e
+    # precisa continuar valendo depois de um reinício (2026-11-21).
+    return time.time()
+
+
+# ── persistência (sobrevive a reinício) ────────────────────────────────────
+# Só ESTADO, nunca conteúdo: conversa privada de parceria não pode aparecer no SQLite
+# nem em logs (docs/DEPLOYMENT-MODEL.md). Valor, audiência, canais e o texto da pessoa
+# ficam só na memória do processo e se perdem num reinício — o resumo avisa o operador.
+
+_KIND_NAMES = frozenset(nome for nome, _rx in _KINDS)
+_PLATFORM_NAMES = frozenset(nome for nome, _rx in _PLATFORMS)
+_SAID_KEY = re.compile(r"^[a-z_]{1,40}$")      # só as chaves fixas; "understood:<texto>" não sai daqui
+
+
+def lead_para_dict(lead: Lead) -> dict:
+    return {
+        "language": lead.language, "updated": lead.updated,
+        "kinds": [k for k in lead.kinds if k in _KIND_NAMES],
+        "platforms": [p for p in lead.platforms if p in _PLATFORM_NAMES],
+        "paid": bool(lead.paid or lead.price), "human_requested": bool(lead.human_requested),
+        "awaiting_confirm": bool(lead.awaiting_confirm), "offer_open": bool(lead.offer_open),
+        "forwarded_at": lead.forwarded_at,
+        "said": sorted(k for k in lead.said if _SAID_KEY.match(k)),
+    }
+
+
+def lead_de_dict(d: dict, now: float) -> Lead | None:
+    """Reconstrói só o vocabulário conhecido; qualquer coisa estranha = sem lead
+    (a conversa recomeça sem memória e nada é encaminhado sem um novo "sim")."""
+    try:
+        updated = float(d["updated"])
+        if updated > now + 300:
+            return None
+        language = d.get("language")
+        lead = Lead(language=language if language in ("pt", "en", "es", "zh") else "pt", updated=updated)
+        lead.kinds = [k for k in (d.get("kinds") or [])[:6] if isinstance(k, str) and k in _KIND_NAMES]
+        lead.platforms = [p for p in (d.get("platforms") or [])[:6] if isinstance(p, str) and p in _PLATFORM_NAMES]
+        lead.paid = d.get("paid") is True
+        lead.human_requested = d.get("human_requested") is True
+        lead.awaiting_confirm = d.get("awaiting_confirm") is True
+        lead.offer_open = d.get("offer_open") is True
+        f = d.get("forwarded_at")
+        lead.forwarded_at = float(f) if isinstance(f, (int, float)) and not isinstance(f, bool) else None
+        lead.said = {k for k in (d.get("said") or [])[:40] if isinstance(k, str) and _SAID_KEY.match(k)}
+        lead.restaurado = True
+        return lead
+    except (KeyError, TypeError, ValueError, AttributeError):
+        return None
+
+
+# ── não repetir a oferta pendente ──────────────────────────────────────────
+
+_RESTO_DE_OFERTA = re.compile(
+    r"^(?:confirme se (?:deseja|quer)|assim que (?:voce )?confirmar|basta confirmar|se (?:quiser|preferir),? (?:e so|basta) confirmar|"
+    r"voce gostaria\??|you can confirm|just confirm|confirma si|"
+    r"(?:como )?ja (?:te )?ofereci|lembre(?:-se)? de (?:me )?confirmar|e so (?:confirmar|responder|dizer)|"
+    r"basta (?:responder|dizer)|"
+    # eco da memória do sistema (bateria 2026-11-21): "(A oferta anterior ainda está em aberto.)"
+    r"\(?(?:a )?oferta (?:anterior |de encaminhamento )?(?:ainda )?(?:esta|continua|segue) (?:em aberto|valendo|de pe))")
+
+
+def sem_oferta_repetida(texto: str) -> str:
+    """Tira a(s) frase(s) que oferecem encaminhar de novo quando a oferta anterior ainda
+    está pendente (o modelo pequeno ignora a instrução). Se sobrar quase nada, devolve
+    o texto original: melhor repetir do que responder vazio."""
+    from .response_guard import offers_human_handoff
+    frases = re.findall(r"[^.!?\n]+[.!?]*|\n+", texto or "")
+    mantidas = [f for f in frases
+                if f.strip() == "" or not (offers_human_handoff(f) or _RESTO_DE_OFERTA.match(_fold(f.strip())))]
+    resultado = re.sub(r"\n{3,}", "\n\n", "".join(mantidas)).strip()
+    # "Quer que eu faça isso?" que apontava para a oferta removida sai junto
+    from .text_cleanup import limpar_listas_orfas
+    resultado = limpar_listas_orfas(texto or "", resultado)
+    return resultado if len(resultado) >= 40 else (texto or "").strip()
+
+
+_PERGUNTAS = re.compile(r"[^.!?？\n]*[?？]")
+
+
+def ultima_pergunta(texto: str) -> str | None:
+    """A última pergunta da resposta: é ela que um "sim" solto responde."""
+    perguntas = [p.strip() for p in _PERGUNTAS.findall(texto or "") if p.strip(" ?？¿")]
+    return perguntas[-1] if perguntas else None

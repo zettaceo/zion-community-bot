@@ -312,7 +312,7 @@ class SpeakerMigrationTests(unittest.TestCase):
             try:
                 db.initialize()
                 self.assertEqual(db.schema_version(), SUPPORTED_SCHEMA_VERSION)
-                self.assertEqual(SUPPORTED_SCHEMA_VERSION, 4)
+                self.assertEqual(SUPPORTED_SCHEMA_VERSION, 5)   # v5 (2026-11-21): dm_memory
                 self.assertEqual(db.get_setting("sentinel"), "preserved")
                 pragmas = db.runtime_pragmas()
                 self.assertEqual(pragmas["application_id"], ZION_APPLICATION_ID)
@@ -326,6 +326,12 @@ class SpeakerMigrationTests(unittest.TestCase):
                     db._conn.execute(
                         "SELECT 1 FROM sqlite_master "
                         "WHERE type='table' AND name='routing_events'"
+                    ).fetchone()
+                )
+                self.assertIsNotNone(
+                    db._conn.execute(
+                        "SELECT 1 FROM sqlite_master "
+                        "WHERE type='table' AND name='dm_memory'"
                     ).fetchone()
                 )
             finally:
