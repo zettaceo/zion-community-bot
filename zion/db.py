@@ -15,7 +15,7 @@ from typing import Any, Iterator
 from .models import OperatingState, Severity
 
 
-SUPPORTED_SCHEMA_VERSION = 4
+SUPPORTED_SCHEMA_VERSION = 5
 DEFAULT_BUSY_TIMEOUT_MS = 5000
 ZION_APPLICATION_ID = 0x5A494F4E  # ASCII "ZION"
 
@@ -185,6 +185,19 @@ CREATE TABLE IF NOT EXISTS speaker_claims (
 
 CREATE INDEX IF NOT EXISTS idx_speaker_claims_status
 ON speaker_claims(status, updated_at);
+
+CREATE TABLE IF NOT EXISTS dm_memory (
+    chat_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    payload TEXT NOT NULL,
+    expires_at REAL NOT NULL,
+    updated_at REAL NOT NULL,
+    PRIMARY KEY (chat_id, user_id),
+    CHECK (length(payload) <= 4096)
+);
+
+CREATE INDEX IF NOT EXISTS idx_dm_memory_expires
+ON dm_memory(expires_at);
 
 CREATE TABLE IF NOT EXISTS routing_events (
     route_key TEXT PRIMARY KEY,
@@ -653,6 +666,11 @@ class ZionDB:
             (
                 4,
                 "multi_agent_routing_telemetry",
+                (),
+            ),
+            (
+                5,
+                "private_dm_memory",
                 (),
             ),
         )
@@ -1937,6 +1955,44 @@ class ZionDB:
                 (claim_key.strip(),),
             ).fetchone()
         return dict(row) if row else None
+
+    # ── memória do privado (2026-11-21) ────────────────────────────────────
+    # Só ESTADO de uma conversa privada (tipo de proposta, plataformas, oferta pendente,
+    # idioma), nunca o texto: conversa de parceria não pode aparecer no SQLite
+    # (docs/DEPLOYMENT-MODEL.md). Existe para sobreviver a reinícios (deploy); expira
+    # 1 h após a última interação e a manutenção apaga.
+    def get_dm_memory(self, chat_id: int, user_id: int, now: float) -> str | None:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT payload FROM dm_memory WHERE chat_id=? AND user_id=? AND expires_at > ?",
+                (int(chat_id), int(user_id), float(now)),
+            ).fetchone()
+        return str(row["payload"]) if row else None
+
+    def put_dm_memory(self, chat_id: int, user_id: int, payload: str, *, expires_at: float, now: float) -> None:
+        if len(payload) > 4096:
+            raise ValueError("dm_memory_payload_too_large")
+        with self._lock:
+            self._conn.execute(
+                """
+                INSERT INTO dm_memory(chat_id, user_id, payload, expires_at, updated_at)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(chat_id, user_id) DO UPDATE SET
+                    payload=excluded.payload,
+                    expires_at=excluded.expires_at,
+                    updated_at=excluded.updated_at
+                """,
+                (int(chat_id), int(user_id), payload, float(expires_at), float(now)),
+            )
+
+    def delete_dm_memory(self, chat_id: int, user_id: int) -> None:
+        with self._lock:
+            self._conn.execute("DELETE FROM dm_memory WHERE chat_id=? AND user_id=?", (int(chat_id), int(user_id)))
+
+    def prune_dm_memory(self, now: float) -> int:
+        with self._lock:
+            cursor = self._conn.execute("DELETE FROM dm_memory WHERE expires_at <= ?", (float(now),))
+        return int(cursor.rowcount)
 
     def prune_speaker_claims(self, before: float) -> int:
         with self._lock:
