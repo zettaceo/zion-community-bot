@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import json
 import base64
 import binascii
 import logging
@@ -22,7 +24,7 @@ from telegram import (
     InlineKeyboardMarkup,
     Update,
 )
-from telegram.constants import ChatMemberStatus
+from telegram.constants import ChatAction, ChatMemberStatus
 from telegram.ext import (
     Application,
     ApplicationHandlerStop,
@@ -41,7 +43,7 @@ from .agent_workflows import (
 )
 from .ai_service import AIService, sanitize_for_ai
 from . import idioma, partnership_lead
-from .response_guard import HANDOFF_CAPABILITY, offers_human_handoff
+from .response_guard import HANDOFF_CAPABILITY, HANDOFF_DONE_CAPABILITY, offers_human_handoff
 from .triage import SCAM_OUTREACH, decide_action
 from .provider_secrets import ProviderSecretStore
 from .providers import KimiCompletionProvider
@@ -284,6 +286,7 @@ class Runtime:
             # Private-chat memory per (chat, user, agent): bounded exchanges, 1 h.
             self.dm_exchanges: dict[tuple[int, int, str], tuple[float, tuple[tuple[str, str], ...]]] = {}
             self.dm_languages: dict[tuple[int, int], str] = {}
+            self.dm_loaded: set[tuple[int, int]] = set()
             self.triage_languages: dict[tuple[int, int], str] = {}
             self.social_replies: dict[int, float] = {}
             # AI-first triage state: in memory only, bounded, never persisted.
@@ -7391,7 +7394,8 @@ async def secondary_private_handler(
     support_triage = (
         triage_support(text) if raw_agent is AgentId.EIR else None
     )
-    rendered = await _dm_model_reply(rt, update, text, raw_agent)
+    async with _digitando(update):
+        rendered = await _dm_model_reply(rt, update, text, raw_agent)
     if support_triage is not None and support_triage.requires_human:
         rendered += (
             "\n\nEste caso precisa de revisão humana. Não envie seed phrase, "
@@ -7442,6 +7446,85 @@ def _remember_dm_exchange(rt: Runtime, key: tuple[int, int], agent: AgentId, que
             rt.dm_exchanges.pop(stale, None)
 
 
+TYPING_REFRESH_SECONDS = 4.5
+
+
+@contextlib.asynccontextmanager
+async def _digitando(update):
+    """Mostra "digitando…" enquanto o agente pensa (o Telegram apaga o sinal em ~5 s,
+    por isso renova). Falha ao enviar o sinal nunca afeta a resposta."""
+    enviar = getattr(getattr(update, "effective_chat", None), "send_action", None)
+    if enviar is None:
+        yield
+        return
+
+    async def renovar():
+        while True:
+            try:
+                await enviar(ChatAction.TYPING)
+            except Exception:
+                return
+            await asyncio.sleep(TYPING_REFRESH_SECONDS)
+
+    tarefa = asyncio.create_task(renovar())
+    try:
+        yield
+    finally:
+        tarefa.cancel()
+        # gather devolve o cancelamento da tarefa filha como resultado, sem engolir um
+        # cancelamento da tarefa que espera aqui.
+        await asyncio.gather(tarefa, return_exceptions=True)
+
+
+def _dm_carregar(rt: Runtime, update) -> None:
+    """Depois de um reinício, recupera do banco o ESTADO desta conversa privada (sem
+    conteúdo; ver partnership_lead). Best-effort: falhar aqui só faz a conversa recomeçar
+    sem memória, e nada é encaminhado sem um novo "sim"."""
+    try:
+        ler = getattr(rt.db, "get_dm_memory", None)
+        key = (update.effective_chat.id, update.effective_user.id)
+        if ler is None or key in rt.dm_loaded:
+            return
+        if len(rt.dm_loaded) > 4096:
+            rt.dm_loaded.clear()
+        rt.dm_loaded.add(key)
+        now = partnership_lead.agora()
+        bruto = ler(key[0], key[1], now)
+        dados = json.loads(bruto) if bruto else None
+        if not isinstance(dados, dict) or dados.get("v") != 1:
+            return
+        lead = partnership_lead.lead_de_dict(dados["lead"], now) if isinstance(dados.get("lead"), dict) else None
+        envios = [float(t) for t in (dados.get("envios") or [])[:10]
+                  if isinstance(t, (int, float)) and not isinstance(t, bool)]
+        rt.partnership_leads.importar(key, key[1], lead, envios, now)
+        idioma_salvo = dados.get("lang")
+        if idioma_salvo in ("pt", "en", "es", "zh") and key not in rt.dm_languages:
+            rt.dm_languages[key] = idioma_salvo
+    except Exception as exc:
+        logger.warning("DM memory read failed | error=%s", type(exc).__name__)
+
+
+def _dm_salvar(rt: Runtime, update) -> None:
+    """Grava o ESTADO da conversa (sem conteúdo) para sobreviver a um reinício. Só existe
+    registro enquanto há proposta/pedido em andamento; expira 1 h após a última
+    interação e a manutenção apaga. Best-effort."""
+    try:
+        gravar = getattr(rt.db, "put_dm_memory", None)
+        if gravar is None:
+            return
+        key = (update.effective_chat.id, update.effective_user.id)
+        now = partnership_lead.agora()
+        lead, envios = rt.partnership_leads.exportar(key, key[1], now)
+        if lead is None and not envios:
+            rt.db.delete_dm_memory(key[0], key[1])
+            return
+        dados = {"v": 1, "lead": lead, "lang": rt.dm_languages.get(key), "envios": envios[-10:]}
+        bruto = json.dumps(dados, ensure_ascii=True, separators=(",", ":"))
+        gravar(key[0], key[1], bruto, expires_at=now + partnership_lead.TTL_SECONDS, now=now)
+    except Exception as exc:
+        logger.warning("DM memory write failed | error=%s", type(exc).__name__)
+
+
 def _dm_language(rt: Runtime, update, text: str) -> str:
     """Idioma da conversa privada: o da mensagem quando claro; senão o já usado; senão o do Telegram."""
     key = (update.effective_chat.id, update.effective_user.id)
@@ -7460,6 +7543,14 @@ def _generic_fallback(text: str) -> bool:
 
 async def _dm_handoff_action(rt: Runtime, update, text: str, agent: AgentId) -> bool:
     """Only REAL actions are deterministic: confirming or declining an offered handoff."""
+    _dm_carregar(rt, update)
+    try:
+        return await _dm_handoff_action_inner(rt, update, text, agent)
+    finally:
+        _dm_salvar(rt, update)
+
+
+async def _dm_handoff_action_inner(rt: Runtime, update, text: str, agent: AgentId) -> bool:
     user = update.effective_user
     key = (update.effective_chat.id, user.id)
     now = partnership_lead.agora()
@@ -7472,6 +7563,8 @@ async def _dm_handoff_action(rt: Runtime, update, text: str, agent: AgentId) -> 
         _remember_dm_exchange(rt, key, agent, text, reply)
         return True
     history = _dm_history(rt, key, agent)
+    # pedido explícito vale mesmo que outra pergunta tenha vindo depois da oferta
+    explicito = sinais.asks_human or partnership_lead.menciona_encaminhamento(text)
     if sinais.greeting and not history:
         reply = partnership_lead.saudacao(agent.value, language)
         await update.effective_message.reply_text(reply)
@@ -7480,13 +7573,16 @@ async def _dm_handoff_action(rt: Runtime, update, text: str, agent: AgentId) -> 
     lead = rt.partnership_leads.get(key, now)
     if lead is not None:
         lead.language = language
-    if lead is not None and lead.forwarded_at is not None and (sinais.confirms or sinais.forward_request):
-        # "sim"/"pode encaminhar" depois do envio: o estado REAL, sem o modelo perder o fio.
+    if lead is not None and lead.forwarded_at is not None and (
+            sinais.confirms or sinais.forward_request or partnership_lead.pergunta_de_status(text, sinais)):
+        # "sim"/"pode encaminhar"/"já encaminhou?" depois do envio: o estado REAL, sem o
+        # modelo perder o fio (nem o guarda transformar a verdade em "não encaminhei").
         reply = partnership_lead.texto("already" if agent is AgentId.FREYR else "already_case", lead.language)
         await update.effective_message.reply_text(reply)
         _remember_dm_exchange(rt, key, agent, text, reply)
         return True
-    if sinais.forward_request and history and (lead is None or lead.forwarded_at is None):
+    if sinais.forward_request and (history or lead is not None) and (lead is None or lead.forwarded_at is None):
+        # Depois de um reinício o histórico não existe, mas a proposta restaurada sim.
         # "pode encaminhar" dito pela pessoa É o consentimento: não pergunta de novo.
         if lead is None:
             lead = rt.partnership_leads.start(key, language, now)
@@ -7495,10 +7591,16 @@ async def _dm_handoff_action(rt: Runtime, update, text: str, agent: AgentId) -> 
                               parceria=agent is AgentId.FREYR)
         lead.awaiting_confirm = True
         sinais = partnership_lead.analisar("sim")
+        explicito = True
     if lead is None or lead.forwarded_at is not None or not lead.awaiting_confirm:
+        return False
+    if not (lead.offer_open or explicito):
+        # Outra pergunta veio depois da oferta: "sim"/"não" agora responde a ela. O modelo
+        # decide com a memória ("oferecido; aguardando"); nada é encaminhado no escuro.
         return False
     if sinais.declines:
         lead.awaiting_confirm = False
+        lead.offer_open = False
         reply = partnership_lead.texto("declined", lead.language)
         await update.effective_message.reply_text(reply)
         _remember_dm_exchange(rt, key, agent, text, reply)
@@ -7510,6 +7612,11 @@ async def _dm_handoff_action(rt: Runtime, update, text: str, agent: AgentId) -> 
         reply = partnership_lead.texto("forward_limit", lead.language)
         await update.effective_message.reply_text(reply)
         return True
+    original = partnership_lead.analisar(text)
+    if (original.kinds or original.channels or original.platforms or original.audience
+            or original.community_count or original.price):
+        # "sim, são 3 comunidades": o detalhe dito junto com o sim entra no resumo
+        lead.absorver(original, text, now, parceria=agent is AgentId.FREYR)
     summary = sanitize_for_ai(partnership_lead.resumo_operador(
         lead, handle=handle, user_id=user.id, agente=agent.value.upper()))
     delivered = await _send_partnership_to_operators(rt, summary)
@@ -7538,6 +7645,14 @@ async def _dm_model_reply(rt: Runtime, update, text: str, agent: AgentId) -> str
     """The MODEL answers every private turn, with the conversation history, the
     system's memory of the lead/handoff and the real capabilities it may offer.
     Fixed texts are only the fallback when the model has nothing usable."""
+    _dm_carregar(rt, update)
+    try:
+        return await _dm_model_reply_inner(rt, update, text, agent)
+    finally:
+        _dm_salvar(rt, update)
+
+
+async def _dm_model_reply_inner(rt: Runtime, update, text: str, agent: AgentId) -> str:
     user = update.effective_user
     key = (update.effective_chat.id, user.id)
     now = partnership_lead.agora()
@@ -7546,6 +7661,9 @@ async def _dm_model_reply(rt: Runtime, update, text: str, agent: AgentId) -> str
     lead = rt.partnership_leads.get(key, now)
     if lead is not None:
         lead.language = language
+    # a oferta de encaminhar ainda é a pergunta em aberto: não repetir (2026-11-21)
+    oferta_aberta = (lead is not None and lead.awaiting_confirm and lead.forwarded_at is None
+                     and lead.offer_open)
     parceria = agent is AgentId.FREYR
     starts = sinais.asks_human or (parceria and (sinais.interest or sinais.kinds or sinais.paid_offer
                                                  or sinais.asks_payment))
@@ -7557,12 +7675,17 @@ async def _dm_model_reply(rt: Runtime, update, text: str, agent: AgentId) -> str
         and (lead is None or lead.forwarded_at is None) and rt.partnership_leads.may_forward(user.id, now)
     context = "\n\n".join(x for x in (_dm_history(rt, key, agent),
                                        partnership_lead.estado_para_modelo(lead, now)) if x)
+    # Encaminhado de verdade: o fato vai no contexto oficial (texto fixo do sistema), para o
+    # modelo poder dizer a verdade e o guarda não a trocar por "não encaminhei".
+    capacidade = HANDOFF_CAPABILITY if can_handoff else (
+        HANDOFF_DONE_CAPABILITY if lead is not None and lead.forwarded_at is not None else None)
     answer = await rt.ai.answer(
         chat_id=update.effective_chat.id, user_id=user.id, question=text[:6000], agent_id=agent,
-        conversation_context=context or None, capabilities=HANDOFF_CAPABILITY if can_handoff else None,
+        conversation_context=context or None, capabilities=capacidade,
         reply_language=language if language in ("en", "es") else None,
     )
     rendered = telegram_ai_reply_text(answer.text)
+    ofereceu = False
     if _generic_fallback(rendered):
         # O desconhecido não é beco sem saída. Numa PROPOSTA (o guarda barrou o modelo,
         # p.ex. por afirmar valor), a reserva repete o que foi entendido e diz o que só a
@@ -7575,11 +7698,26 @@ async def _dm_model_reply(rt: Runtime, update, text: str, agent: AgentId) -> str
                 lead = rt.partnership_leads.start(key, language, now)
                 lead.absorver(sinais, text, now, parceria=parceria)
             lead.awaiting_confirm = True
+            ofereceu = True
     elif can_handoff and offers_human_handoff(rendered):
         if lead is None:
             lead = rt.partnership_leads.start(key, language, now)
             lead.absorver(sinais, text, now, parceria=parceria)
         lead.awaiting_confirm = True
+        ofereceu = True
+    if oferta_aberta and not (sinais.asks_human or partnership_lead.menciona_encaminhamento(text)):
+        # A oferta continua sendo a pergunta em aberto ("sim" ainda encaminha): não repetir.
+        sem_repeticao = partnership_lead.sem_oferta_repetida(rendered)
+        if sem_repeticao != rendered:
+            rendered, ofereceu = sem_repeticao, False
+    if lead is not None and lead.forwarded_at is None:
+        ultima = partnership_lead.ultima_pergunta(rendered)
+        if ultima is not None:
+            # A última pergunta decide o que um "sim" solto responde: se for outra, nada é
+            # encaminhado no escuro; o modelo esclarece no turno seguinte.
+            lead.offer_open = lead.awaiting_confirm and offers_human_handoff(ultima)
+        elif ofereceu:
+            lead.offer_open = True
     _remember_dm_exchange(rt, key, agent, text, rendered)
     return rendered
 
@@ -7755,6 +7893,10 @@ def housekeeping_cycle(
         "containments_deleted",
         lambda: rt.db.prune_expired_containments(now),
     )
+    run_step(
+        "dm_memory_deleted",
+        lambda: rt.db.prune_dm_memory(now),
+    )
 
     if any(results.values()):
         logger.info(
@@ -7768,7 +7910,8 @@ def housekeeping_cycle(
             "ama_sessions_deleted=%s | "
             "ai_events_deleted=%s | "
             "scheduled_deleted=%s | "
-            "containments_deleted=%s",
+            "containments_deleted=%s | "
+            "dm_memory_deleted=%s",
             results["knowledge_gaps_deleted"],
             results["resolved_reports_redacted"],
             results["user_events_deleted"],
@@ -7780,6 +7923,7 @@ def housekeeping_cycle(
             results["ai_events_deleted"],
             results["scheduled_deleted"],
             results["containments_deleted"],
+            results["dm_memory_deleted"],
         )
 
     return results, failures

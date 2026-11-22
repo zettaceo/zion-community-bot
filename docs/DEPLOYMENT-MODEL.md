@@ -327,6 +327,16 @@ speaker/routing metadata only. Rehearse the real pre-cutover database backup in
 a disposable copy, prove schema/application ID/foreign keys/integrity, and prove
 that current data survives migration before service downtime.
 
+Schema v5 (2026-11-21) adds `dm_memory`: the content-free **state** of a private
+conversation, so a restart does not drop a pending handoff. It holds proposal
+kinds and platforms from a fixed vocabulary, offer/forward flags, language and
+forward timestamps. It never stores the person's words, values, audience or
+channels; those stay in process memory only, which keeps the rule below that a
+partnership DM must not appear in SQLite. Rows expire 1 h after the last
+interaction and housekeeping deletes them (`dm_memory_deleted`). An older build
+refuses a newer schema, so rolling back to a pre-v5 build needs the verified
+pre-deploy database backup (rollback step 6).
+
 Live acceptance must cover technical, support, partnership, community,
 unrelated, abuse, flood, link, secret exposure, all four DM policies, invisible
 handoff, ambiguity, and simultaneous messages. Every inbound group message must

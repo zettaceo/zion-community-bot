@@ -54,7 +54,7 @@ class ScriptedAI:
 def fake_rt(replies=(), *, fail=False, admins=frozenset({111})):
     return SimpleNamespace(
         partnership_leads=pl.LeadWindow(), settings=SimpleNamespace(admin_user_ids=set(admins)),
-        primary_bot=FakeBot(fail), db=FakeDb(), ai=ScriptedAI(replies), dm_exchanges={}, dm_languages={},
+        primary_bot=FakeBot(fail), db=FakeDb(), ai=ScriptedAI(replies), dm_exchanges={}, dm_languages={}, dm_loaded=set(),
     )
 
 
@@ -105,9 +105,12 @@ class EncaminhamentoReal(unittest.TestCase):
         self.assertIn("já foi encaminhada", r)
         self.assertEqual(len(rt.ai.calls), chamadas)
         # pergunta livre depois do envio: o modelo sabe que já foi e não tem mais a capacidade
+        # de OFERECER; recebe só o fato real do envio (2026-11-21), que não libera oferta.
+        from zion.response_guard import HANDOFF_DONE_CAPABILITY
         turn(rt, "e em quanto tempo eles costumam responder?", 4)
         ultima = rt.ai.calls[-1]
-        self.assertIsNone(ultima["capabilities"])
+        self.assertEqual(ultima["capabilities"], HANDOFF_DONE_CAPABILITY)
+        self.assertNotIn(HANDOFF_CAPABILITY, ultima["capabilities"])
         self.assertIn("JÁ ENVIADO", ultima["conversation_context"])
         self.assertEqual(len(rt.primary_bot.sent), 1)
 
@@ -367,6 +370,8 @@ class ConversaDe1911(unittest.TestCase):
         turn(rt, "Então quero propor uma parceria de publicidade eu tenho um canal muito grande no tiktok te interessa", 2)
         r = turn(rt, "500k de seguidores, vc me paga 100 dólares e eu faço uma publicação", 3)
         self.assertNotIn("prefiro não adivinhar", r)
+        # A pergunta do FREYR no turno 2 ("qual o tamanho da audiência?") substituiu a oferta do
+        # turno 1; respondida, a oferta volta a ser a pergunta em aberto (2026-11-21).
         for trecho in ("Entendi: você propõe", "divulgação da Z-SWAP", "no TikTok (500k de seguidores)",
                        "como serviço pago (100 dólares)", "Não posso confirmar pagamento",
                        "Quer que eu encaminhe?"):
@@ -386,6 +391,313 @@ class ConversaDe1911(unittest.TestCase):
 
     def test_capacidade_proibe_descrever_o_que_a_equipe_vai_verificar(self):
         self.assertIn("não diga o que a equipe vai verificar", HANDOFF_CAPABILITY)
+
+
+class PacoteDoPrivado(unittest.TestCase):
+    """2026-11-21: estado que sobrevive a reinício (sem conteúdo), oferta que não se
+    repete, consentimento ligado à pergunta em aberto, "digitando…"."""
+
+    def setUp(self):
+        import tempfile
+        from pathlib import Path
+        from zion.db import ZionDB
+        self.tmp = tempfile.TemporaryDirectory()
+        self.db = ZionDB(Path(self.tmp.name) / "z.db")
+        self.db.initialize()
+
+    def tearDown(self):
+        self.db.close()
+        self.tmp.cleanup()
+
+    def rt_com_banco(self, replies):
+        rt = fake_rt(replies)
+        rt.db = self.db
+        return rt
+
+    def payload(self, user_id=7728504427):
+        row = self.db._conn.execute("SELECT payload FROM dm_memory WHERE user_id=?", (user_id,)).fetchone()
+        return row["payload"] if row else None
+
+    # ── memória que sobrevive a reinício, sem conteúdo ──────────────────────
+
+    def test_estado_sobrevive_a_reinicio_sem_conteudo(self):
+        import json as _json
+        rt1 = self.rt_com_banco([OFERTA])
+        turn(rt1, "Posso fazer sheel em várias comunidades e agendar AMAs no TikTok, cobro 100 dólares", 1)
+        bruto = self.payload()
+        self.assertIsNotNone(bruto)
+        for proibido in ("sheel", "dólares", "dolares", "comunidades", "AMAs", "Posso", "cobro", "Entendi"):
+            self.assertNotIn(proibido, bruto)        # nada do que a pessoa escreveu vai para o SQLite
+        dados = _json.loads(bruto)
+        self.assertEqual(set(dados), {"v", "lead", "lang", "envios"})
+        self.assertEqual(set(dados["lead"]), {"language", "updated", "kinds", "platforms", "paid", "human_requested",
+                                              "awaiting_confirm", "offer_open", "forwarded_at", "said"})
+        rt2 = self.rt_com_banco([])                  # "reinício": runtime novo, mesmo banco
+        r = turn(rt2, "sim", 2)
+        self.assertIn("Encaminhei sua proposta", r)
+        resumo = rt2.primary_bot.sent[0][1]
+        for trecho in ("divulgação da Z-SWAP", "TikTok", "Serviço pago: sim", "ZION reiniciou"):
+            self.assertIn(trecho, resumo)
+        self.assertNotIn("100 dólares", resumo)       # o detalhe não foi guardado — e o operador é avisado
+
+    def test_depois_do_reinicio_nao_encaminha_duas_vezes(self):
+        rt1 = self.rt_com_banco([OFERTA])
+        turn(rt1, "Faço divulgação paga no Telegram por 100 dólares", 1)
+        turn(rt1, "sim", 2)
+        self.assertEqual(len(rt1.primary_bot.sent), 1)
+        rt2 = self.rt_com_banco([])
+        r = turn(rt2, "pode encaminhar", 3)
+        self.assertEqual(rt2.primary_bot.sent, [])
+        self.assertEqual(r, pl.texto("already", "pt"))
+
+    def test_idioma_volta_e_o_texto_nao(self):
+        rt1 = self.rt_com_banco(["Entendido: ofreces paquetes de marketing con KOLs de LATAM."])
+        turn(rt1, "Tengo una agencia de marketing cripto, ofrecemos paquetes desde 2000 USD con KOLs. ¿Les interesa?", 1)
+        rt2 = self.rt_com_banco(["Gracias por la información."])
+        turn(rt2, "LATAM 2000", 2)                   # sem idioma próprio: vale o da conversa
+        chamada = rt2.ai.calls[0]
+        self.assertEqual(chamada["reply_language"], "es")
+        self.assertNotIn("agencia de marketing", chamada["conversation_context"])   # o texto não sobrevive
+        self.assertIn("Proposta:", chamada["conversation_context"])                  # o estado sim
+        self.assertIn("não estão nesta memória", chamada["conversation_context"])
+
+    def test_sem_proposta_nada_e_gravado(self):
+        rt = self.rt_com_banco(["Suportamos várias redes; a lista atual fica no app."])
+        turn(rt, "quais redes vocês suportam?", 1, agent=AgentId.MIMIR)
+        self.assertIsNone(self.payload())
+
+    def test_memoria_expira(self):
+        import time as _t
+        rt1 = self.rt_com_banco([OFERTA])
+        turn(rt1, "Faço divulgação paga no Telegram por 100 dólares", 1)
+        self.assertIsNotNone(self.db.get_dm_memory(20, 7728504427, _t.time()))
+        self.assertIsNone(self.db.get_dm_memory(20, 7728504427, _t.time() + 3601))
+        self.assertEqual(self.db.prune_dm_memory(_t.time() + 3601), 1)
+
+    def test_registro_corrompido_nao_quebra_a_conversa(self):
+        import time as _t
+        self.db.put_dm_memory(20, 7728504427, "{isso não é json", expires_at=_t.time() + 600, now=_t.time())
+        rt = self.rt_com_banco(["Pode perguntar."])
+        with self.assertLogs("zion.telegram", level="WARNING"):
+            r = turn(rt, "sim", 1)
+        self.assertEqual(r, "Pode perguntar.")
+        self.assertEqual(rt.primary_bot.sent, [])
+
+    def test_payload_estranho_e_filtrado(self):
+        import time as _t
+        agora_ = _t.time()
+        lead = pl.lead_de_dict({"updated": agora_, "kinds": ["promotion", "<script>", 3],
+                                "platforms": ["TikTok", "MySpace"], "awaiting_confirm": "yes", "language": "xx",
+                                "said": ["payment", "understood:Entendi: 100 dólares"]}, agora_)
+        self.assertEqual(lead.kinds, ["promotion"])
+        self.assertEqual(lead.platforms, ["TikTok"])
+        self.assertEqual(lead.said, {"payment"})
+        self.assertFalse(lead.awaiting_confirm)          # só o booleano True vale
+        self.assertEqual(lead.language, "pt")
+        self.assertIsNone(pl.lead_de_dict({"updated": "ontem"}, agora_))
+        self.assertIsNone(pl.lead_de_dict({"updated": agora_ + 9999}, agora_))
+        self.assertIsNone(pl.lead_de_dict({}, agora_))
+
+    def test_pedido_explicito_depois_do_reinicio_encaminha(self):
+        rt1 = self.rt_com_banco(["Entendido: ofreces una reseña pagada en YouTube. ¿Cuántos suscriptores tienes?"])
+        turn(rt1, "Tengo un canal de YouTube, quiero hacer una reseña pagada de Z-SWAP", 1)
+        rt2 = self.rt_com_banco([])                  # reinício: sem histórico, com a proposta restaurada
+        r = turn(rt2, "sí, envíalo", 2)
+        self.assertEqual(len(rt2.primary_bot.sent), 1)
+        self.assertEqual(r, pl.texto("forwarded", "es", handle=" (@carlos)"))
+
+    # ── a oferta não se repete; o consentimento é a resposta à oferta ────────
+
+    def test_nao_repete_a_oferta_em_aberto(self):
+        rt = fake_rt([OFERTA, "Entendi: são 3 comunidades com 20 mil membros. Quer que eu encaminhe sua proposta para a equipe?"])
+        turn(rt, "Faço divulgação paga no Telegram por 100 dólares", 1)
+        r = turn(rt, "são 3 comunidades com 20 mil membros", 2)
+        self.assertIn("20 mil membros", r)
+        self.assertNotIn("Quer que eu encaminhe", r)
+        r = turn(rt, "sim", 3)                       # a oferta continua sendo a pergunta em aberto
+        self.assertIn("Encaminhei sua proposta", r)
+
+    def test_sim_depois_de_outra_pergunta_nao_encaminha_no_escuro(self):
+        rt = fake_rt([OFERTA,
+                      "A equipe define pagamentos caso a caso. Você já trabalhou com outros projetos cripto?",
+                      "Ótimo, experiência ajuda. Quer que eu encaminhe sua proposta para a equipe agora?"])
+        turn(rt, "Faço divulgação paga no Telegram por 100 dólares", 1)
+        turn(rt, "antes, como funciona o pagamento de vocês?", 2)
+        r = turn(rt, "sim", 3)                       # responde à pergunta do modelo, não à oferta
+        self.assertEqual(rt.primary_bot.sent, [])
+        self.assertIn("Quer que eu encaminhe", r)    # a oferta volta: deixou de ser a pergunta em aberto
+        r = turn(rt, "sim", 4)
+        self.assertIn("Encaminhei sua proposta", r)
+
+    def test_pedido_explicito_vale_mesmo_depois_de_outra_pergunta(self):
+        rt = fake_rt([OFERTA, "A equipe define pagamentos caso a caso. Você já trabalhou com outros projetos cripto?"])
+        turn(rt, "Faço divulgação paga no Telegram por 100 dólares", 1)
+        turn(rt, "antes, como funciona o pagamento de vocês?", 2)
+        r = turn(rt, "sim, pode mandar para a equipe", 3)
+        self.assertIn("Encaminhei sua proposta", r)
+
+    def test_pergunta_sobre_humano_mantem_a_oferta(self):
+        rt = fake_rt([OFERTA, "Temos sim uma equipe. Posso encaminhar sua proposta agora. Quer que eu encaminhe?"])
+        turn(rt, "Faço divulgação paga no Telegram por 100 dólares", 1)
+        r = turn(rt, "tem algum humano aí pra ver isso?", 2)
+        self.assertIn("Quer que eu encaminhe?", r)
+        self.assertEqual(rt.primary_bot.sent, [])
+
+    def test_quero_falar_com_humano_com_oferta_aberta_encaminha(self):
+        rt = fake_rt([OFERTA])
+        turn(rt, "Faço divulgação paga no Telegram por 100 dólares", 1)
+        r = turn(rt, "quero falar com um humano", 2)
+        self.assertIn("Encaminhei sua proposta", r)
+
+    def test_detalhe_dito_junto_com_o_sim_entra_no_resumo(self):
+        rt = fake_rt([OFERTA])
+        turn(rt, "Faço divulgação paga no Telegram por 100 dólares", 1)
+        turn(rt, "sim, são 3 comunidades", 2)
+        self.assertIn("Comunidades: 3 comunidades", rt.primary_bot.sent[0][1])
+
+    def test_confirmacao_estrita(self):
+        for sim in ("sim", "Sim!", "pode", "pode sim", "quero", "ok", "ok obrigado", "sim por favor",
+                    "claro, pode mandar", "yes please", "sure, go ahead", "sí, dale", "sim, quero falar com o dono",
+                    "quero falar com um humano", "isso mesmo", "pode ser", "sim, são 3 comunidades",
+                    "sim, mas quanto vocês pagam?", "s"):
+            self.assertTrue(pl.analisar(sim).confirms, sim)
+        for nao in ("ok, e quais as taxas?", "quero saber as taxas", "pode me explicar como funciona",
+                    "manda o link do app", "ok mas antes quero entender", "isso é seguro?", "claro que não",
+                    "si me pagan lo hago", "y cuánto pagan?", "simples assim?", "sim, não tenho pressa"):
+            self.assertFalse(pl.analisar(nao).confirms, nao)
+
+    def test_recusa_estrita(self):
+        for nao in ("não", "nao", "não, obrigado", "agora não", "ainda não", "não precisa", "no", "no thanks",
+                    "not now", "nope", "não precisa encaminhar", "não, mas quais as taxas?", "No, I'll think about it"):
+            self.assertTrue(pl.analisar(nao).declines, nao)
+        for outra in ("não entendi", "não sei", "no entiendo", "nao tenho carteira ainda", "não sei se vale a pena"):
+            self.assertFalse(pl.analisar(outra).declines, outra)
+
+    # ── "digitando…" ────────────────────────────────────────────────────────
+
+    def test_digitando_durante_a_resposta(self):
+        from telegram.constants import ChatAction
+        from zion.telegram_app import _digitando
+
+        class LentoAI(ScriptedAI):
+            async def answer(self, **kw):
+                await asyncio.sleep(0.05)
+                return await super().answer(**kw)
+
+        acoes = []
+        rt = fake_rt([])
+        rt.ai = LentoAI(["Pode perguntar."])
+        update = make_update("quais redes vocês suportam?", chat_type="private", message_id=1)
+
+        async def send_action(acao):
+            acoes.append(acao)
+        update.effective_chat.send_action = send_action
+
+        async def rodar():
+            async with _digitando(update):
+                return await _dm_model_reply(rt, update, "quais redes vocês suportam?", AgentId.FREYR)
+        self.assertEqual(asyncio.run(rodar()), "Pode perguntar.")
+        self.assertIn(ChatAction.TYPING, acoes)
+
+    def test_falha_do_digitando_nao_quebra_a_resposta(self):
+        from zion.telegram_app import _digitando
+        rt = fake_rt(["ok, respondido."])
+        update = make_update("quais taxas?", chat_type="private", message_id=1)
+
+        async def quebra(_acao):
+            raise RuntimeError("telegram fora")
+        update.effective_chat.send_action = quebra
+
+        async def rodar():
+            async with _digitando(update):
+                return await _dm_model_reply(rt, update, "quais taxas?", AgentId.FREYR)
+        self.assertEqual(asyncio.run(rodar()), "ok, respondido.")
+
+    def test_digitando_termina_junto_com_a_resposta(self):
+        from zion.telegram_app import _digitando
+        update = make_update("oi", chat_type="private", message_id=1)
+        update.effective_chat.send_action = lambda _a: asyncio.sleep(0)
+
+        async def rodar():
+            async with _digitando(update):
+                await asyncio.sleep(0)
+            pendentes = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
+            return pendentes
+        self.assertEqual(asyncio.run(rodar()), [])
+
+
+class VerdadeDoEncaminhamento(unittest.TestCase):
+    """Bateria 2026-11-21: depois de um envio REAL, "e aí, já encaminhou?" recebeu "eu não
+    encaminhei nada" — o guarda barrava o passado e o reparo invertia a verdade."""
+
+    def enviado(self, replies=()):
+        rt = fake_rt([OFERTA, *replies])
+        turn(rt, "Faço divulgação paga no Telegram por 100 dólares", 1)
+        turn(rt, "sim", 2)
+        self.assertEqual(len(rt.primary_bot.sent), 1)
+        return rt
+
+    def test_status_depois_do_envio_e_a_verdade(self):
+        rt = self.enviado()
+        for n, pergunta in enumerate(("e aí, já encaminhou?", "e a minha proposta?",
+                                      "quando a equipe vai responder?"), 3):
+            self.assertEqual(turn(rt, pergunta, n), pl.texto("already", "pt"), pergunta)
+        self.assertEqual(len(rt.ai.calls), 1)          # nenhuma dessas foi para o modelo
+        self.assertEqual(len(rt.primary_bot.sent), 1)  # e nada foi reenviado
+
+    def test_depois_do_envio_o_modelo_recebe_o_fato(self):
+        from zion.response_guard import HANDOFF_DONE_CAPABILITY
+        rt = self.enviado(["De nada! Sua proposta já está com a equipe."])
+        turn(rt, "obrigado pela ajuda", 3)
+        self.assertEqual(rt.ai.calls[-1]["capabilities"], HANDOFF_DONE_CAPABILITY)
+
+    def test_o_passado_so_passa_com_o_fato_real(self):
+        from zion.response_guard import HANDOFF_DONE_CAPABILITY
+        for verdade in ("Sua proposta já foi encaminhada para a equipe.",
+                        "Já encaminhei sua proposta para a equipe."):
+            self.assertFalse(validate_public_response(verdade, official_context="").allowed, verdade)
+            self.assertTrue(validate_public_response(verdade, official_context=HANDOFF_DONE_CAPABILITY).allowed,
+                            verdade)
+        for proibido in ("Vou encaminhar sua proposta para a equipe de novo.",
+                         "Quer que eu encaminhe sua proposta para a equipe?",
+                         "Encaminharei sua proposta para a equipe amanhã.",
+                         "Sua proposta será encaminhada para a equipe."):
+            self.assertFalse(validate_public_response(proibido, official_context=HANDOFF_DONE_CAPABILITY).allowed,
+                             proibido)
+
+    def test_memoria_diz_o_idioma(self):
+        lead = pl.Lead(language="es", updated=0.0)
+        lead.kinds = ["content"]
+        self.assertIn("Idioma de la conversación: español. Responde en español.", pl.estado_para_modelo(lead, 0.0))
+        lead.language = "en"
+        self.assertIn("Conversation language: English. Reply in English.", pl.estado_para_modelo(lead, 0.0))
+        self.assertNotIn("language", pl.estado_para_modelo(pl.Lead(language="pt", updated=0.0), 0.0))
+
+    def test_ultima_pergunta_decide_o_que_o_sim_responde(self):
+        rt = fake_rt([OFERTA,
+                      "Entendi: 12 mil inscritos. Quer conteúdo exclusivo ou menções orgânicas nos seus reviews? "
+                      "(A oferta anterior ainda está em aberto.)",
+                      "Combinado. Quer que eu encaminhe sua proposta para a equipe?"])
+        turn(rt, "Faço divulgação paga no Telegram por 100 dólares", 1)
+        r = turn(rt, "tenho 12 mil inscritos e faço reviews de DeFi", 2)
+        self.assertNotIn("oferta anterior", r)        # o eco da memória sai
+        turn(rt, "sim", 3)                             # responde a "exclusivo ou orgânicas?"
+        self.assertEqual(rt.primary_bot.sent, [])
+        self.assertIn("Encaminhei sua proposta", turn(rt, "sim", 4))
+
+    def test_pergunta_anaforica_sai_com_a_oferta_repetida(self):
+        texto = ("Entendi: você quer saber se há possibilidade de acelerar a listagem de um token BEP20. "
+                 "Posso encaminhar sua pergunta para a equipe. Quer que eu faça isso?")
+        r = pl.sem_oferta_repetida(texto)
+        self.assertNotIn("Quer que eu faça isso", r)
+        self.assertIn("token BEP20", r)
+
+    def test_lembrete_de_oferta_tambem_nao_se_repete(self):
+        texto = ("Entendi: você quer divulgar a Z-SWAP no YouTube com reviews de DeFi para 12 mil inscritos. "
+                 "Como já ofereci encaminhar sua proposta, lembre-se de confirmar se deseja que eu faça isso.")
+        r = pl.sem_oferta_repetida(texto)
+        self.assertNotIn("ofereci", r)
+        self.assertIn("12 mil inscritos", r)
 
 
 if __name__ == "__main__":
